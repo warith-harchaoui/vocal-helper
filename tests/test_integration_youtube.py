@@ -71,7 +71,13 @@ SMOKE_CLIP_S = 12.0
 # external (rate-limit retry, ffmpeg leak, stalled model download) is
 # wrong — fail loudly with a clear message rather than block the suite.
 INGEST_TIMEOUT_S = 90.0     # head download via podcast-helper
-PIPELINE_TIMEOUT_S = 180.0  # diarization + ASR on CLIP_S of audio
+# 360 s covers a cold-cache scenario : pyannote/speaker-diarization-3.1
+# loads segmentation-3.0 + embedding + clusterer (~ 60-90 s lazy on
+# first call), whisper-turbo init Metal allocates ~ 800 MB and a
+# warm-up forward pass takes another ~ 10 s, then the actual diar +
+# ASR on CLIP_S of audio runs in 60-120 s on Apple M2 Max. Warm-cache
+# runs come in well under a minute.
+PIPELINE_TIMEOUT_S = 360.0
 # Minimum lexical overlap between our transcript and YT's auto-captions
 # (Jaccard on word sets, lowercased, punctuation stripped). Auto-captions
 # and whisper.cpp are two noisy hypotheses of the same audio — they
