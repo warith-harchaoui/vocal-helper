@@ -61,9 +61,17 @@ from vocal_helper._settings import resolve_hf_token
 
 VIDEO_URL = "https://www.youtube.com/watch?v=FisrbY90td0"
 # How many seconds of audio to actually run through the pipeline.
-CLIP_S = 60.0
+# Kept short on purpose : pyannote 3.1 on CPU + whisper turbo on 30 s
+# of speech stays under a minute on Apple Silicon, and short clips
+# minimise the window for a ffmpeg / yt-dlp / HF-Hub stall to bite.
+CLIP_S = 30.0
 # Shorter window for the lightweight "does it start" check.
 SMOKE_CLIP_S = 12.0
+# Hard wall-clock budgets per phase. If we blow past them, something
+# external (rate-limit retry, ffmpeg leak, stalled model download) is
+# wrong — fail loudly with a clear message rather than block the suite.
+INGEST_TIMEOUT_S = 90.0     # head download via podcast-helper
+PIPELINE_TIMEOUT_S = 180.0  # diarization + ASR on CLIP_S of audio
 # Minimum lexical overlap between our transcript and YT's auto-captions
 # (Jaccard on word sets, lowercased, punctuation stripped). Auto-captions
 # and whisper.cpp are two noisy hypotheses of the same audio — they
@@ -184,43 +192,65 @@ def hf_token() -> str:
     return token
 
 
-@pytest.fixture(scope="module")
-def clip_pcm(ph) -> tuple[np.ndarray, int]:
-    """Stream the head ``CLIP_S`` seconds of the URL via podcast-helper.
+async def _drain_with_timeout(url: str, max_s: float, timeout_s: float) -> tuple[np.ndarray, int]:
+    """Collect ``max_s`` of PCM with a hard wall-clock budget.
 
-    Returned shape : ``(n_samples,)``, dtype float32, mono 16 kHz.
+    Wraps the stream in :func:`asyncio.wait_for` so a ffmpeg / yt-dlp
+    stall (rate-limit retry, HLS playlist quirk, network blip) raises
+    :class:`asyncio.TimeoutError` instead of blocking the suite. The
+    ``return`` from the inner generator propagates the close down to
+    podcast-helper's ffmpeg child, which terminates promptly.
     """
     chunks: list[np.ndarray] = []
     sample_rate = SR
 
     async def collect() -> None:
         nonlocal sample_rate
-        async for f in _clipped_url_source(VIDEO_URL, CLIP_S, realtime=False):
+        async for f in _clipped_url_source(url, max_s, realtime=False):
             sample_rate = f["sample_rate"]
             chunks.append(f["pcm"])
 
-    asyncio.run(collect())
-    if not chunks:
+    await asyncio.wait_for(collect(), timeout=timeout_s)
+    pcm = np.concatenate(chunks, axis=0).astype(np.float32, copy=False) if chunks else np.zeros(0, dtype=np.float32)
+    return pcm, sample_rate
+
+
+@pytest.fixture(scope="module")
+def clip_pcm(ph) -> tuple[np.ndarray, int]:
+    """Stream the head ``CLIP_S`` seconds of the URL via podcast-helper.
+
+    Returned shape : ``(n_samples,)``, dtype float32, mono 16 kHz.
+    Skips on timeout — a stall means the network or yt-dlp / ffmpeg
+    is in a degraded state, not that the pipeline is broken.
+    """
+    try:
+        pcm, sample_rate = asyncio.run(
+            _drain_with_timeout(VIDEO_URL, CLIP_S, INGEST_TIMEOUT_S)
+        )
+    except asyncio.TimeoutError:
+        pytest.skip(
+            f"podcast-helper did not deliver {CLIP_S}s of audio within "
+            f"{INGEST_TIMEOUT_S}s ; check ffmpeg / yt-dlp / network."
+        )
+    if pcm.size == 0:
         pytest.skip("podcast_helper.extract_audio_stream yielded zero frames")
-    pcm = np.concatenate(chunks, axis=0).astype(np.float32, copy=False)
     return pcm, sample_rate
 
 
 @pytest.fixture(scope="module")
 def smoke_pcm(ph) -> tuple[np.ndarray, int]:
-    chunks: list[np.ndarray] = []
-    sample_rate = SR
-
-    async def collect() -> None:
-        nonlocal sample_rate
-        async for f in _clipped_url_source(VIDEO_URL, SMOKE_CLIP_S, realtime=False):
-            sample_rate = f["sample_rate"]
-            chunks.append(f["pcm"])
-
-    asyncio.run(collect())
-    if not chunks:
+    try:
+        pcm, sample_rate = asyncio.run(
+            _drain_with_timeout(VIDEO_URL, SMOKE_CLIP_S, INGEST_TIMEOUT_S)
+        )
+    except asyncio.TimeoutError:
+        pytest.skip(
+            f"podcast-helper did not deliver {SMOKE_CLIP_S}s of audio "
+            f"within {INGEST_TIMEOUT_S}s ; check ffmpeg / yt-dlp / network."
+        )
+    if pcm.size == 0:
         pytest.skip("podcast_helper.extract_audio_stream yielded zero frames")
-    return np.concatenate(chunks, axis=0).astype(np.float32, copy=False), sample_rate
+    return pcm, sample_rate
 
 
 @pytest.fixture(scope="module")
@@ -290,9 +320,18 @@ def test_streaming_pipeline_yields_utterance(
     )
 
     async def collect() -> list:
-        return [ev async for ev in pipeline.run()]
+        return [
+            ev async for ev in pipeline.run()
+        ]
 
-    events = asyncio.run(collect())
+    try:
+        events = asyncio.run(asyncio.wait_for(collect(), PIPELINE_TIMEOUT_S))
+    except asyncio.TimeoutError:
+        pytest.fail(
+            f"streaming Pipeline did not finish {SMOKE_CLIP_S}s of audio "
+            f"within {PIPELINE_TIMEOUT_S}s ; likely a model load stall or "
+            "downstream deadlock."
+        )
     utterances = [e for e in events if "text" in e]
     assert utterances, f"no utterance emitted in {SMOKE_CLIP_S} s of audio"
     assert any(u["text"].strip() for u in utterances), (
@@ -322,9 +361,18 @@ def test_offline_pipeline_vs_youtube_captions(
     )
 
     async def collect() -> list:
-        return [ev async for ev in pipeline.run()]
+        return [
+            ev async for ev in pipeline.run()
+        ]
 
-    events = asyncio.run(collect())
+    try:
+        events = asyncio.run(asyncio.wait_for(collect(), PIPELINE_TIMEOUT_S))
+    except asyncio.TimeoutError:
+        pytest.fail(
+            f"OfflinePipeline did not finish {CLIP_S}s of audio within "
+            f"{PIPELINE_TIMEOUT_S}s ; likely a pyannote 3.1 stall or "
+            "downstream deadlock."
+        )
     utterances = [e for e in events if "text" in e]
     transcript = " ".join(u["text"] for u in utterances)
     assert transcript.strip(), "offline pipeline produced empty transcript"
