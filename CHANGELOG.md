@@ -5,20 +5,19 @@ This project adheres to [Semantic Versioning](https://semver.org).
 
 ## [Unreleased]
 
-### Known issues
-
-- `OfflineDiarStage(backend="pyannote")` does not yet expose a `device`
-  kwarg, so `pyannote.audio.Pipeline.from_pretrained` falls back to
-  CPU even on Apple Silicon (where MPS is available). On an M2 Max
-  this is ~ 10-20× real-time. The integration test
-  `tests/test_integration_youtube.py::test_offline_pipeline_vs_youtube_captions`
-  is `@pytest.mark.skip`-ped until the device option is plumbed
-  through to `Pipeline.to(torch.device("mps" | "cuda"))`. The
-  streaming `test_streaming_pipeline_yields_utterance` covers the
-  end-to-end happy path in the meantime.
-
 ### Added
 
+- `OnlineDiarStage` and `OfflineDiarStage` now accept a `device`
+  kwarg (`"cpu"` / `"cuda"` / `"mps"` / `None`). Default `None`
+  uses the new `_auto_torch_device` helper which picks CUDA > MPS >
+  CPU. On Apple Silicon this lifts pyannote 3.1 from ~ 15× real-time
+  (CPU) to roughly real-time (MPS). `_PyannoteOfflineDiar.load`
+  wraps `pipeline.to(...)` in a `try` block ; if MPS rejects an op
+  the stage stays on CPU rather than crash. `_PyannoteEmbedder`
+  forwards the device to `pyannote.audio.Inference(..., device=)`
+  the same way. The previously-skipped
+  `test_offline_pipeline_vs_youtube_captions` integration test is
+  re-enabled.
 - `vocal_helper._settings` — hand-rolled `settings.yaml` loader (no
   PyYAML dep) and `resolve_hf_token()` helper. The CLI, the example
   script, and `OnlineDiarStage` / `OfflineDiarStage` now resolve the

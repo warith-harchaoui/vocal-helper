@@ -75,6 +75,33 @@ from vocal_helper._settings import resolve_hf_token
 from vocal_helper.types import DiarizedSegment, VoicedSegment
 
 BackendName = Literal["pyannote", "nemo"]
+DeviceName = Literal["cpu", "cuda", "mps"]
+
+
+def _auto_torch_device(explicit: str | None) -> str:
+    """Pick the torch device : explicit override, else CUDA > MPS > CPU.
+
+    Pyannote 3.1 on CPU is ~ 10-20× real-time on Apple Silicon ;
+    MPS gives roughly real-time. We auto-select rather than ask
+    callers to remember the right knob.
+
+    Returns
+    -------
+    str
+        ``"cuda"``, ``"mps"`` or ``"cpu"``. Always a non-empty string
+        so ``torch.device(returned)`` is always safe.
+    """
+    if explicit:
+        return explicit
+    try:
+        import torch  # type: ignore
+    except ImportError:
+        return "cpu"
+    if torch.cuda.is_available():
+        return "cuda"
+    if getattr(torch.backends, "mps", None) and torch.backends.mps.is_available():
+        return "mps"
+    return "cpu"
 
 
 @dataclass
@@ -112,6 +139,9 @@ class OnlineDiarStage:
         the model isn't already cached. When ``None``, the value is
         resolved via :func:`vocal_helper._settings.resolve_hf_token`
         — ``$HF_TOKEN`` then ``secrets.hf_token`` in ``settings.yaml``.
+    device : "cpu" | "cuda" | "mps", optional
+        Torch device for the pyannote embedder. ``None`` (default)
+        auto-picks CUDA > MPS > CPU. Has no effect on the NeMo backend.
     """
 
     def __init__(
@@ -122,6 +152,7 @@ class OnlineDiarStage:
         ema_alpha: float = 0.1,
         min_segment_ms: int = 500,
         hf_token: str | None = None,
+        device: str | None = None,
     ) -> None:
         if not 0.0 < join_threshold < 2.0:
             raise ValueError(f"join_threshold must be in (0, 2), got {join_threshold}")
@@ -135,6 +166,7 @@ class OnlineDiarStage:
         # state at construction time — calls into pyannote later cannot
         # be affected by a mid-run env / settings.yaml mutation.
         self.hf_token = resolve_hf_token(hf_token)
+        self.device = device
         self._embedder = None
         self._centroids: list[_Centroid] = []
         self._next_id = 0
@@ -145,7 +177,9 @@ class OnlineDiarStage:
         if self._embedder is not None:
             return
         if self.backend == "pyannote":
-            self._embedder = _PyannoteEmbedder(hf_token=self.hf_token)
+            self._embedder = _PyannoteEmbedder(
+                hf_token=self.hf_token, device=self.device,
+            )
         elif self.backend == "nemo":
             self._embedder = _TitaNetEmbedder()
         else:
@@ -246,12 +280,14 @@ class OnlineDiarStage:
 class _PyannoteEmbedder:
     """Wraps ``pyannote.audio.Inference("pyannote/embedding")``."""
 
-    def __init__(self, *, hf_token: str | None = None) -> None:
+    def __init__(self, *, hf_token: str | None = None, device: str | None = None) -> None:
         self.hf_token = hf_token
+        self.device = device  # ``None`` → auto-pick at load time
         self._inference = None
 
     def load(self) -> None:
         try:
+            import torch  # type: ignore
             from pyannote.audio import Inference, Model  # type: ignore
         except ImportError as e:
             raise ImportError(
@@ -263,8 +299,17 @@ class _PyannoteEmbedder:
             use_auth_token=self.hf_token,
         )
         # Whole-segment embedding ; pyannote's Inference handles the
-        # 160 ms minimum padding internally.
-        self._inference = Inference(model, window="whole")
+        # 160 ms minimum padding internally. ``device=`` makes Inference
+        # move the model and incoming tensors to the right backend ;
+        # not all pyannote ops support MPS yet, so we fall back to CPU
+        # loudly if the forward path raises.
+        chosen = _auto_torch_device(self.device)
+        try:
+            self._inference = Inference(
+                model, window="whole", device=torch.device(chosen),
+            )
+        except (RuntimeError, NotImplementedError):
+            self._inference = Inference(model, window="whole", device=torch.device("cpu"))
 
     def embed(self, pcm: NDArray[np.float32], sr: int) -> NDArray[np.float32]:
         import torch  # type: ignore
@@ -369,6 +414,11 @@ class OfflineDiarStage:
         value is resolved via
         :func:`vocal_helper._settings.resolve_hf_token` — ``$HF_TOKEN``
         then ``secrets.hf_token`` in ``settings.yaml``.
+    device : "cpu" | "cuda" | "mps", optional
+        Torch device for the pyannote pipeline + embedder. ``None``
+        (default) auto-picks CUDA > MPS > CPU. On Apple Silicon CPU
+        is ~ 10× slower than MPS, so the auto-pick matters in practice.
+        Has no effect on the NeMo backend.
     """
 
     def __init__(
@@ -379,6 +429,7 @@ class OfflineDiarStage:
         overlap_s: float = 10.0,
         stitch_threshold: float = 0.35,
         hf_token: str | None = None,
+        device: str | None = None,
     ) -> None:
         self.backend = backend
         if ideal_duration_s is None:
@@ -390,6 +441,7 @@ class OfflineDiarStage:
         self.overlap_s = overlap_s
         self.stitch_threshold = stitch_threshold
         self.hf_token = resolve_hf_token(hf_token)
+        self.device = device
         self._backend_obj: Any | None = None
         self._embedder: Any | None = None
 
@@ -399,8 +451,12 @@ class OfflineDiarStage:
         if self._backend_obj is not None:
             return
         if self.backend == "pyannote":
-            self._backend_obj = _PyannoteOfflineDiar(hf_token=self.hf_token)
-            self._embedder = _PyannoteEmbedder(hf_token=self.hf_token)
+            self._backend_obj = _PyannoteOfflineDiar(
+                hf_token=self.hf_token, device=self.device,
+            )
+            self._embedder = _PyannoteEmbedder(
+                hf_token=self.hf_token, device=self.device,
+            )
         elif self.backend == "nemo":
             self._backend_obj = _NemoSortformerDiar()
             self._embedder = _TitaNetEmbedder()
@@ -578,12 +634,17 @@ class OfflineDiarStage:
 class _PyannoteOfflineDiar:
     """Wraps ``pyannote.audio.Pipeline('pyannote/speaker-diarization-3.1')``."""
 
-    def __init__(self, *, hf_token: str | None = None) -> None:
+    def __init__(self, *, hf_token: str | None = None, device: str | None = None) -> None:
         self.hf_token = hf_token
+        self.device = device  # ``None`` → auto-pick at load time
         self._pipeline = None
+        # Resolved at load time so ``diarize`` knows where to put the
+        # input tensor when it's not on the same device as the model.
+        self._device: str = "cpu"
 
     def load(self) -> None:
         try:
+            import torch  # type: ignore
             from pyannote.audio import Pipeline  # type: ignore
         except ImportError as e:
             raise ImportError(
@@ -606,6 +667,20 @@ class _PyannoteOfflineDiar:
                 "HF model page and accept the terms with the same account "
                 "owning HF_TOKEN."
             )
+        # Move the pipeline to the right device. On Apple Silicon
+        # CPU → MPS gives roughly 10× speed-up. Not all internal ops
+        # support MPS yet ; on failure we keep the pipeline on CPU
+        # rather than crash the whole stage.
+        chosen = _auto_torch_device(self.device)
+        if chosen != "cpu":
+            try:
+                self._pipeline.to(torch.device(chosen))
+                self._device = chosen
+            except (RuntimeError, NotImplementedError, AssertionError):
+                # Stay on CPU — diarize will still work, just slower.
+                self._device = "cpu"
+        else:
+            self._device = "cpu"
 
     def diarize(
         self,
@@ -614,7 +689,10 @@ class _PyannoteOfflineDiar:
     ) -> list[tuple[float, float, str]]:
         import torch  # type: ignore
 
-        wave = torch.from_numpy(pcm).unsqueeze(0)
+        # Match the input device to where the pipeline lives so MPS /
+        # CUDA paths don't fall back to a silent CPU round-trip per
+        # forward.
+        wave = torch.from_numpy(pcm).unsqueeze(0).to(torch.device(self._device))
         ann = self._pipeline({"waveform": wave, "sample_rate": sr})
         return [
             (segment.start, segment.end, str(speaker))
