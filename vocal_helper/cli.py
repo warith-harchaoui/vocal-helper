@@ -29,6 +29,7 @@ import json
 import sys
 from pathlib import Path
 
+from vocal_helper._settings import resolve_hf_token
 from vocal_helper.pipeline import (
     OfflinePipeline,
     OfflinePipelineConfig,
@@ -45,8 +46,10 @@ def _build_config(args: argparse.Namespace) -> PipelineConfig:
         "threads": args.threads,
     }
     diar_cfg: dict = {"backend": args.diar_backend}
-    if args.hf_token:
-        diar_cfg["hf_token"] = args.hf_token
+    # Resolution order : --hf-token > $HF_TOKEN > settings.yaml secrets.hf_token.
+    token = resolve_hf_token(args.hf_token)
+    if token:
+        diar_cfg["hf_token"] = token
     if args.join_threshold is not None:
         diar_cfg["join_threshold"] = args.join_threshold
     llm_cfg: dict | None = None
@@ -112,7 +115,10 @@ def main() -> None:
         sp.add_argument("--language", default="auto")
         sp.add_argument("--threads", type=int, default=6)
         sp.add_argument("--diar-backend", choices=["pyannote", "nemo"], default="pyannote")
-        sp.add_argument("--hf-token", default=None)
+        sp.add_argument("--hf-token", default=None,
+                        help="HuggingFace token for pyannote model fetch. "
+                             "Falls back to $HF_TOKEN then settings.yaml "
+                             "(secrets.hf_token) when omitted.")
         sp.add_argument("--join-threshold", type=float, default=None,
                         help="cosine-distance join threshold for the online diarizer (default 0.30)")
         sp.add_argument("--llm", action="store_true",
