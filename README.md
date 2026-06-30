@@ -8,9 +8,16 @@
 
 [🌍 AI Helpers](https://harchaoui.org/warith/ai-helpers)
 
-Vocal Helper is an **async producer/consumer pipeline** turning a live PCM audio stream into diarized, transcribed utterances — and (optionally) a rolling LLM summary of the conversation.
+[![logo](assets/logo.png)](https://harchaoui.org/warith/ai-helpers)
 
-## Pipeline
+Vocal Helper is an **async producer/consumer pipeline** turning audio into diarized, transcribed utterances — and (optionally) a rolling LLM summary of the conversation. Two paths ship :
+
+- **Online** (`vh.Pipeline`) — live PCM stream → live transcript + live summary. Each stage runs at its own cadence, decoupled by bounded queues.
+- **Offline** (`vh.OfflinePipeline`) — full audio buffer → highest-quality diarization (pyannote 3.1 with the 300 s chunk-and-stitch path for long meetings) → transcript → summary.
+
+## Pipelines
+
+### Online (streaming)
 
 ```
 [Source]   →  [VAD]   →  [Online Diar]  →  [STT]   →  [LLM analyst (optional)]
@@ -18,14 +25,25 @@ Vocal Helper is an **async producer/consumer pipeline** turning a live PCM audio
   frames      segments   segments
 ```
 
+### Offline (batch)
+
+```
+[Source]   →  [Offline Diar]  →  [STT]  →  [LLM analyst (optional)]
+  full        full-buffer        text       rolling summary
+  PCM         pyannote 3.1
+              + chunk+stitch
+              past 300 s
+```
+
 All edges are bounded `asyncio.Queue`s ; every stage is its own coroutine.
 
 | Stage | Backend | Notes |
 |---|---|---|
-| **VAD** | Silero v5 ONNX (CPU) | 32 ms window, `activity_threshold=0.5`, default `min_silence_ms=300`. |
-| **Diarization (online)** | `pyannote/embedding` (default) or `nvidia/titanet_large` (NeMo) | Per-segment embedding + cosine-distance running-mean clustering, `join_threshold=0.30`. Calibrated on AMI dev-slice N=8 (2026-06-30). |
+| **VAD** *(online only)* | Silero v5 ONNX (CPU) | 32 ms window, `activity_threshold=0.5`, default `min_silence_ms=300`. |
+| **Online diarization** | `pyannote/embedding` (default) or `nvidia/titanet_large` (NeMo) | Per-segment embedding + cosine-distance running-mean clustering, `join_threshold=0.30`. Calibrated on AMI dev-slice N=8 (2026-06-30). |
+| **Offline diarization** | `pyannote/speaker-diarization-3.1` (default) or `nvidia/diar_sortformer_v1` (NeMo) | Full-buffer call. Long inputs (> `ideal_duration_s` : **300 s** for pyannote, **60 s** for NeMo) are auto-chunked with 10 s overlap and stitched by cosine AHC at `stitch_threshold=0.35`. Constants codified in pdbms §10.6 (Bredin 2023 band, AMI dev-slice median DER 0.135). |
 | **STT** | [`pywhispercpp`](https://github.com/abdeladim-s/pywhispercpp) turbo | `large-v3-turbo-q5_0` by default. Word timestamps on. Runs in a thread pool so the event loop never stalls. |
-| **LLM analyst** *(optional)* | Ollama-served Gemma 4 e4b (`gemma4:e4b`) | Rolling summary of everything **older than 60 s**. The recent 60 s window is kept verbatim. Apple-Silicon `-mlx` variant auto-selected by Ollama. |
+| **LLM analyst** *(optional)* | Ollama-served Gemma 4 e4b (`gemma4:e4b`) | Rolling summary of everything **older than 60 s**. The recent 60 s window is kept verbatim. Cadence tuned in `studies/llm_cadence_sweep.py` against the offline reference. Apple-Silicon `-mlx` variant auto-selected by Ollama. |
 
 ## Quickstart
 
@@ -84,13 +102,46 @@ async def main():
 asyncio.run(main())
 ```
 
-### Replay a WAV through the pipeline
+### Replay a WAV through the **online** pipeline
 
 ```bash
 vocal-helper file path/to/conversation.wav --llm
 ```
 
 The file source preserves real-time pacing by default ; pass `--no-real-time` for as-fast-as-possible batch processing.
+
+### **Offline** batch on a WAV (full-buffer pyannote 3.1)
+
+```python
+import asyncio, vocal_helper as vh
+
+async def main():
+    pipeline = vh.OfflinePipeline(
+        source=lambda: vh.sources.from_wav_file(
+            "meeting.wav", real_time=False
+        ),
+        config=vh.OfflinePipelineConfig(
+            diar={"backend": "pyannote"},   # or "nemo" for ≤ 60 s clips
+            asr={"language": "en"},
+            llm={"model": "gemma4:e4b"},    # remove to disable
+        ),
+    )
+    async for ev in pipeline.run():
+        if "text" in ev:
+            print(f"[{ev['t0']:.1f} {ev['speaker']}] {ev['text']}")
+        elif "summary" in ev:
+            print(f"--- digest ---\n{ev['summary']}")
+
+asyncio.run(main())
+```
+
+When to use which :
+
+| Use-case | Pipeline | Why |
+|---|---|---|
+| Live mic / live stream | `Pipeline` | Real-time diarization + transcript at RTF ≈ 0.03 (NeMo) or RTF ≈ 0.06 (pyannote). |
+| Meeting recording / podcast / lecture / voicemail batch | `OfflinePipeline` | Pyannote 3.1 on the full audio is the highest-DER answer per the pdbms 2026-06-29 canonical study — median DER 0.116 on AMI dev-slice, inside Bredin 2023's band. |
+| ≤ 60 s clips, fast turn-around | `OfflinePipeline(backend='nemo')` | NeMo Sortformer end-to-end attribution gives conf ≈ 0 ; RTF ≈ 0.004. |
 
 ## Subscribers — fan-out without owning the loop
 

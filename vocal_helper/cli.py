@@ -29,7 +29,12 @@ import json
 import sys
 from pathlib import Path
 
-from vocal_helper.pipeline import Pipeline, PipelineConfig
+from vocal_helper.pipeline import (
+    OfflinePipeline,
+    OfflinePipelineConfig,
+    Pipeline,
+    PipelineConfig,
+)
 from vocal_helper.sources import from_microphone, from_wav_file
 
 
@@ -69,7 +74,17 @@ async def _amain(args: argparse.Namespace) -> None:
     else:
         raise SystemExit(f"unknown subcommand {args.cmd!r}")
 
-    pipeline = Pipeline(source=source, config=config)
+    if getattr(args, "offline", False):
+        # Offline pipeline doesn't use the VAD ; the diar backend
+        # consumes the full buffer.
+        offline_cfg = OfflinePipelineConfig(
+            diar=config.diar,
+            asr=config.asr,
+            llm=config.llm,
+        )
+        pipeline = OfflinePipeline(source=source, config=offline_cfg)
+    else:
+        pipeline = Pipeline(source=source, config=config)
     async for ev in pipeline.run():
         if args.jsonl:
             sys.stdout.write(json.dumps({k: v for k, v in ev.items() if k != "pcm"}) + "\n")
@@ -117,6 +132,10 @@ def main() -> None:
     f.add_argument("path", type=str)
     f.add_argument("--no-real-time", action="store_true",
                    help="process as fast as possible (skip real-time pacing)")
+    f.add_argument("--offline", action="store_true",
+                   help="use the OfflinePipeline (pyannote 3.1 full-buffer + "
+                        "auto chunk+stitch past 300 s) — highest quality on "
+                        "meetings, podcasts, lectures, voicemail batches")
 
     args = p.parse_args()
     asyncio.run(_amain(args))

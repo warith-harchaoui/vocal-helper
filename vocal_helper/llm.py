@@ -37,6 +37,22 @@ from dataclasses import dataclass, field
 
 from vocal_helper.types import SummarySnapshot, Utterance
 
+
+def _extract_response_text(resp: object) -> str:
+    """Pull the response text out of an Ollama ``generate`` reply.
+
+    Different ``ollama`` package versions return either a plain dict
+    or a Pydantic ``GenerateResponse``. Both have a ``"response"`` key
+    or ``.response`` attribute.
+    """
+    if isinstance(resp, dict):
+        return str(resp.get("response", "")).strip()
+    text = getattr(resp, "response", None)
+    if text is not None:
+        return str(text).strip()
+    # Last-resort fallback — the model dump.
+    return str(resp).strip()
+
 DEFAULT_MODEL = "gemma4:e4b"
 DEFAULT_RECENT_WINDOW_S = 60.0
 # ``flush_every_n`` is the count-based cadence — refresh the summary
@@ -209,7 +225,7 @@ class GemmaAnalystStage:
             warning(f"GemmaAnalystStage: ollama call failed ({exc!r}); keeping previous summary")
             self._buf.pending_for_summary.clear()
             return self._buf.summary
-        text = resp.get("response", "").strip() if isinstance(resp, dict) else str(resp).strip()
+        text = _extract_response_text(resp)
         self._buf.pending_for_summary.clear()
         return text
 
