@@ -39,7 +39,16 @@ from vocal_helper.types import SummarySnapshot, Utterance
 
 DEFAULT_MODEL = "gemma4:e4b"
 DEFAULT_RECENT_WINDOW_S = 60.0
+# ``flush_every_n`` is the count-based cadence — refresh the summary
+# every N evicted utterances. Default 5 was chosen in the 2026-06-30
+# cadence sweep (``studies/llm_cadence_sweep.py``) as the RTF + quality
+# Pareto point on AMI IS1008a vs an offline-on-full-transcript reference.
 DEFAULT_FLUSH_EVERY_N = 5
+# ``flush_every_s`` is the optional time-based cadence — refresh the
+# summary whenever the accumulated evicted-content duration crosses
+# this many seconds. When set, ``flush_every_n`` is ignored. Useful
+# when you want steady summary cadence regardless of utterance rate.
+DEFAULT_FLUSH_EVERY_S: float | None = None
 DEFAULT_SUMMARY_PROMPT = (
     "You are a meeting note-taker. Update the running summary below "
     "by integrating the new utterances. Keep it concise (≤ 6 bullet "
@@ -91,16 +100,21 @@ class GemmaAnalystStage:
         model: str = DEFAULT_MODEL,
         recent_window_s: float = DEFAULT_RECENT_WINDOW_S,
         flush_every_n: int = DEFAULT_FLUSH_EVERY_N,
+        flush_every_s: float | None = DEFAULT_FLUSH_EVERY_S,
         host: str | None = None,
         prompt_template: str = DEFAULT_SUMMARY_PROMPT,
     ) -> None:
         self.model = model
         self.recent_window_s = recent_window_s
         self.flush_every_n = flush_every_n
+        self.flush_every_s = flush_every_s
         self.host = host
         self.prompt_template = prompt_template
         self._client = None
         self._buf = _Buffer()
+        # Track the t0 of the oldest pending-for-summary utterance so
+        # the time-based cadence can fire on duration accumulated.
+        self._oldest_pending_t0: float | None = None
 
     # ----- lifecycle ------------------------------------------------------
 
@@ -154,12 +168,25 @@ class GemmaAnalystStage:
             return None  # empty utterance — VAD blip
         now = utt["t1"]
         self._buf.recent.append(utt)
-        evicted_n = 0
         while self._buf.recent and (now - self._buf.recent[0]["t1"]) > self.recent_window_s:
-            self._buf.pending_for_summary.append(self._buf.recent.popleft())
-            evicted_n += 1
-        if len(self._buf.pending_for_summary) >= self.flush_every_n:
+            evicted = self._buf.recent.popleft()
+            self._buf.pending_for_summary.append(evicted)
+            if self._oldest_pending_t0 is None:
+                self._oldest_pending_t0 = evicted["t0"]
+        # Decide whether to refresh the summary :
+        # - ``flush_every_s`` takes precedence when set ;
+        # - otherwise fall back to ``flush_every_n``.
+        should_flush = False
+        if self.flush_every_s is not None and self._buf.pending_for_summary:
+            newest_pending_t1 = self._buf.pending_for_summary[-1]["t1"]
+            span_s = newest_pending_t1 - (self._oldest_pending_t0 or newest_pending_t1)
+            if span_s >= self.flush_every_s:
+                should_flush = True
+        elif len(self._buf.pending_for_summary) >= self.flush_every_n:
+            should_flush = True
+        if should_flush:
             self._buf.summary = await asyncio.to_thread(self._summarise)
+            self._oldest_pending_t0 = None
         return self._snapshot(item_t=now)
 
     def _summarise(self) -> str:
