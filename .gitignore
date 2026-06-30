@@ -26,3 +26,7 @@ htmlcov/
 *.jsonl
 
 settings.yaml
+
+# yt-dlp / test integration artefacts
+*ytdlp_cookie*
+*.vtt
