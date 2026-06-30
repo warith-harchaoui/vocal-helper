@@ -1,0 +1,112 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "vocal-helper"
+version = "0.1.0"
+description = "Vocal Helper — async producer/consumer pipeline turning a live PCM stream into diarized, transcribed utterances and (optionally) a rolling LLM summary. Stages: VAD (Silero) → online speaker diarization (Hungarian-style cosine clustering on backend embeddings) → STT (pywhispercpp turbo) → optional analyst (Gemma 4 e4b via Ollama)."
+readme = "README.md"
+requires-python = ">=3.10,<3.14"
+license = {text = "BSD-3-Clause"}
+authors = [
+    {name = "Warith HARCHAOUI", email = "warith@deraison.ai"},
+]
+keywords = [
+    "voice", "speech", "asr", "diarization", "vad", "whisper",
+    "pywhispercpp", "silero", "streaming", "producer-consumer",
+    "asyncio", "ollama", "gemma", "live",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: BSD License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Multimedia :: Sound/Audio :: Speech",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+
+# Runtime contract :
+# - PCM frames at 16 kHz mono float32, shape (n_samples,). The same
+#   shape produced by ``capture_helper.iter_mic_audio`` and
+#   ``podcast_helper.extract_audio_stream``.
+# - VAD : Silero v5 ONNX (CPU). Fast, deterministic, ~ 32 ms window.
+# - Diarization : online cosine clustering with constrained Hungarian
+#   assignment on per-segment speaker embeddings, sliding window over
+#   ``window_s`` (default 20 s, the operating point validated at
+#   pdbms-canonical N=2089 — see vocal-helper README "Diarization choice").
+# - ASR : pywhispercpp turbo (``large-v3-turbo-q5_0`` by default).
+# - LLM analyst : Ollama-served Gemma 4 e4b with a rolling summary
+#   buffer ; everything older than ``recent_window_s`` (default 60 s)
+#   gets folded into the summary.
+dependencies = [
+    "os-helper @ git+https://github.com/warith-harchaoui/os-helper.git@v1.3.0",
+    "audio-helper @ git+https://github.com/warith-harchaoui/audio-helper.git@v1.4.2",
+    "numpy>=1.24",
+    "silero-vad>=5.1",
+    "pywhispercpp>=1.2",
+]
+
+[project.optional-dependencies]
+# Live microphone input depends on capture-helper's per-OS ffmpeg path.
+mic = [
+    "capture-helper @ git+https://github.com/warith-harchaoui/capture-helper.git@v0.1.0",
+]
+# pyannote.audio drives the embedding-based speaker model used by the
+# online diarizer when ``backend='pyannote'``.
+pyannote = [
+    "pyannote.audio>=3.3",
+]
+# NeMo Sortformer backend (Apple-Silicon-friendly; heavy install).
+nemo = [
+    "torch>=2.5,<3",
+    "torchaudio>=2.5,<3",
+    "nemo-toolkit[asr]>=2.0",
+]
+# Local LLM analyst via Ollama.
+llm = [
+    "ollama>=0.4",
+]
+# Convenience meta-extra : everything.
+all = [
+    "vocal-helper[mic,pyannote,llm]",
+]
+dev = [
+    "pytest>=8",
+    "soundfile>=0.13",
+]
+
+[project.urls]
+Homepage = "https://github.com/warith-harchaoui/vocal-helper"
+Issues = "https://github.com/warith-harchaoui/vocal-helper/issues"
+
+[project.scripts]
+vocal-helper = "vocal_helper.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["vocal_helper*"]
+exclude = ["tests*", "assets*", "examples*"]
+
+[tool.pytest.ini_options]
+markers = [
+    "integration: tests that load Whisper / pyannote / NeMo / Ollama models (skipped by default)",
+]
+addopts = "-m 'not integration'"
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+extend-exclude = ["assets", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "C4", "UP", "SIM"]
+ignore = [
+    "E501",
+    "B008",
+    "SIM108",
+]
