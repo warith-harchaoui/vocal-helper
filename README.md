@@ -43,7 +43,7 @@ All edges are bounded `asyncio.Queue`s ; every stage is its own coroutine.
 | **Online diarization** | `pyannote/embedding` (default) or `nvidia/titanet_large` (NeMo) | Per-segment embedding + cosine-distance running-mean clustering, `join_threshold=0.30`. Calibrated on AMI dev-slice N=8 (2026-06-30). |
 | **Offline diarization** | `pyannote/speaker-diarization-3.1` (default) or `nvidia/diar_sortformer_v1` (NeMo) | Full-buffer call. Long inputs (> `ideal_duration_s` : **300 s** for pyannote, **60 s** for NeMo) are auto-chunked with 10 s overlap and stitched by cosine AHC at `stitch_threshold=0.35`. Constants codified in pdbms §10.6 (Bredin 2023 band, AMI dev-slice median DER 0.135). |
 | **STT** | [`pywhispercpp`](https://github.com/abdeladim-s/pywhispercpp) turbo | `large-v3-turbo-q5_0` by default. Word timestamps on. Runs in a thread pool so the event loop never stalls. |
-| **LLM analyst** *(optional)* | Ollama-served Gemma 4 e4b (`gemma4:e4b`) | Rolling summary of everything **older than 60 s**. The recent 60 s window is kept verbatim. Cadence tuned in `studies/llm_cadence_sweep.py` against the offline reference. Apple-Silicon `-mlx` variant auto-selected by Ollama. |
+| **LLM analyst** *(optional)* | Ollama-served Gemma 4 e4b (`gemma4:e4b`) | Rolling summary of everything **older than 60 s**. The recent 60 s window is kept verbatim. Summary refreshes every **60 s of evicted content** (`flush_every_s=60`) — Pareto winner on cos_sim vs offline reference in `studies/llm_cadence_sweep.py` (2026-06-30 sweep, AMI IS1008a). Apple-Silicon `-mlx` variant auto-selected by Ollama. |
 
 ## Quickstart
 
@@ -70,6 +70,26 @@ You also need [Ollama](https://ollama.com) running locally if you enable the LLM
 ollama pull gemma4:e4b
 ollama serve   # usually launched at install time
 ```
+
+### HuggingFace token
+
+The pyannote backend pulls gated models from the Hub. `vocal-helper`
+resolves the token in this order (first non-empty wins):
+
+1. `--hf-token hf_…` on the CLI (or `hf_token=` kwarg on
+   `OnlineDiarStage` / `OfflineDiarStage`).
+2. The `HF_TOKEN` environment variable.
+3. `secrets.hf_token` from a local `settings.yaml`.
+
+To use the file path, copy the shipped template once and fill it in:
+
+```bash
+cp settings.yaml.example settings.yaml
+# then edit `secrets.hf_token` — settings.yaml is git-ignored
+```
+
+The placeholder value `hf_XXXX` is treated as unset, so an unedited
+copy never masquerades as real credentials.
 
 ### Live microphone → terminal
 

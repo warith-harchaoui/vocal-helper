@@ -8,6 +8,11 @@ export HF_TOKEN=hf_yourtoken    # pyannote backend
 ollama serve                    # LLM analyst
 ```
 
+Prefer a file? Copy `settings.yaml.example` to `settings.yaml` and set
+`secrets.hf_token` — the library reads that file when neither
+`--hf-token` nor `HF_TOKEN` is provided. See the
+[README](README.md#huggingface-token) for the full resolution order.
+
 ---
 
 ## 1. Live mic → terminal transcript

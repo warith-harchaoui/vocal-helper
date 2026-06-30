@@ -53,6 +53,27 @@ ollama pull gemma4:e4b
 ollama serve
 ```
 
+### Token HuggingFace
+
+Le backend pyannote télécharge des modèles gated. `vocal-helper`
+cherche le token dans cet ordre (premier non vide gagne) :
+
+1. `--hf-token hf_…` sur la CLI (ou `hf_token=` en kwarg sur
+   `OnlineDiarStage` / `OfflineDiarStage`).
+2. La variable d'environnement `HF_TOKEN`.
+3. La clé `secrets.hf_token` dans un `settings.yaml` local.
+
+Pour passer par le fichier, copiez le gabarit fourni puis renseignez
+le token :
+
+```bash
+cp settings.yaml.example settings.yaml
+# éditez `secrets.hf_token` — settings.yaml est gitignoré
+```
+
+La valeur factice `hf_XXXX` est traitée comme absente : une copie non
+éditée ne se fait jamais passer pour un vrai token.
+
 ### Micro live → terminal
 
 ```bash
