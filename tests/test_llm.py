@@ -17,7 +17,6 @@ from vocal_helper.llm import (
     _extract_response_text,
 )
 
-
 # ---------------------------------------------------------------------------
 # _extract_response_text — parses every shape Ollama has shipped.
 # ---------------------------------------------------------------------------
