@@ -55,16 +55,30 @@ def _extract_response_text(resp: object) -> str:
 
 DEFAULT_MODEL = "gemma4:e4b"
 DEFAULT_RECENT_WINDOW_S = 60.0
-# ``flush_every_n`` is the count-based cadence — refresh the summary
-# every N evicted utterances. Default 5 was chosen in the 2026-06-30
-# cadence sweep (``studies/llm_cadence_sweep.py``) as the RTF + quality
-# Pareto point on AMI IS1008a vs an offline-on-full-transcript reference.
+# ``flush_every_n`` is the count-based fallback — refresh the summary
+# every N evicted utterances. Used only when ``flush_every_s`` is
+# explicitly set to ``None`` by the caller.
 DEFAULT_FLUSH_EVERY_N = 5
-# ``flush_every_s`` is the optional time-based cadence — refresh the
+# ``flush_every_s`` is the canonical time-based cadence — refresh the
 # summary whenever the accumulated evicted-content duration crosses
-# this many seconds. When set, ``flush_every_n`` is ignored. Useful
-# when you want steady summary cadence regardless of utterance rate.
-DEFAULT_FLUSH_EVERY_S: float | None = None
+# this many seconds.
+#
+# Default 60.0 selected in the 2026-06-30 single-meeting cadence
+# sweep (``studies/llm_cadence_sweep.py``) on AMI IS1008a (16 min,
+# 4 speakers) against an offline single-shot reference summary
+# produced by Gemma 4 e4b on the full transcript :
+#
+#   config     RTF    cos_sim
+#   n=20      0.260    0.397
+#   t=30s     0.490    0.414
+#   ⭐ t=60s   0.311    0.420   ← highest cos_sim
+#   t=120s    0.192    0.407
+#
+# t=60s is the Pareto-best cos_sim (0.420 = 42 % TF-IDF overlap with
+# the offline reference) at a comfortable real-time-streaming RTF.
+# Callers that need a faster pipeline can lower this to ``t=120`` for
+# RTF 0.192 at a small (−0.013) cos_sim cost.
+DEFAULT_FLUSH_EVERY_S: float | None = 60.0
 DEFAULT_SUMMARY_PROMPT = (
     "You are a meeting note-taker. Update the running summary below "
     "by integrating the new utterances. Keep it concise (≤ 6 bullet "

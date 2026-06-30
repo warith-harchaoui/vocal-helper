@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncIterator, Awaitable, Callable
+from contextlib import suppress
 from dataclasses import dataclass, field
 
 from vocal_helper.asr import WhisperStage
@@ -209,10 +210,11 @@ class Pipeline:
                 if not t.done():
                     t.cancel()
             for t in tasks:
-                try:
+                # Cancelled tasks raise CancelledError ; long-running ones
+                # may surface stage exceptions on shutdown. Both are
+                # already logged upstream — swallow on cleanup.
+                with suppress(asyncio.CancelledError, Exception):
                     await t
-                except (asyncio.CancelledError, Exception):  # noqa: BLE001
-                    pass
 
     # ----- internal coroutines ------------------------------------------
 
@@ -235,10 +237,10 @@ class Pipeline:
             if item is None:
                 return
             for cb in subscribers:
-                try:
+                # Subscriber failures must not break the pipeline ;
+                # callers are expected to handle their own logging.
+                with suppress(Exception):
                     await cb(item)
-                except Exception:  # noqa: BLE001 — subscriber failure is non-fatal
-                    pass
 
     async def _tee_two(
         self,
@@ -254,10 +256,9 @@ class Pipeline:
             if item is None:
                 return
             for cb in subscribers:
-                try:
+                # Subscriber failures must not break the pipeline.
+                with suppress(Exception):
                     await cb(item)
-                except Exception:  # noqa: BLE001
-                    pass
 
     async def _drain(self, inbox: asyncio.Queue) -> None:
         while True:
@@ -439,10 +440,11 @@ class OfflinePipeline:
                 if not t.done():
                     t.cancel()
             for t in tasks:
-                try:
+                # Cancelled tasks raise CancelledError ; long-running ones
+                # may surface stage exceptions on shutdown. Both are
+                # already logged upstream — swallow on cleanup.
+                with suppress(asyncio.CancelledError, Exception):
                     await t
-                except (asyncio.CancelledError, Exception):  # noqa: BLE001
-                    pass
 
     # ----- internal coroutines (mirrors the streaming pipeline) ----------
 
@@ -465,10 +467,9 @@ class OfflinePipeline:
             if item is None:
                 return
             for cb in subscribers:
-                try:
+                # Subscriber failures must not break the pipeline.
+                with suppress(Exception):
                     await cb(item)
-                except Exception:  # noqa: BLE001
-                    pass
 
     async def _tee_two(
         self,
@@ -484,10 +485,9 @@ class OfflinePipeline:
             if item is None:
                 return
             for cb in subscribers:
-                try:
+                # Subscriber failures must not break the pipeline.
+                with suppress(Exception):
                     await cb(item)
-                except Exception:  # noqa: BLE001
-                    pass
 
     async def _drain(self, inbox: asyncio.Queue) -> None:
         while True:

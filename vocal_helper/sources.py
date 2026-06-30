@@ -5,10 +5,15 @@ vocal_helper.sources
 Async iterators that produce :class:`vocal_helper.types.PcmFrame`
 events from a few canonical inputs.
 
-Three sources ship in v0.1.0 :
+Four sources ship in v0.1.0 :
 
 - :func:`from_microphone` — wraps ``capture_helper.iter_mic_audio``
   (optional dependency ; requires ``vocal-helper[mic]``).
+- :func:`from_url` — wraps ``podcast_helper.extract_audio_stream``
+  to consume any URL ``yt-dlp`` can reach (YouTube / Vimeo / Twitch
+  VOD or live, SoundCloud, podcast RSS feeds, direct HLS / m3u8,
+  direct audio files) as a paced PCM stream
+  (optional dependency ; requires ``vocal-helper[stream]``).
 - :func:`from_wav_file` — replays a 16 kHz mono WAV at
   ``real_time=True`` (default) so the downstream stages see the
   same pacing as a live stream, or as fast as possible when
@@ -96,6 +101,164 @@ async def from_microphone(
         )
 
 
+async def from_url(
+    url: str,
+    *,
+    realtime: bool = True,
+    speed: float = 1.0,
+    headers: dict[str, str] | None = None,
+    cookies_from_browser: str | None = None,
+    record_to: str | Path | None = None,
+) -> AsyncIterator[PcmFrame]:
+    """Yield PCM frames from any URL (YouTube / Twitch / RSS / direct audio).
+
+    Async wrapper over :func:`podcast_helper.extract_audio_stream` that
+    **enforces** the speech-pipeline contract every downstream stage
+    relies on. We deliberately do NOT expose ``sample_rate``,
+    ``frame_ms`` or ``to_mono`` kwargs : vocal-helper hardcodes the
+    only configuration that keeps Silero VAD, pyannote/embedding and
+    whisper.cpp all happy at once.
+
+    The enforced contract
+    ---------------------
+
+    * ``target_sample_rate = 16_000`` — Silero VAD ONNX v5 and
+      pyannote/embedding are both trained at 16 kHz. Any other value
+      would force re-sampling inside the stages.
+    * ``to_mono = True`` — pyannote, whisper and the VAD all expect a
+      single channel.
+    * ``frame_ms = 20`` — 320 samples ; aligns with Silero's native
+      32 ms window with one carry-over slice, so no re-buffering.
+    * ``dtype = float32`` ∈ [-1, +1] — what whisper.cpp and pyannote
+      ingest natively. ffmpeg's ``libswresample`` applies the
+      Shannon-Nyquist anti-aliasing low-pass at the new Nyquist when
+      down-sampling, so spectral aliasing is impossible.
+
+    Callers that need a different shape should drop the helper and
+    call ``podcast_helper.extract_audio_stream`` directly — those
+    callers are by definition outside the speech pipeline.
+
+    Requires ``podcast-helper`` (``pip install vocal-helper[stream]``)
+    plus ``ffmpeg`` and ``yt-dlp`` on PATH.
+
+    Parameters
+    ----------
+    url : str
+        File path, ``file://`` URL, direct audio URL (MP3 / M4A / Opus
+        / WAV / HLS m3u8), RSS feed URL (auto-picks latest episode),
+        or any ``yt-dlp``-supported URL — YouTube, Vimeo, SoundCloud,
+        Twitch VOD and live, etc. Spotify-protected and Apple Podcasts
+        catalog URLs raise ``NotImplementedError`` with hints.
+    realtime : bool, default True
+        Pace decoding at wall-clock (ffmpeg's ``-re``). Set ``False``
+        for burst-decoding a VOD (offline benchmarking). Live sources
+        pace themselves, so podcast-helper forces this to ``False``
+        internally.
+    speed : float, default 1.0
+        Playback rate for **VOD only**. Implemented via ffmpeg's
+        ``atempo=`` filter so pitch is preserved. ``2.0`` doubles ASR
+        throughput on long episodes ; ``0.5`` slows down for proofing.
+        Raises ``ValueError`` on live streams.
+    headers : dict[str, str], optional
+        HTTP headers ffmpeg should send. Merged on top of yt-dlp's
+        per-source headers (your keys win).
+    cookies_from_browser : str, optional
+        ``"firefox"`` / ``"chrome"`` / ``"safari"`` / etc. — used by
+        yt-dlp for age-gated, members-only or private content.
+    record_to : str or Path, optional
+        If set, ffmpeg writes a parallel compressed archive of the
+        same audio to this path while the live PCM stream is consumed.
+        Single decode, two encoder paths. See ``podcast_helper`` docs
+        for the codec-by-extension table.
+
+    Yields
+    ------
+    PcmFrame
+        ``t0`` in seconds since the source started,
+        ``sample_rate == 16_000``, ``pcm`` mono ``float32`` of length
+        320 (= 16 000 × 20 / 1 000).
+
+    Raises
+    ------
+    RuntimeError
+        If the upstream frame violates the speech contract — wrong
+        sample rate, wrong dtype, non-mono. Fail-loud is the point :
+        a silent contract drift would corrupt every downstream stage.
+
+    Examples
+    --------
+    >>> import asyncio, vocal_helper as vh
+    >>> async def main():
+    ...     pipeline = vh.Pipeline(
+    ...         source=lambda: vh.sources.from_url(
+    ...             "https://www.youtube.com/watch?v=YE7VzlLtp-4",
+    ...         ),
+    ...         config=vh.PipelineConfig(
+    ...             diar={"backend": "pyannote"},
+    ...             llm={"model": "gemma4:e4b"},
+    ...         ),
+    ...     )
+    ...     async for ev in pipeline.run():
+    ...         if isinstance(ev, dict) and "text" in ev:
+    ...             print(f"[{ev['t0']:.1f}s {ev['speaker']}] {ev['text']}")
+    >>> asyncio.run(main())  # doctest: +SKIP
+    """
+    try:
+        import podcast_helper as ph  # type: ignore
+    except ImportError as e:  # noqa: BLE001
+        raise ImportError(
+            "from_url requires podcast-helper. "
+            "Install with `pip install vocal-helper[stream]`."
+        ) from e
+
+    expected_frame_samples = DEFAULT_SAMPLE_RATE * DEFAULT_FRAME_MS // 1000
+
+    # podcast-helper's frame schema: {t_abs_s, pcm, voiced}. vocal-helper's
+    # PcmFrame uses {t0, sample_rate, pcm}. Repack at the boundary so
+    # downstream stages keep their existing typed contract.
+    async for f in ph.extract_audio_stream(
+        url,
+        target_sample_rate=DEFAULT_SAMPLE_RATE,
+        to_mono=True,
+        realtime=realtime,
+        frame_ms=DEFAULT_FRAME_MS,
+        headers=headers,
+        cookies_from_browser=cookies_from_browser,
+        speed=speed,
+        record_to=str(record_to) if record_to is not None else None,
+    ):
+        pcm = np.asarray(f["pcm"])
+        # Validate the contract loudly. We pinned the request
+        # (16 kHz / mono / 20 ms / float32) — if the producer returns
+        # anything else, fail here rather than corrupt downstream VAD /
+        # diar / ASR with bad-shape input.
+        if pcm.dtype != np.float32:
+            raise RuntimeError(
+                f"from_url contract violated : expected float32 PCM, got "
+                f"{pcm.dtype}. podcast_helper.extract_audio_stream is "
+                "documented to emit float32 ; check the installed version."
+            )
+        if pcm.ndim != 1:
+            raise RuntimeError(
+                f"from_url contract violated : expected mono PCM, got "
+                f"shape {pcm.shape}. We called extract_audio_stream with "
+                "to_mono=True ; this should not happen."
+            )
+        # Tail frame may be short ; full frames must be ≤ 320 samples.
+        if pcm.shape[0] > expected_frame_samples:
+            raise RuntimeError(
+                f"from_url contract violated : expected ≤ "
+                f"{expected_frame_samples} samples per frame (we asked "
+                f"for {DEFAULT_FRAME_MS} ms at {DEFAULT_SAMPLE_RATE} Hz), "
+                f"got {pcm.shape[0]}."
+            )
+        yield PcmFrame(
+            t0=float(f["t_abs_s"]),
+            sample_rate=DEFAULT_SAMPLE_RATE,
+            pcm=pcm,
+        )
+
+
 async def from_wav_file(
     path: str | Path,
     *,
@@ -127,7 +290,6 @@ async def from_wav_file(
 
     frame_samples = sample_rate * frame_ms // 1000
     n = audio.shape[0]
-    frame_period_s = frame_ms / 1000.0
     start = time.monotonic()
     cursor = 0
     while cursor < n:

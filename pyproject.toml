@@ -57,6 +57,12 @@ dependencies = [
 mic = [
     "capture-helper @ git+https://github.com/warith-harchaoui/capture-helper.git@v0.1.0",
 ]
+# URL source — YouTube / Vimeo / Twitch / podcast RSS / direct audio.
+# podcast-helper brings the yt-dlp + ffmpeg streaming chain that feeds
+# sources.from_url ; matches the same PcmFrame shape vocal-helper expects.
+stream = [
+    "podcast-helper @ git+https://github.com/warith-harchaoui/podcast-helper.git@v0.2.0",
+]
 # pyannote.audio drives the embedding-based speaker model used by the
 # online diarizer when ``backend='pyannote'``.
 pyannote = [
@@ -74,7 +80,7 @@ llm = [
 ]
 # Convenience meta-extra : everything.
 all = [
-    "vocal-helper[mic,pyannote,llm]",
+    "vocal-helper[mic,stream,pyannote,llm]",
 ]
 dev = [
     "pytest>=8",
@@ -101,7 +107,9 @@ addopts = "-m 'not integration'"
 [tool.ruff]
 line-length = 100
 target-version = "py310"
-extend-exclude = ["assets", "tests"]
+# ``studies/`` holds one-off research scripts (sweeps, ablations) ; we
+# lint shipped library code (``vocal_helper/``) and tests instead.
+extend-exclude = ["assets", "studies"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "C4", "UP", "SIM"]

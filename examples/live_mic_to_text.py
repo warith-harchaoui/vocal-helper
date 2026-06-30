@@ -4,7 +4,17 @@ Run with the default microphone, pyannote diarization, whisper.cpp
 turbo and the Gemma 4 e4b analyst :
 
     pip install 'vocal-helper[all]'
-    export HF_TOKEN=hf_yourtoken
+
+Then supply the pyannote HuggingFace token by any of these means
+(highest priority first) :
+
+* pass ``--hf-token hf_…`` on the CLI ;
+* export ``HF_TOKEN=hf_…`` in the shell ;
+* copy ``settings.yaml.example`` to ``settings.yaml`` and fill in
+  ``secrets.hf_token``.
+
+Then run :
+
     python examples/live_mic_to_text.py --llm
 
 Stop with Ctrl-C ; the pipeline cancels every running task cleanly.
@@ -13,17 +23,19 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import os
 import sys
 
 import vocal_helper as vh
 
 
 async def amain(args: argparse.Namespace) -> None:
+    # The ``hf_token=None`` here delegates resolution to the stage
+    # constructor, which calls ``_settings.resolve_hf_token`` and walks
+    # the documented order : env var, then settings.yaml.
     config = vh.PipelineConfig(
         diar={
             "backend": args.diar_backend,
-            "hf_token": os.environ.get("HF_TOKEN"),
+            "hf_token": args.hf_token,
         },
         asr={
             "model": args.whisper_model,
@@ -58,6 +70,9 @@ if __name__ == "__main__":
     p.add_argument("--language", default="auto")
     p.add_argument("--threads", type=int, default=6)
     p.add_argument("--diar-backend", choices=["pyannote", "nemo"], default="pyannote")
+    p.add_argument("--hf-token", default=None,
+                   help="HuggingFace token (falls back to $HF_TOKEN, then "
+                        "settings.yaml secrets.hf_token).")
     p.add_argument("--llm", action="store_true")
     p.add_argument("--llm-model", default="gemma4:e4b")
     args = p.parse_args()

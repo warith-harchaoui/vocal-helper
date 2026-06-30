@@ -116,8 +116,8 @@ class SileroVADStage:
     def _ensure_model(self) -> None:
         if self._model is not None:
             return
-        from silero_vad import load_silero_vad  # type: ignore
         import torch  # type: ignore
+        from silero_vad import load_silero_vad  # type: ignore
 
         self._torch = torch
         self._model = load_silero_vad()

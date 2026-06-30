@@ -71,6 +71,7 @@ from typing import Any, Literal
 import numpy as np
 from numpy.typing import NDArray
 
+from vocal_helper._settings import resolve_hf_token
 from vocal_helper.types import DiarizedSegment, VoicedSegment
 
 BackendName = Literal["pyannote", "nemo"]
@@ -108,7 +109,9 @@ class OnlineDiarStage:
         choke on shorter inputs).
     hf_token : str, optional
         HuggingFace token, forwarded to the pyannote backend when
-        the model isn't already cached.
+        the model isn't already cached. When ``None``, the value is
+        resolved via :func:`vocal_helper._settings.resolve_hf_token`
+        — ``$HF_TOKEN`` then ``secrets.hf_token`` in ``settings.yaml``.
     """
 
     def __init__(
@@ -128,7 +131,10 @@ class OnlineDiarStage:
         self.join_threshold = join_threshold
         self.ema_alpha = ema_alpha
         self.min_segment_ms = min_segment_ms
-        self.hf_token = hf_token
+        # Resolve the token eagerly so the cached value reflects the
+        # state at construction time — calls into pyannote later cannot
+        # be affected by a mid-run env / settings.yaml mutation.
+        self.hf_token = resolve_hf_token(hf_token)
         self._embedder = None
         self._centroids: list[_Centroid] = []
         self._next_id = 0
@@ -359,7 +365,10 @@ class OfflineDiarStage:
         Cosine-distance threshold for cross-chunk AHC stitching.
         Default 0.35.
     hf_token : str, optional
-        HuggingFace token, forwarded to pyannote.
+        HuggingFace token, forwarded to pyannote. When ``None``, the
+        value is resolved via
+        :func:`vocal_helper._settings.resolve_hf_token` — ``$HF_TOKEN``
+        then ``secrets.hf_token`` in ``settings.yaml``.
     """
 
     def __init__(
@@ -380,7 +389,7 @@ class OfflineDiarStage:
         self.ideal_duration_s = ideal_duration_s
         self.overlap_s = overlap_s
         self.stitch_threshold = stitch_threshold
-        self.hf_token = hf_token
+        self.hf_token = resolve_hf_token(hf_token)
         self._backend_obj: Any | None = None
         self._embedder: Any | None = None
 
@@ -467,7 +476,6 @@ class OfflineDiarStage:
         overlap = int(self.overlap_s * sr)
         if overlap >= ideal:
             raise ValueError("overlap_s must be < ideal_duration_s")
-        step = ideal - overlap
         n = pcm.shape[0]
         chunk_segs: list[list[tuple[float, float, str, NDArray[np.float32]]]] = []
         cursor = 0
@@ -545,7 +553,7 @@ class OfflineDiarStage:
                     distance_threshold=self.stitch_threshold,
                 )
             labels = clusterer.fit_predict(dist)
-            gid_for = {k: int(lbl) for k, lbl in zip(keys, labels)}
+            gid_for = {k: int(lbl) for k, lbl in zip(keys, labels, strict=True)}
 
         # Emit globally-labelled segments, merging neighbouring
         # same-speaker spans that overlap from the chunk overlap region.
@@ -640,6 +648,7 @@ class _NemoSortformerDiar:
         # Sortformer accepts a path or a tensor ; we use a per-call
         # temp WAV to keep the dependency surface small.
         import tempfile
+
         import soundfile as sf  # type: ignore
 
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=True) as tmp:
