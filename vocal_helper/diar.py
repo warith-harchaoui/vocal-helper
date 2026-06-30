@@ -693,7 +693,13 @@ class _PyannoteOfflineDiar:
         # CUDA paths don't fall back to a silent CPU round-trip per
         # forward.
         wave = torch.from_numpy(pcm).unsqueeze(0).to(torch.device(self._device))
-        ann = self._pipeline({"waveform": wave, "sample_rate": sr})
+        out = self._pipeline({"waveform": wave, "sample_rate": sr})
+        # pyannote 3.x changed its return type from a bare
+        # ``pyannote.core.Annotation`` to a ``DiarizeOutput`` dataclass
+        # exposing ``.speaker_diarization`` (the Annotation),
+        # ``.speaker_embeddings`` and friends. Support both — the
+        # check is one attribute access, not a version sniff.
+        ann = getattr(out, "speaker_diarization", out)
         return [
             (segment.start, segment.end, str(speaker))
             for segment, _track, speaker in ann.itertracks(yield_label=True)
