@@ -58,13 +58,18 @@ Warith HARCHAOUI — https://linkedin.com/in/warith-harchaoui
 from vocal_helper import sources
 from vocal_helper.asr import WhisperStage, transcribe_pcm
 from vocal_helper.diar import OfflineDiarStage, OnlineDiarStage
+from vocal_helper.eot import SemanticEOTStage
+from vocal_helper.eot_bench import EOTPair, false_cutoff_rate, hang_rate
+from vocal_helper.eot_bench import score as eot_score
 from vocal_helper.llm import GemmaAnalystStage
+from vocal_helper.parallel_pipelines import run_parallel_async, run_parallel_sync
 from vocal_helper.pipeline import (
     OfflinePipeline,
     OfflinePipelineConfig,
     Pipeline,
     PipelineConfig,
 )
+from vocal_helper.tts import PiperTTS
 from vocal_helper.types import (
     DiarizedSegment,
     PcmFrame,
@@ -83,8 +88,17 @@ __all__ = [
     "SileroVADStage",
     "OnlineDiarStage",
     "OfflineDiarStage",
+    "SemanticEOTStage",
     "WhisperStage",
     "GemmaAnalystStage",
+    "PiperTTS",
+    # LiveKit-inspired EOT eval + Pipecat-inspired parallel primitive
+    "EOTPair",
+    "eot_score",
+    "false_cutoff_rate",
+    "hang_rate",
+    "run_parallel_sync",
+    "run_parallel_async",
     "PcmFrame",
     "VoicedSegment",
     "DiarizedSegment",

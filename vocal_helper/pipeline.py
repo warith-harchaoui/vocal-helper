@@ -27,12 +27,13 @@ Warith HARCHAOUI — https://linkedin.com/in/warith-harchaoui
 from __future__ import annotations
 
 import asyncio
+import logging
 from collections.abc import AsyncIterator, Awaitable, Callable
-from contextlib import suppress
 from dataclasses import dataclass, field
 
 from vocal_helper.asr import WhisperStage
 from vocal_helper.diar import OfflineDiarStage, OnlineDiarStage
+from vocal_helper.eot import SemanticEOTStage
 from vocal_helper.llm import GemmaAnalystStage
 from vocal_helper.types import (
     DiarizedSegment,
@@ -42,6 +43,53 @@ from vocal_helper.types import (
     VoicedSegment,
 )
 from vocal_helper.vad import SileroVADStage
+
+logger = logging.getLogger(__name__)
+
+
+async def _await_task_swallow(t: asyncio.Task) -> None:
+    """Await a cancelled / long-running task on pipeline shutdown.
+
+    ``asyncio.CancelledError`` is expected — the task got the ``cancel()``
+    we sent in the ``finally`` block. Anything else is a stage
+    exception that has *not* been surfaced through the queue path (e.g.
+    the diar backend raised on the last forward and we never emitted
+    the ``None`` sentinel). Swallowing those silently is what let the
+    pyannote 3.x ``DiarizeOutput`` API break wait undetected for hours ;
+    always log them.
+    """
+    try:
+        await t
+    except asyncio.CancelledError:
+        # Normal shutdown path.
+        return
+    except Exception:  # noqa: BLE001 — final barrier ; we log, then continue.
+        logger.warning(
+            "vocal_helper.pipeline: task %r crashed on shutdown",
+            t.get_name(), exc_info=True,
+        )
+
+
+async def _invoke_subscribers(
+    subscribers: list[Callable[..., Awaitable[None]]],
+    item: object,
+    stage: str,
+) -> None:
+    """Fan-out an item to user callbacks with per-callback isolation.
+
+    A crashing subscriber must not break the pipeline — but the caller
+    should still find out. We log a warning per failure with the stage
+    name, callback name and full traceback ; the pipeline keeps
+    forwarding to the remaining subscribers.
+    """
+    for cb in subscribers:
+        try:
+            await cb(item)
+        except Exception:  # noqa: BLE001 — user code ; log, then continue.
+            logger.warning(
+                "vocal_helper.pipeline: subscriber %r on stage %r raised",
+                getattr(cb, "__qualname__", repr(cb)), stage, exc_info=True,
+            )
 
 # Bounded queue sizes — large enough to absorb a ~ 1 s burst, small
 # enough that back-pressure pushes upstream before memory explodes.
@@ -61,6 +109,13 @@ class PipelineConfig:
     """
 
     vad: dict = field(default_factory=dict)
+    # ``None`` disables the semantic end-of-turn gating stage —
+    # default behaviour matches the v0.1.0 release where Silero VAD's
+    # silence threshold is the only turn-end signal. Provide a dict to
+    # enable :class:`SemanticEOTStage` between VAD and diarization
+    # (cuts ~ 39 % of mid-sentence breaks per the LiveKit turn-detector
+    # white paper, at the cost of one extra LLM hop per voiced segment).
+    eot: dict | None = None
     diar: dict = field(default_factory=dict)
     asr: dict = field(default_factory=dict)
     # ``None`` disables the LLM analyst — useful when you only need
@@ -124,6 +179,9 @@ class Pipeline:
         )
 
         self._vad = SileroVADStage(**self.config.vad)
+        self._eot: SemanticEOTStage | None = (
+            SemanticEOTStage(**self.config.eot) if self.config.eot is not None else None
+        )
         self._diar = OnlineDiarStage(**self.config.diar)
         self._asr = WhisperStage(**self.config.asr)
         self._llm: GemmaAnalystStage | None = (
@@ -163,15 +221,32 @@ class Pipeline:
         tasks.append(asyncio.create_task(
             self._vad.run(self._q_pcm, self._q_voiced), name="vh.vad",
         ))
-        # Tee voiced subscribers + forward to diar.
+        # Tee voiced subscribers + forward to diar (or to EOT then diar).
         q_voiced_for_diar: asyncio.Queue = asyncio.Queue(maxsize=self.config.qsize_seg)
         tasks.append(asyncio.create_task(
             self._tee(self._q_voiced, q_voiced_for_diar, self._voiced_subs),
             name="vh.tee.voiced",
         ))
-        tasks.append(asyncio.create_task(
-            self._diar.run(q_voiced_for_diar, self._q_diar), name="vh.diar",
-        ))
+        if self._eot is not None:
+            # Insert semantic EOT gating between VAD and diarization —
+            # holds back segments that look mid-thought, merges them
+            # with their successor, and forwards the merged
+            # super-segment downstream. The diar queue therefore
+            # sees fewer, larger segments at higher semantic completeness.
+            q_voiced_post_eot: asyncio.Queue = asyncio.Queue(
+                maxsize=self.config.qsize_seg
+            )
+            tasks.append(asyncio.create_task(
+                self._eot.run(q_voiced_for_diar, q_voiced_post_eot),
+                name="vh.eot",
+            ))
+            tasks.append(asyncio.create_task(
+                self._diar.run(q_voiced_post_eot, self._q_diar), name="vh.diar",
+            ))
+        else:
+            tasks.append(asyncio.create_task(
+                self._diar.run(q_voiced_for_diar, self._q_diar), name="vh.diar",
+            ))
         # Tee diar subscribers + forward to ASR.
         q_diar_for_asr: asyncio.Queue = asyncio.Queue(maxsize=self.config.qsize_seg)
         tasks.append(asyncio.create_task(
@@ -210,11 +285,7 @@ class Pipeline:
                 if not t.done():
                     t.cancel()
             for t in tasks:
-                # Cancelled tasks raise CancelledError ; long-running ones
-                # may surface stage exceptions on shutdown. Both are
-                # already logged upstream — swallow on cleanup.
-                with suppress(asyncio.CancelledError, Exception):
-                    await t
+                await _await_task_swallow(t)
 
     # ----- internal coroutines ------------------------------------------
 
@@ -230,17 +301,15 @@ class Pipeline:
         inbox: asyncio.Queue,
         outbox: asyncio.Queue,
         subscribers: list[Callable[..., Awaitable[None]]],
+        *,
+        stage: str = "tee",
     ) -> None:
         while True:
             item = await inbox.get()
             await outbox.put(item)
             if item is None:
                 return
-            for cb in subscribers:
-                # Subscriber failures must not break the pipeline ;
-                # callers are expected to handle their own logging.
-                with suppress(Exception):
-                    await cb(item)
+            await _invoke_subscribers(subscribers, item, stage)
 
     async def _tee_two(
         self,
@@ -248,6 +317,8 @@ class Pipeline:
         out_a: asyncio.Queue,
         out_b: asyncio.Queue,
         subscribers: list[Callable[..., Awaitable[None]]],
+        *,
+        stage: str = "tee_two",
     ) -> None:
         while True:
             item = await inbox.get()
@@ -255,10 +326,7 @@ class Pipeline:
             await out_b.put(item)
             if item is None:
                 return
-            for cb in subscribers:
-                # Subscriber failures must not break the pipeline.
-                with suppress(Exception):
-                    await cb(item)
+            await _invoke_subscribers(subscribers, item, stage)
 
     async def _drain(self, inbox: asyncio.Queue) -> None:
         while True:
@@ -440,11 +508,7 @@ class OfflinePipeline:
                 if not t.done():
                     t.cancel()
             for t in tasks:
-                # Cancelled tasks raise CancelledError ; long-running ones
-                # may surface stage exceptions on shutdown. Both are
-                # already logged upstream — swallow on cleanup.
-                with suppress(asyncio.CancelledError, Exception):
-                    await t
+                await _await_task_swallow(t)
 
     # ----- internal coroutines (mirrors the streaming pipeline) ----------
 
@@ -460,16 +524,15 @@ class OfflinePipeline:
         inbox: asyncio.Queue,
         outbox: asyncio.Queue,
         subscribers: list[Callable[..., Awaitable[None]]],
+        *,
+        stage: str = "tee",
     ) -> None:
         while True:
             item = await inbox.get()
             await outbox.put(item)
             if item is None:
                 return
-            for cb in subscribers:
-                # Subscriber failures must not break the pipeline.
-                with suppress(Exception):
-                    await cb(item)
+            await _invoke_subscribers(subscribers, item, stage)
 
     async def _tee_two(
         self,
@@ -477,6 +540,8 @@ class OfflinePipeline:
         out_a: asyncio.Queue,
         out_b: asyncio.Queue,
         subscribers: list[Callable[..., Awaitable[None]]],
+        *,
+        stage: str = "tee_two",
     ) -> None:
         while True:
             item = await inbox.get()
@@ -484,10 +549,7 @@ class OfflinePipeline:
             await out_b.put(item)
             if item is None:
                 return
-            for cb in subscribers:
-                # Subscriber failures must not break the pipeline.
-                with suppress(Exception):
-                    await cb(item)
+            await _invoke_subscribers(subscribers, item, stage)
 
     async def _drain(self, inbox: asyncio.Queue) -> None:
         while True:
