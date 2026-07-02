@@ -50,26 +50,36 @@ Quickstart
 >>>
 >>> asyncio.run(main())
 
+Usage Example
+-------------
+>>> import asyncio, vocal_helper as vh
+>>>
+>>> async def main():
+...     pipeline = vh.Pipeline(
+...         source=lambda: vh.sources.from_wav_file("clip.wav"),
+...         config=vh.PipelineConfig(diar={"backend": "pyannote"}),
+...     )
+...     async for ev in pipeline.run():
+...         if "text" in ev:
+...             print(ev["text"])
+>>>
+>>> asyncio.run(main())
+
 Author
 ------
-Warith HARCHAOUI — https://linkedin.com/in/warith-harchaoui
+Warith Harchaoui, Ph.D. — https://linkedin.com/in/warith-harchaoui/
 """
 
 from vocal_helper import sources
 from vocal_helper.asr import WhisperStage, transcribe_pcm
 from vocal_helper.diar import OfflineDiarStage, OnlineDiarStage
-from vocal_helper.eot import SemanticEOTStage
-from vocal_helper.eot_bench import EOTPair, false_cutoff_rate, hang_rate
-from vocal_helper.eot_bench import score as eot_score
 from vocal_helper.llm import GemmaAnalystStage
-from vocal_helper.parallel_pipelines import run_parallel_async, run_parallel_sync
 from vocal_helper.pipeline import (
     OfflinePipeline,
     OfflinePipelineConfig,
     Pipeline,
     PipelineConfig,
 )
-from vocal_helper.tts import PiperTTS
 from vocal_helper.types import (
     DiarizedSegment,
     PcmFrame,
@@ -78,6 +88,42 @@ from vocal_helper.types import (
     VoicedSegment,
 )
 from vocal_helper.vad import SileroVADStage
+
+# Optional in-flight modules — imported best-effort so the base package
+# stays importable even when the WIP EOT / parallel-pipelines / TTS
+# modules are absent (they live behind ``git stash`` while the
+# multi-surface upgrade lands).
+try:
+    from vocal_helper.eot import SemanticEOTStage  # type: ignore[assignment]
+except Exception:  # pragma: no cover — optional
+    SemanticEOTStage = None  # type: ignore[assignment]
+
+try:
+    from vocal_helper.eot_bench import (  # type: ignore[assignment]
+        EOTPair,
+        false_cutoff_rate,
+        hang_rate,
+    )
+    from vocal_helper.eot_bench import score as eot_score  # type: ignore[assignment]
+except Exception:  # pragma: no cover — optional
+    EOTPair = None  # type: ignore[assignment]
+    false_cutoff_rate = None  # type: ignore[assignment]
+    hang_rate = None  # type: ignore[assignment]
+    eot_score = None  # type: ignore[assignment]
+
+try:
+    from vocal_helper.parallel_pipelines import (  # type: ignore[assignment]
+        run_parallel_async,
+        run_parallel_sync,
+    )
+except Exception:  # pragma: no cover — optional
+    run_parallel_async = None  # type: ignore[assignment]
+    run_parallel_sync = None  # type: ignore[assignment]
+
+try:
+    from vocal_helper.tts import PiperTTS  # type: ignore[assignment]
+except Exception:  # pragma: no cover — optional
+    PiperTTS = None  # type: ignore[assignment]
 
 __all__ = [
     "sources",
@@ -107,4 +153,6 @@ __all__ = [
     "transcribe_pcm",
 ]
 
-__version__ = "0.1.0"
+__author__ = "Warith Harchaoui, Ph.D."
+__email__ = "warithmetics@deraison.ai"
+__version__ = "0.2.0"

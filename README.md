@@ -163,6 +163,36 @@ When to use which :
 | Meeting recording / podcast / lecture / voicemail batch | `OfflinePipeline` | Pyannote 3.1 on the full audio is the highest-DER answer per the pdbms 2026-06-29 canonical study — median DER 0.116 on AMI dev-slice, inside Bredin 2023's band. |
 | ≤ 60 s clips, fast turn-around | `OfflinePipeline(backend='nemo')` | NeMo Sortformer end-to-end attribution gives conf ≈ 0 ; RTF ≈ 0.004. |
 
+## Multi-surface exposure
+
+`vocal-helper` exposes the same pipeline through four coherent surfaces so it can slot into any host — a shell, a Python script, a container behind a reverse proxy, or an MCP-aware agent — without re-implementing the wiring anywhere else.
+
+| Surface | Entry point | Extra | Kind of use |
+|---|---|---|---|
+| argparse CLI | `vocal-helper` | (none — ships with the base install) | Shell scripts, cron, headless CI, pipes to `jq`. |
+| click CLI | `vocal-helper-click` | `[cli]` | Rich `--help`, shell completion, chained sub-commands. |
+| FastAPI HTTP | `uvicorn vocal_helper.api:app` | `[api]` | Behind a reverse proxy — upload a file, get a transcript / a full event list, `GET /docs` for the OpenAPI. |
+| MCP tools | `vocal-helper-mcp` | `[api,mcp]` | Claude Desktop, IDE integrations, custom agents — publishes `transcribe` and `pipeline` as first-class tools. |
+
+```bash
+# argparse
+vocal-helper transcribe clip.wav --language en
+vocal-helper file meeting.wav --offline --language en --llm
+
+# click twin
+vocal-helper-click transcribe clip.wav --language en
+
+# HTTP surface
+uvicorn vocal_helper.api:app --host 0.0.0.0 --port 8000 &
+curl -F 'file=@clip.wav' -F 'language=en' http://localhost:8000/transcribe
+curl -F 'file=@meeting.wav' -F 'llm=true'  http://localhost:8000/pipeline
+
+# MCP surface (same FastAPI app + /mcp endpoint mounted)
+vocal-helper-mcp
+```
+
+A one-line container recipe ships in `Dockerfile` — `docker build -t vocal-helper .` gets you an image serving both HTTP and MCP on `:8000`. See `GUI.md` for the (WIP) visual-product plan.
+
 ## Subscribers — fan-out without owning the loop
 
 Every stage can be observed without consuming the merged output stream :

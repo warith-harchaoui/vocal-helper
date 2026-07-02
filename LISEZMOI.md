@@ -113,6 +113,36 @@ vocal-helper file chemin/vers/conversation.wav --llm
 
 La source fichier respecte le tempo réel par défaut ; `--no-real-time` accélère le traitement (mode batch).
 
+## Exposition multi-surface
+
+`vocal-helper` expose la même pipeline via quatre surfaces cohérentes : un script shell, un script Python, un conteneur derrière un reverse proxy, ou un agent compatible MCP — sans re-câbler la logique ailleurs.
+
+| Surface | Point d'entrée | Extra | Usage |
+|---|---|---|---|
+| CLI argparse | `vocal-helper` | (aucun — livré avec l'install de base) | Scripts shell, cron, CI headless, redirection vers `jq`. |
+| CLI click | `vocal-helper-click` | `[cli]` | `--help` riche, complétion shell, sous-commandes chaînées. |
+| HTTP FastAPI | `uvicorn vocal_helper.api:app` | `[api]` | Derrière un reverse proxy — upload d'un fichier, réponse transcription/événements, `GET /docs` pour l'OpenAPI. |
+| Outils MCP | `vocal-helper-mcp` | `[api,mcp]` | Claude Desktop, intégrations IDE, agents personnalisés — publie `transcribe` et `pipeline` comme outils natifs. |
+
+```bash
+# argparse
+vocal-helper transcribe clip.wav --language fr
+vocal-helper file reunion.wav --offline --language fr --llm
+
+# jumeau click
+vocal-helper-click transcribe clip.wav --language fr
+
+# surface HTTP
+uvicorn vocal_helper.api:app --host 0.0.0.0 --port 8000 &
+curl -F 'file=@clip.wav' -F 'language=fr' http://localhost:8000/transcribe
+curl -F 'file=@reunion.wav' -F 'llm=true' http://localhost:8000/pipeline
+
+# surface MCP (même app FastAPI + endpoint /mcp monté)
+vocal-helper-mcp
+```
+
+Une recette Docker en une ligne est livrée dans `Dockerfile` — `docker build -t vocal-helper .` produit une image servant HTTP + MCP sur `:8000`. Voir `GUI.md` pour le plan (WIP) du produit visuel.
+
 ## Abonnés — fan-out sans posséder la boucle
 
 Chaque étage peut être observé sans consommer le flux fusionné :

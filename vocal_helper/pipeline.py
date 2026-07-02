@@ -33,7 +33,15 @@ from dataclasses import dataclass, field
 
 from vocal_helper.asr import WhisperStage
 from vocal_helper.diar import OfflineDiarStage, OnlineDiarStage
-from vocal_helper.eot import SemanticEOTStage
+
+# Optional in-flight module — the semantic EOT stage lives in Warith's
+# WIP branch and is not always on disk. Guarded so the base pipeline
+# stays importable when the module is absent.
+try:
+    from vocal_helper.eot import SemanticEOTStage  # type: ignore[assignment]
+except Exception:  # pragma: no cover — optional
+    SemanticEOTStage = None  # type: ignore[assignment]
+
 from vocal_helper.llm import GemmaAnalystStage
 from vocal_helper.types import (
     DiarizedSegment,

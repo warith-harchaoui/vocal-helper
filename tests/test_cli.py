@@ -165,3 +165,87 @@ def test_cli_parser_rejects_unknown_backend() -> None:
     parser = _build_parser()
     with pytest.raises(SystemExit):
         parser.parse_args(["mic", "--diar-backend", "kaldi"])
+
+
+# ---------------------------------------------------------------------------
+# argparse surface tests — vocal_helper.cli_argparse
+#
+# These assert that the canonical argparse CLI ships the four expected
+# subcommands (mic / file / url / transcribe) and that each subcommand's
+# ``--help`` exits cleanly. No pipeline is actually started.
+# ---------------------------------------------------------------------------
+
+
+def test_argparse_parser_builds_without_error() -> None:
+    """Building the parser should never fail (imports, subcommand wiring)."""
+    from vocal_helper.cli_argparse import build_parser
+
+    parser = build_parser()
+    subparsers_action = next(
+        a for a in parser._actions if a.__class__.__name__ == "_SubParsersAction"
+    )
+    expected = {"mic", "file", "url", "transcribe"}
+    assert expected.issubset(set(subparsers_action.choices.keys()))
+
+
+def test_argparse_help_exits_zero(capsys: pytest.CaptureFixture) -> None:
+    """``vocal-helper --help`` should exit with code 0 and print usage."""
+    from vocal_helper.cli_argparse import main
+
+    with pytest.raises(SystemExit) as exc:
+        main(["--help"])
+    assert exc.value.code == 0
+    captured = capsys.readouterr()
+    assert "vocal-helper" in captured.out.lower()
+
+
+@pytest.mark.parametrize("sub", ["mic", "file", "url", "transcribe"])
+def test_argparse_subcommand_help_exits_zero(sub: str) -> None:
+    """Every subcommand's ``--help`` should exit 0 (no wiring bug)."""
+    from vocal_helper.cli_argparse import main
+
+    with pytest.raises(SystemExit) as exc:
+        main([sub, "--help"])
+    assert exc.value.code == 0
+
+
+# ---------------------------------------------------------------------------
+# Click surface tests — vocal_helper.cli_click
+# ---------------------------------------------------------------------------
+
+
+def test_click_group_has_expected_subcommands() -> None:
+    """The click group must expose the same subcommands as the argparse CLI."""
+    # ``click`` lives in the optional [cli] extra. Skip cleanly if absent.
+    _click = pytest.importorskip("click")
+
+    from vocal_helper.cli_click import cli as click_cli
+
+    expected = {"mic", "file", "url", "transcribe"}
+    assert expected.issubset(set(click_cli.commands.keys()))
+
+
+def test_click_help_exits_zero() -> None:
+    """``vocal-helper-click --help`` should exit 0."""
+    _click = pytest.importorskip("click")
+    from click.testing import CliRunner
+
+    from vocal_helper.cli_click import cli as click_cli
+
+    runner = CliRunner()
+    result = runner.invoke(click_cli, ["--help"])
+    assert result.exit_code == 0
+    assert "vocal helper" in result.output.lower()
+
+
+@pytest.mark.parametrize("sub", ["mic", "file", "url", "transcribe"])
+def test_click_subcommand_help_exits_zero(sub: str) -> None:
+    """Every click subcommand's ``--help`` should exit 0."""
+    _click = pytest.importorskip("click")
+    from click.testing import CliRunner
+
+    from vocal_helper.cli_click import cli as click_cli
+
+    runner = CliRunner()
+    result = runner.invoke(click_cli, [sub, "--help"])
+    assert result.exit_code == 0
