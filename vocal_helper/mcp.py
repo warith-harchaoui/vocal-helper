@@ -2,8 +2,8 @@
 Vocal Helper — Model Context Protocol (MCP) surface.
 
 Adapter that exposes the FastAPI app defined in :mod:`vocal_helper.api`
-as MCP tools so an MCP-aware client (Claude Desktop, custom agents,
-IDE integrations, …) can call ``transcribe`` / ``pipeline`` as
+as MCP tools so any MCP-aware host (agent runtimes, IDE
+integrations, custom shells) can call ``transcribe`` / ``pipeline`` as
 first-class tools. Uses :mod:`fastapi_mcp`
 (https://github.com/tadata-org/fastapi_mcp) — one line wraps the whole
 existing HTTP surface, so we never duplicate the route definitions.

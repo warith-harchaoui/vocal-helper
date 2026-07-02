@@ -172,7 +172,7 @@ When to use which :
 | argparse CLI | `vocal-helper` | (none — ships with the base install) | Shell scripts, cron, headless CI, pipes to `jq`. |
 | click CLI | `vocal-helper-click` | `[cli]` | Rich `--help`, shell completion, chained sub-commands. |
 | FastAPI HTTP | `uvicorn vocal_helper.api:app` | `[api]` | Behind a reverse proxy — upload a file, get a transcript / a full event list, `GET /docs` for the OpenAPI. |
-| MCP tools | `vocal-helper-mcp` | `[api,mcp]` | Claude Desktop, IDE integrations, custom agents — publishes `transcribe` and `pipeline` as first-class tools. |
+| MCP tools | `vocal-helper-mcp` | `[api,mcp]` | Any MCP-aware host — agent runtimes, IDE integrations — publishes `transcribe` and `pipeline` as first-class tools. |
 
 ```bash
 # argparse
