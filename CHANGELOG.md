@@ -34,13 +34,14 @@ This project adheres to [Semantic Versioning](https://semver.org).
   isolates `$HF_TOKEN` / `$VOCAL_HELPER_SETTINGS` so the developer's
   real `settings.yaml` cannot leak into CI assertions.
 - `.github/workflows/ci.yml` hardened with three jobs: `lint`
-  (ruff check + ruff format --check informational), `no-more-claude`
+  (ruff check + ruff format --check informational), `attribution-audit`
   (runs the audit script below), and `test` (Python matrix
   3.10/3.11/3.12/3.13 + coverage report on 3.12). Adds pip caching
   and per-ref concurrency cancellation.
 - `nomoreclaude.sh` — portable audit script that scans every commit
-  and every tracked file for Claude/Anthropic mentions. Default mode
-  is dry-run (exits 1 on findings); `--apply` rewrites history with
+  and every tracked file for unwanted AI-attribution mentions (see the
+  script's own `PATTERN` for the exact regex). Default mode is dry-run
+  (exits 1 on findings); `--apply` rewrites history with
   `git-filter-repo` (or `git filter-branch` fallback); `--apply
   --push` force-pushes after confirmation. Wired into CI as a hard
   gate.

@@ -55,9 +55,9 @@ Three jobs run on every push and PR to `main`
 
 - **lint** — `ruff check .` (hard fail) + `ruff format --check .`
   (informational until adopted).
-- **no-more-claude** — runs `nomoreclaude.sh` in audit mode. Hard
-  fail if any commit subject/author or tracked file mentions
-  Claude / Anthropic / Claude Code.
+- **attribution-audit** — runs `nomoreclaude.sh` in audit mode. Hard
+  fail if any commit subject/author or tracked file matches the
+  unwanted AI-attribution regex encoded inside the script.
 - **test** — pytest across Python 3.10 → 3.13 with pip caching;
   coverage XML uploaded as an artifact on the 3.12 leg.
 

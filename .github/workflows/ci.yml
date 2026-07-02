@@ -37,8 +37,8 @@ jobs:
         run: ruff format --check .
         continue-on-error: true   # Formatter is informational until we adopt it.
 
-  no-more-claude:
-    name: No Claude / Anthropic mentions
+  attribution-audit:
+    name: Attribution audit
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
