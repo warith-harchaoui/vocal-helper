@@ -22,25 +22,46 @@ Vocal Helper is an **async producer/consumer pipeline** turning audio into diari
 
 ## Pipelines
 
+Every edge is a bounded `asyncio.Queue` ; every stage is its own
+coroutine. Colours follow the
+[AI Helpers palette](https://harchaoui.org/warith/colors/).
+
 ### Online (streaming)
 
+```mermaid
+flowchart LR
+    S([Source<br/><i>PCM frames</i>]):::source
+      --> V[VAD<br/><i>Silero v5 ONNX</i>]:::vad
+      --> D[Online Diar<br/><i>TitaNet · cosine clustering</i>]:::diar
+      --> A[STT<br/><i>whisper.cpp turbo</i>]:::asr
+      -.-> L[LLM analyst<br/><i>gemma3:4b · rolling summary</i>]:::llm
+
+    classDef source fill:#CCE4FF,stroke:#007AFF,stroke-width:2px,color:#0b3d91
+    classDef vad    fill:#00ffef,stroke:#79dbdc,stroke-width:2px,color:#003b3c
+    classDef diar   fill:#EFDCF8,stroke:#AF52DE,stroke-width:2px,color:#4a1063
+    classDef asr    fill:#FFEACC,stroke:#FF9500,stroke-width:2px,color:#5a3300
+    classDef llm    fill:#D4F5D9,stroke:#28CD41,stroke-width:2px,color:#144d1e,stroke-dasharray: 5 5
 ```
-[Source]   →  [VAD]   →  [Online Diar]  →  [STT]   →  [LLM analyst (optional)]
-  PCM         voiced     speaker-tagged     text          rolling summary
-  frames      segments   segments
-```
+
+The dashed edge marks the analyst as optional (`llm=None` disables it).
 
 ### Offline (batch)
 
-```
-[Source]   →  [Offline Diar]  →  [STT]  →  [LLM analyst (optional)]
-  full        full-buffer        text       rolling summary
-  PCM         pyannote 3.1
-              + chunk+stitch
-              past 300 s
+```mermaid
+flowchart LR
+    S([Source<br/><i>full PCM buffer</i>]):::source
+      --> D[Offline Diar<br/><i>pyannote 3.1<br/>+ 300 s chunk-and-stitch</i>]:::diar
+      --> A[STT<br/><i>whisper.cpp turbo</i>]:::asr
+      -.-> L[LLM analyst<br/><i>gemma3:4b · rolling summary</i>]:::llm
+
+    classDef source fill:#CCE4FF,stroke:#007AFF,stroke-width:2px,color:#0b3d91
+    classDef diar   fill:#EFDCF8,stroke:#AF52DE,stroke-width:2px,color:#4a1063
+    classDef asr    fill:#FFEACC,stroke:#FF9500,stroke-width:2px,color:#5a3300
+    classDef llm    fill:#D4F5D9,stroke:#28CD41,stroke-width:2px,color:#144d1e,stroke-dasharray: 5 5
 ```
 
-All edges are bounded `asyncio.Queue`s ; every stage is its own coroutine.
+No VAD in the offline path — the diarizer consumes the whole buffer
+and does its own segmentation.
 
 | Stage | Backend | Notes |
 |---|---|---|
@@ -246,3 +267,11 @@ Vocal Helper specialises that decision : since the VAD already isolates each voi
 ## Author
 
 [Warith HARCHAOUI](https://linkedin.com/in/warith-harchaoui) — `warith@deraison.ai`
+
+## Acknowledgements
+
+Special thanks to
+[Mohamed Chelali](https://mchelali.github.io),
+[Bachir Zerroug](https://www.linkedin.com/in/bachirzerroug)
+and
+[Edmond Jacoupeau](https://www.crunchbase.com/person/edmond-jacoupeau).

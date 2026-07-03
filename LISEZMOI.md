@@ -17,13 +17,47 @@ Vocal Helper est un **pipeline producteur/consommateur asynchrone** qui transfor
 
 ## Pipeline
 
-```
-[Source]   →  [VAD]   →  [Diarisation en ligne]  →  [STT]  →  [Analyste LLM (optionnel)]
-  PCM         segments  segments étiquetés         texte         résumé glissant
-  20 ms       voisés    par locuteur
+Toutes les frontières entre étages sont des `asyncio.Queue` bornées ;
+chaque étage est sa propre coroutine. Les couleurs suivent la
+[palette AI Helpers](https://harchaoui.org/warith/colors/).
+
+### Online (streaming)
+
+```mermaid
+flowchart LR
+    S([Source<br/><i>trames PCM</i>]):::source
+      --> V[VAD<br/><i>Silero v5 ONNX</i>]:::vad
+      --> D[Diar en ligne<br/><i>TitaNet · clustering cosinus</i>]:::diar
+      --> A[STT<br/><i>whisper.cpp turbo</i>]:::asr
+      -.-> L[Analyste LLM<br/><i>gemma3:4b · résumé glissant</i>]:::llm
+
+    classDef source fill:#CCE4FF,stroke:#007AFF,stroke-width:2px,color:#0b3d91
+    classDef vad    fill:#00ffef,stroke:#79dbdc,stroke-width:2px,color:#003b3c
+    classDef diar   fill:#EFDCF8,stroke:#AF52DE,stroke-width:2px,color:#4a1063
+    classDef asr    fill:#FFEACC,stroke:#FF9500,stroke-width:2px,color:#5a3300
+    classDef llm    fill:#D4F5D9,stroke:#28CD41,stroke-width:2px,color:#144d1e,stroke-dasharray: 5 5
 ```
 
-Toutes les frontières entre étages sont des `asyncio.Queue` bornées ; chaque étage est sa propre coroutine.
+L'arête pointillée indique que l'analyste LLM est optionnel
+(`llm=None` le désactive).
+
+### Offline (batch)
+
+```mermaid
+flowchart LR
+    S([Source<br/><i>buffer PCM complet</i>]):::source
+      --> D[Diar offline<br/><i>pyannote 3.1<br/>+ chunk-and-stitch 300 s</i>]:::diar
+      --> A[STT<br/><i>whisper.cpp turbo</i>]:::asr
+      -.-> L[Analyste LLM<br/><i>gemma3:4b · résumé glissant</i>]:::llm
+
+    classDef source fill:#CCE4FF,stroke:#007AFF,stroke-width:2px,color:#0b3d91
+    classDef diar   fill:#EFDCF8,stroke:#AF52DE,stroke-width:2px,color:#4a1063
+    classDef asr    fill:#FFEACC,stroke:#FF9500,stroke-width:2px,color:#5a3300
+    classDef llm    fill:#D4F5D9,stroke:#28CD41,stroke-width:2px,color:#144d1e,stroke-dasharray: 5 5
+```
+
+Pas de VAD dans le chemin offline — la diarisation absorbe le buffer
+complet et fait sa propre segmentation.
 
 | Étage | Modèle | Notes |
 |---|---|---|
@@ -187,3 +221,11 @@ Vocal Helper spécialise cette décision : puisque le VAD isole déjà chaque se
 ## Auteur
 
 [Warith HARCHAOUI](https://linkedin.com/in/warith-harchaoui) — `warith@deraison.ai`
+
+## Remerciements
+
+Un grand merci à
+[Mohamed Chelali](https://mchelali.github.io),
+[Bachir Zerroug](https://www.linkedin.com/in/bachirzerroug)
+et
+[Edmond Jacoupeau](https://www.crunchbase.com/person/edmond-jacoupeau).
