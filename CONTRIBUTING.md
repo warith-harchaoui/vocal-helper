@@ -2,12 +2,44 @@
 
 Thanks for picking this up.
 
+Before you file an issue or open a PR, please read
+[`SECURITY.md`](SECURITY.md) if the report is security-sensitive, and
+[`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md) for community expectations.
+Deployment / production questions belong in
+[`TECHNICAL_STACK.md`](TECHNICAL_STACK.md), and every non-obvious
+default is motivated by a script under [`studies/`](studies/README.md).
+
 ## Dev install
 
 ```bash
 git clone https://github.com/warith-harchaoui/vocal-helper.git
 cd vocal-helper
 pip install -e '.[dev,all]'
+```
+
+## Pre-commit hooks
+
+The repo ships a `.pre-commit-config.yaml` that mirrors the CI gates
+locally. Install once :
+
+```bash
+pip install pre-commit
+pre-commit install                     # runs on every ``git commit``
+pre-commit install --hook-type pre-push  # runs pytest + attribution audit before push
+```
+
+The hooks are :
+
+- **Commit time (fast)** — `ruff --fix`, trailing whitespace,
+  end-of-file newline, YAML / TOML syntax, merged large files, LF
+  line endings.
+- **Push time (slower)** — `pytest -q` (unit only, no integration)
+  and `bash nomoreclaude.sh` (attribution audit).
+
+Run manually against the whole tree :
+
+```bash
+pre-commit run --all-files
 ```
 
 ## Tests

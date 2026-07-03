@@ -148,6 +148,43 @@ markers = [
 ]
 addopts = "-m 'not integration'"
 
+[tool.coverage.run]
+source = ["vocal_helper"]
+branch = true
+omit = [
+    # Optional-import modules that need real backend installs to hit :
+    # torch (eot_bench), piper-tts (tts), asyncio-heavy demo
+    # (parallel_pipelines). Excluded from the CI floor until they get
+    # dedicated integration tests.
+    "vocal_helper/eot.py",
+    "vocal_helper/eot_bench.py",
+    "vocal_helper/tts.py",
+    "vocal_helper/parallel_pipelines.py",
+    # Auto-generated / trivial re-exports.
+    "vocal_helper/__init__.py",
+]
+
+[tool.coverage.report]
+# Fail the CI if headline coverage on the core surface drops below
+# this floor. Set deliberately below the current headline (~ 40 %
+# after omitting model-loading paths) so an unrelated PR doesn't
+# red-line the pipeline. Bump in a standalone PR as the ML-backed
+# stages get their own integration harnesses.
+fail_under = 35
+show_missing = true
+skip_covered = false
+exclude_lines = [
+    "pragma: no cover",
+    "raise NotImplementedError",
+    "if TYPE_CHECKING:",
+    "if __name__ == .__main__.:",
+    # Model-loading paths behind lazy imports — the ImportError arm
+    # is only hit when the optional extra is missing, and the
+    # ``load()`` bodies require the heavy backend, so they live under
+    # the ``integration`` marker rather than the default suite.
+    "except ImportError",
+]
+
 [tool.ruff]
 line-length = 100
 target-version = "py310"
