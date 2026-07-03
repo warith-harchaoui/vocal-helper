@@ -1,0 +1,70 @@
+# pre-commit hooks — mirror the CI gates locally.
+#
+# Setup :
+#     pip install pre-commit
+#     pre-commit install
+#
+# Run manually against the whole tree :
+#     pre-commit run --all-files
+#
+# The hooks stay in sync with .github/workflows/ci.yml — any change
+# here should be mirrored there and vice versa.
+
+repos:
+  # ---------------------------------------------------------------------
+  # Filesystem hygiene — trivial fixes that never touch semantics.
+  # ---------------------------------------------------------------------
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-toml
+      - id: check-added-large-files
+        args: [--maxkb=1024]
+      - id: check-merge-conflict
+      - id: mixed-line-ending
+        args: [--fix=lf]
+
+  # ---------------------------------------------------------------------
+  # Ruff — same rules as ``pyproject.toml`` [tool.ruff.lint].
+  # ---------------------------------------------------------------------
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.9.1
+    hooks:
+      - id: ruff
+        args: [--fix]
+      - id: ruff-format
+        # Formatter is informational until adopted repo-wide.
+        stages: [manual]
+
+  # ---------------------------------------------------------------------
+  # Attribution audit — reject any commit that would ship
+  # AI-attribution mentions (Claude / Anthropic / Claude-Code / …).
+  # Same script that runs in the CI ``attribution-audit`` job.
+  # ---------------------------------------------------------------------
+  - repo: local
+    hooks:
+      - id: attribution-audit
+        name: attribution-audit
+        entry: bash nomoreclaude.sh
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push]
+
+  # ---------------------------------------------------------------------
+  # Pytest unit smoke — the default -m 'not integration' run.
+  # Skipped by default at commit-time (too slow for tight loops) ; wired
+  # to ``pre-push`` so the local flow still catches regressions.
+  # ---------------------------------------------------------------------
+  - repo: local
+    hooks:
+      - id: pytest-unit
+        name: pytest (unit, no integration)
+        entry: pytest -q
+        language: system
+        pass_filenames: false
+        types: [python]
+        stages: [pre-push]

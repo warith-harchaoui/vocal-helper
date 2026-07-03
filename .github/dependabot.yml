@@ -1,0 +1,45 @@
+# Dependabot — keep upstream Python and GitHub Actions deps fresh.
+#
+# The scope stays narrow because the heavy ML deps (torch, pyannote,
+# whisper.cpp, NeMo, tensorflow) sit behind optional extras that we
+# validate manually via ``studies/`` sweeps ; automating those bumps
+# would produce noise PRs that always need human review.
+#
+# See docs.github.com/en/code-security/dependabot/dependabot-version-updates
+
+version: 2
+updates:
+  # Python runtime + dev deps declared in pyproject.toml.
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "Europe/Paris"
+    open-pull-requests-limit: 5
+    reviewers:
+      - "warith-harchaoui"
+    labels:
+      - "dependencies"
+      - "python"
+    # Skip the ML extras — model backends are pinned to a specific
+    # feature set validated by the study log, not to the latest release.
+    ignore:
+      - dependency-name: "torch"
+      - dependency-name: "torchaudio"
+      - dependency-name: "pyannote.audio"
+      - dependency-name: "nemo-toolkit"
+      - dependency-name: "pywhispercpp"
+      - dependency-name: "silero-vad"
+      - dependency-name: "ollama"
+
+  # GitHub Actions used in .github/workflows/.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    open-pull-requests-limit: 3
+    labels:
+      - "dependencies"
+      - "github-actions"

@@ -95,9 +95,20 @@ api = [
 mcp = [
     "fastapi-mcp>=0.3",
 ]
-# Convenience meta-extra : everything.
+# Local neural TTS via Piper — CPU-only, ONNX, voices auto-downloaded
+# from rhasspy/piper-voices on Hugging Face. See vocal_helper.tts.
+tts = [
+    "piper-tts>=1.2",
+    "soundfile>=0.13",
+]
+# Convenience meta-extra : everything. Includes ``nemo`` since the
+# 2026-06-30 study made TitaNet the default online-diar embedding
+# (76 % wider separability margin vs pyannote/embedding). Skip it
+# explicitly if the ~ 5 GB NeMo install footprint is prohibitive :
+#   pip install 'vocal-helper[cli,api,mcp,mic,stream,pyannote,llm,tts]'
+# then pass ``backend="pyannote"`` to ``OnlineDiarStage``.
 all = [
-    "vocal-helper[cli,api,mcp,mic,stream,pyannote,llm]",
+    "vocal-helper[cli,api,mcp,mic,stream,pyannote,nemo,llm,tts]",
 ]
 dev = [
     "pytest>=8",
@@ -110,7 +121,12 @@ dev = [
 
 [project.urls]
 Homepage = "https://github.com/warith-harchaoui/vocal-helper"
+Documentation = "https://github.com/warith-harchaoui/vocal-helper#readme"
+Repository = "https://github.com/warith-harchaoui/vocal-helper"
 Issues = "https://github.com/warith-harchaoui/vocal-helper/issues"
+Changelog = "https://github.com/warith-harchaoui/vocal-helper/blob/main/CHANGELOG.md"
+"Deployment guide" = "https://github.com/warith-harchaoui/vocal-helper/blob/main/TECHNICAL_STACK.md"
+"Study log" = "https://github.com/warith-harchaoui/vocal-helper/tree/main/studies"
 
 [project.scripts]
 vocal-helper = "vocal_helper.cli_argparse:main"
@@ -119,7 +135,12 @@ vocal-helper-mcp = "vocal_helper.mcp:main"
 
 [tool.setuptools.packages.find]
 include = ["vocal_helper*"]
-exclude = ["tests*", "assets*", "examples*"]
+exclude = ["tests*", "assets*", "examples*", "studies*", "doc*"]
+
+# PEP 561 — expose the py.typed marker so mypy / pyright pick up our
+# inline type hints for downstream consumers.
+[tool.setuptools.package-data]
+"vocal_helper" = ["py.typed"]
 
 [tool.pytest.ini_options]
 markers = [

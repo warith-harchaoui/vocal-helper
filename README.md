@@ -2,7 +2,12 @@
 
 [🇫🇷](LISEZMOI.md) · [🇬🇧](README.md)
 
-[![License: BSD-3-Clause](https://img.shields.io/badge/License-BSD%203--Clause-blue.svg)](LICENSE) [![Python](https://img.shields.io/badge/python-3.10%E2%80%933.13-blue.svg)](#)
+[![CI](https://github.com/warith-harchaoui/vocal-helper/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/warith-harchaoui/vocal-helper/actions/workflows/ci.yml)
+[![License: BSD-3-Clause](https://img.shields.io/badge/License-BSD%203--Clause-blue.svg)](LICENSE)
+[![Python](https://img.shields.io/badge/python-3.10%E2%80%933.13-blue.svg)](#)
+[![Code style: ruff](https://img.shields.io/badge/code%20style-ruff-000000.svg)](https://github.com/astral-sh/ruff)
+[![Attribution audit](https://img.shields.io/badge/attribution--audit-clean-brightgreen.svg)](nomoreclaude.sh)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](.github/PULL_REQUEST_TEMPLATE.md)
 
 `Vocal Helper` belongs to a collection of libraries called `AI Helpers` developed for building Artificial Intelligence.
 
@@ -40,12 +45,19 @@ All edges are bounded `asyncio.Queue`s ; every stage is its own coroutine.
 | Stage | Backend | Notes |
 |---|---|---|
 | **VAD** *(online only)* | Silero v5 ONNX (CPU) | 32 ms window, `activity_threshold=0.5`, default `min_silence_ms=300`. |
-| **Online diarization** | `pyannote/embedding` (default) or `nvidia/titanet_large` (NeMo) | Per-segment embedding + cosine-distance running-mean clustering, `join_threshold=0.30`. Calibrated on AMI dev-slice N=8 (2026-06-30). |
+| **Online diarization** | `nvidia/titanet_large` (NeMo, default) or `pyannote/embedding` | Per-segment embedding + cosine-distance running-mean clustering, `join_threshold=0.30`. Default backend switched to NeMo by the 2026-06-30 embedding sweep (`studies/diar_embedding_backend.py`): TitaNet has **+76 % separability margin** (inter − intra median cosine = 0.354 vs pyannote 0.201) on AMI dev-slice, at 7× per-call latency (45 ms vs 6 ms — still negligible per voiced segment). Pass `backend='pyannote'` to skip the ~ 5 GB NeMo install. |
 | **Offline diarization** | `pyannote/speaker-diarization-3.1` (default) or `nvidia/diar_sortformer_v1` (NeMo) | Full-buffer call. Long inputs (> `ideal_duration_s` : **300 s** for pyannote, **60 s** for NeMo) are auto-chunked with 10 s overlap and stitched by cosine AHC at `stitch_threshold=0.35`. Constants codified in pdbms §10.6 (Bredin 2023 band, AMI dev-slice median DER 0.135). |
-| **STT** | [`pywhispercpp`](https://github.com/abdeladim-s/pywhispercpp) turbo | `large-v3-turbo-q5_0` by default. Word timestamps on. Runs in a thread pool so the event loop never stalls. |
-| **LLM analyst** *(optional)* | Ollama-served Gemma 4 e4b (`gemma4:e4b`) | Rolling summary of everything **older than 60 s**. The recent 60 s window is kept verbatim. Summary refreshes every **60 s of evicted content** (`flush_every_s=60`) — Pareto winner on cos_sim vs offline reference in `studies/llm_cadence_sweep.py` (2026-06-30 sweep, AMI IS1008a). Apple-Silicon `-mlx` variant auto-selected by Ollama. |
+| **STT** | [`pywhispercpp`](https://github.com/abdeladim-s/pywhispercpp) turbo | `large-v3-turbo-q5_0` by default. Word timestamps on. Runs in a thread pool so the event loop never stalls. **Strongly recommended: supply `initial_prompt` (domain bias)** — cuts WER 15-25 pp and saves up to 39 % RTF per the 2026-06-30 sweep (`studies/whisper_prompt_lang_lock.py`). |
+| **LLM analyst** *(optional)* | Ollama-served Gemma 3 4b (`gemma3:4b`) | Rolling summary of everything **older than 60 s**. The recent 60 s window is kept verbatim. Summary refreshes every **60 s of evicted content** (`flush_every_s=60`). Default model `gemma3:4b` selected by the 2026-06-30 7-model Pareto sweep (`studies/llm_model_size_sweep.py`): it dominates `gemma4:e4b-mlx` on BOTH RTF (0.099 vs 0.313, **3× faster**) AND cos_sim (0.466 vs 0.420). Pareto front also exposes `gemma4:12b-mlx` (RTF 2.45, cos_sim 0.496) for offline-batch quality runs, and `qwen2.5:3b` (RTF 0.043) for tight RTF budgets. |
 
 ## Quickstart
+
+> **Deploying on a GPU server?** See [TECHNICAL_STACK.md](TECHNICAL_STACK.md)
+> for the full stack recipe : CUDA + PyTorch, whisper.cpp with `GGML_CUDA=on`,
+> pyannote 3.1 on MPS/CUDA, Ollama systemd, Docker Compose template,
+> expected RTFs per GPU, and a 10-step reproducible install manifest
+> covering the whole AI Helpers suite (os-helper, audio-helper,
+> podcast-helper, youtube-helper, vocal-helper, music-helper).
 
 ### Install
 
@@ -61,13 +73,13 @@ The `[all]` extra brings the mic source, pyannote, and Ollama. Pick à la carte 
 | `[mic]` | `capture-helper` | Live microphone source |
 | `[pyannote]` | `pyannote.audio` | `diar={'backend': 'pyannote'}` (default) |
 | `[nemo]` | `torch`, `nemo-toolkit[asr]` | `diar={'backend': 'nemo'}` |
-| `[llm]` | `ollama` | `llm={'model': 'gemma4:e4b'}` |
+| `[llm]` | `ollama` | `llm={'model': 'gemma3:4b'}` (default) |
 | `[all]` | All of the above | One-line install |
 
 You also need [Ollama](https://ollama.com) running locally if you enable the LLM analyst :
 
 ```bash
-ollama pull gemma4:e4b
+ollama pull gemma3:4b   # default (or gemma4:12b-mlx for max quality, qwen2.5:3b for min RTF)
 ollama serve   # usually launched at install time
 ```
 
@@ -110,7 +122,7 @@ async def main():
         config=vh.PipelineConfig(
             diar={"backend": "pyannote"},
             asr={"model": "large-v3-turbo-q5_0", "language": "fr"},
-            llm={"model": "gemma4:e4b"},   # remove to disable
+            llm={"model": "gemma3:4b"},   # remove to disable
         ),
     )
     async for ev in pipeline.run():
@@ -143,7 +155,7 @@ async def main():
         config=vh.OfflinePipelineConfig(
             diar={"backend": "pyannote"},   # or "nemo" for ≤ 60 s clips
             asr={"language": "en"},
-            llm={"model": "gemma4:e4b"},    # remove to disable
+            llm={"model": "gemma3:4b"},    # remove to disable
         ),
     )
     async for ev in pipeline.run():
@@ -225,8 +237,11 @@ Vocal Helper specialises that decision : since the VAD already isolates each voi
 
 - v0.2 — JSONL output writer + standard WebSocket relay (mirroring `capture-helper`'s publish path).
 - v0.2 — language-locked Whisper rejection for ASR hallucinations on silence.
-- v0.3 — anchor speaker IDs to enrolled voiceprints (carry over across sessions).
+- v0.2 — `SemanticEOTStage` enabled-by-default after the 2026-06-30 EOT study validates the false-cut reduction on AMI (LiveKit-style ; see `studies/eot_semantic_vs_silero.py`).
+- v0.2 — auto LLM-engine selector : Ollama+MLX on Apple Silicon, vLLM on Linux+NVIDIA, llama.cpp gguf on CPU fallback.
+- v0.3 — out of scope : speaker ID anchoring via pre-enrolled voiceprints (excluded by user's industrial deployment compliance constraints — IDs stay anonymous `S0`, `S1`, … within a session).
 - v0.3 — replace the in-stage `_PyannoteEmbedder` with the overlap-aware variant from `pdbms.diar.backends.pyannote.embed_overlap_aware` for noisy mixes.
+- v0.3 — Pipecat-style typed Frame events with SystemFrame priority queue (clean shutdown / out-of-band control signals that bypass DataFrame queues).
 
 ## Author
 

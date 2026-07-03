@@ -2,7 +2,12 @@
 
 [🇫🇷](LISEZMOI.md) · [🇬🇧](README.md)
 
-[![License: BSD-3-Clause](https://img.shields.io/badge/License-BSD%203--Clause-blue.svg)](LICENSE) [![Python](https://img.shields.io/badge/python-3.10%E2%80%933.13-blue.svg)](#)
+[![CI](https://github.com/warith-harchaoui/vocal-helper/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/warith-harchaoui/vocal-helper/actions/workflows/ci.yml)
+[![License: BSD-3-Clause](https://img.shields.io/badge/License-BSD%203--Clause-blue.svg)](LICENSE)
+[![Python](https://img.shields.io/badge/python-3.10%E2%80%933.13-blue.svg)](#)
+[![Code style: ruff](https://img.shields.io/badge/code%20style-ruff-000000.svg)](https://github.com/astral-sh/ruff)
+[![Audit d'attribution](https://img.shields.io/badge/attribution--audit-clean-brightgreen.svg)](nomoreclaude.sh)
+[![PRs bienvenues](https://img.shields.io/badge/PRs-bienvenues-brightgreen.svg)](.github/PULL_REQUEST_TEMPLATE.md)
 
 `Vocal Helper` fait partie de la collection `AI Helpers` — des bibliothèques Python pensées pour bâtir des outils d'intelligence artificielle.
 
@@ -28,6 +33,14 @@ Toutes les frontières entre étages sont des `asyncio.Queue` bornées ; chaque 
 | **Analyste LLM** *(optionnel)* | Gemma 4 e4b servi par Ollama (`gemma4:e4b`) | Résumé glissant de tout ce qui est **plus vieux que 60 s**. La fenêtre récente de 60 s reste verbatim. La variante `-mlx` est auto-sélectionnée par Ollama sur Apple-Silicon. |
 
 ## Démarrage rapide
+
+> **Déploiement sur un serveur GPU ?** Voir [TECHNICAL_STACK.md](TECHNICAL_STACK.md)
+> pour la recette complète : CUDA + PyTorch, whisper.cpp compilé avec
+> `GGML_CUDA=on`, pyannote 3.1 sur MPS/CUDA, service systemd Ollama,
+> template Docker Compose, RTF attendus par GPU, et un manifest
+> d'installation reproductible en 10 étapes couvrant toute la suite
+> AI Helpers (os-helper, audio-helper, podcast-helper, youtube-helper,
+> vocal-helper, music-helper).
 
 ### Installation
 

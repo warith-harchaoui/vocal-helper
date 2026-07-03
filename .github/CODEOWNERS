@@ -1,0 +1,26 @@
+# CODEOWNERS — anyone reviewing a change to these paths must be an owner.
+#
+# GitHub docs : docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+# Default owner — every PR needs at least this reviewer.
+*                                       @warith-harchaoui
+
+# Core pipeline surface — heavier scrutiny.
+/vocal_helper/pipeline.py               @warith-harchaoui
+/vocal_helper/diar.py                   @warith-harchaoui
+/vocal_helper/sources.py                @warith-harchaoui
+/vocal_helper/_settings.py              @warith-harchaoui
+
+# Studies / benchmarks — default-changing PRs cite these.
+/studies/**                             @warith-harchaoui
+
+# CI / release infrastructure.
+/.github/**                             @warith-harchaoui
+/pyproject.toml                         @warith-harchaoui
+/nomoreclaude.sh                        @warith-harchaoui
+
+# Public docs — API surface must match reality.
+/README.md                              @warith-harchaoui
+/LISEZMOI.md                            @warith-harchaoui
+/TECHNICAL_STACK.md                     @warith-harchaoui
+/CHANGELOG.md                           @warith-harchaoui
