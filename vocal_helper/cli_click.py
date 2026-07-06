@@ -65,6 +65,7 @@ def _pipeline_config(
     whisper_model: str,
     language: str,
     threads: int,
+    initial_prompt: str,
     diar_backend: str,
     hf_token: str | None,
     join_threshold: float | None,
@@ -72,9 +73,16 @@ def _pipeline_config(
     llm_model: str,
     llm_recent_window_s: float,
     ollama_host: str | None,
+    eot: bool,
+    eot_model: str | None,
 ) -> PipelineConfig:
     """Build a :class:`PipelineConfig` from the shared click options."""
-    asr_cfg: dict = {"model": whisper_model, "language": language, "threads": threads}
+    asr_cfg: dict = {
+        "model": whisper_model,
+        "language": language,
+        "threads": threads,
+        "initial_prompt": initial_prompt or "",
+    }
     diar_cfg: dict = {"backend": diar_backend}
     token = resolve_hf_token(hf_token)
     if token:
@@ -86,7 +94,15 @@ def _pipeline_config(
         llm_cfg = {"model": llm_model, "recent_window_s": llm_recent_window_s}
         if ollama_host:
             llm_cfg["host"] = ollama_host
-    return PipelineConfig(diar=diar_cfg, asr=asr_cfg, llm=llm_cfg)
+    # Keys must match SemanticEOTStage.__init__ (``eot_model`` / ``host``).
+    eot_cfg: dict | None = None
+    if eot:
+        eot_cfg = {}
+        if eot_model:
+            eot_cfg["eot_model"] = eot_model
+        if ollama_host:
+            eot_cfg["host"] = ollama_host
+    return PipelineConfig(diar=diar_cfg, asr=asr_cfg, llm=llm_cfg, eot=eot_cfg)
 
 
 def _print_event(ev: dict, jsonl: bool) -> None:
@@ -127,12 +143,19 @@ def _common_options(func):
     # Order matters for --help output; we mirror the argparse twin.
     func = click.option("--jsonl", is_flag=True, default=False,
                         help="Emit one JSON event per line.")(func)
+    func = click.option("--eot-model", default=None,
+                        help="Ollama model for the EOT completeness classifier "
+                             "(default qwen2.5:3b).")(func)
+    func = click.option("--eot", is_flag=True, default=False,
+                        help="Enable the SemanticEOTStage (LiveKit-style turn "
+                             "detector). Reduces mid-sentence cuts at the cost of "
+                             "one extra LLM hop per voiced segment.")(func)
     func = click.option("--ollama-host", default=None,
                         help="Override for the Ollama server host.")(func)
     func = click.option("--llm-recent-window-s", type=float, default=60.0, show_default=True,
                         help="Verbatim window (seconds) kept out of the summary.")(func)
-    func = click.option("--llm-model", default="gemma4:e4b", show_default=True,
-                        help="Ollama model tag.")(func)
+    func = click.option("--llm-model", default="gemma3:4b", show_default=True,
+                        help="Ollama model tag (Pareto sweet spot of the 2026-06-30 sweep).")(func)
     func = click.option("--llm", is_flag=True, default=False,
                         help="Enable the Gemma analyst stage.")(func)
     func = click.option("--join-threshold", type=float, default=None,
@@ -140,8 +163,13 @@ def _common_options(func):
     func = click.option("--hf-token", default=None,
                         help="HuggingFace token. Falls back to $HF_TOKEN then settings.yaml.")(func)
     func = click.option("--diar-backend", type=click.Choice(["pyannote", "nemo"]),
-                        default="pyannote", show_default=True,
-                        help="Speaker-embedding backend for the online diarizer.")(func)
+                        default="nemo", show_default=True,
+                        help="Speaker-embedding backend for the online diarizer. "
+                             "'nemo' (TitaNet) is default; 'pyannote' skips the "
+                             "~5 GB NeMo install.")(func)
+    func = click.option("--initial-prompt", default="",
+                        help="Whisper bias prompt — name the domain and a few expected "
+                             "proper nouns. Cuts WER 15-25 pp on AMI (2026-06-30 sweep).")(func)
     func = click.option("--threads", type=int, default=6, show_default=True,
                         help="whisper.cpp CPU threads.")(func)
     func = click.option("--language", default="auto", show_default=True,
@@ -174,19 +202,20 @@ def cli() -> None:
 @_common_options
 @click.option("--device", default=None, help="Substring of the microphone name.")
 def mic(
-    whisper_model: str, language: str, threads: int, diar_backend: str,
-    hf_token: str | None, join_threshold: float | None, llm: bool,
+    whisper_model: str, language: str, threads: int, initial_prompt: str,
+    diar_backend: str, hf_token: str | None, join_threshold: float | None, llm: bool,
     llm_model: str, llm_recent_window_s: float, ollama_host: str | None,
-    jsonl: bool, device: str | None,
+    eot: bool, eot_model: str | None, jsonl: bool, device: str | None,
 ) -> None:
     """Live microphone input (needs the ``[mic]`` extra)."""
     from vocal_helper.sources import from_microphone
 
     cfg = _pipeline_config(
         whisper_model=whisper_model, language=language, threads=threads,
-        diar_backend=diar_backend, hf_token=hf_token, join_threshold=join_threshold,
-        llm=llm, llm_model=llm_model, llm_recent_window_s=llm_recent_window_s,
-        ollama_host=ollama_host,
+        initial_prompt=initial_prompt, diar_backend=diar_backend, hf_token=hf_token,
+        join_threshold=join_threshold, llm=llm, llm_model=llm_model,
+        llm_recent_window_s=llm_recent_window_s, ollama_host=ollama_host,
+        eot=eot, eot_model=eot_model,
     )
 
     def factory():
@@ -209,19 +238,21 @@ def mic(
 @click.option("--offline", is_flag=True, default=False,
               help="Use OfflinePipeline for highest-quality diarization on long inputs.")
 def file(
-    whisper_model: str, language: str, threads: int, diar_backend: str,
-    hf_token: str | None, join_threshold: float | None, llm: bool,
+    whisper_model: str, language: str, threads: int, initial_prompt: str,
+    diar_backend: str, hf_token: str | None, join_threshold: float | None, llm: bool,
     llm_model: str, llm_recent_window_s: float, ollama_host: str | None,
-    jsonl: bool, path: str, no_real_time: bool, offline: bool,
+    eot: bool, eot_model: str | None, jsonl: bool, path: str,
+    no_real_time: bool, offline: bool,
 ) -> None:
     """Replay a 16 kHz mono WAV through the pipeline."""
     from vocal_helper.sources import from_wav_file
 
     cfg = _pipeline_config(
         whisper_model=whisper_model, language=language, threads=threads,
-        diar_backend=diar_backend, hf_token=hf_token, join_threshold=join_threshold,
-        llm=llm, llm_model=llm_model, llm_recent_window_s=llm_recent_window_s,
-        ollama_host=ollama_host,
+        initial_prompt=initial_prompt, diar_backend=diar_backend, hf_token=hf_token,
+        join_threshold=join_threshold, llm=llm, llm_model=llm_model,
+        llm_recent_window_s=llm_recent_window_s, ollama_host=ollama_host,
+        eot=eot, eot_model=eot_model,
     )
 
     def factory():
@@ -246,19 +277,20 @@ def file(
 @_common_options
 @click.argument("url")
 def url(
-    whisper_model: str, language: str, threads: int, diar_backend: str,
-    hf_token: str | None, join_threshold: float | None, llm: bool,
+    whisper_model: str, language: str, threads: int, initial_prompt: str,
+    diar_backend: str, hf_token: str | None, join_threshold: float | None, llm: bool,
     llm_model: str, llm_recent_window_s: float, ollama_host: str | None,
-    jsonl: bool, url: str,
+    eot: bool, eot_model: str | None, jsonl: bool, url: str,
 ) -> None:
     """Stream from any URL yt-dlp can reach (needs the ``[stream]`` extra)."""
     from vocal_helper.sources import from_url as _from_url
 
     cfg = _pipeline_config(
         whisper_model=whisper_model, language=language, threads=threads,
-        diar_backend=diar_backend, hf_token=hf_token, join_threshold=join_threshold,
-        llm=llm, llm_model=llm_model, llm_recent_window_s=llm_recent_window_s,
-        ollama_host=ollama_host,
+        initial_prompt=initial_prompt, diar_backend=diar_backend, hf_token=hf_token,
+        join_threshold=join_threshold, llm=llm, llm_model=llm_model,
+        llm_recent_window_s=llm_recent_window_s, ollama_host=ollama_host,
+        eot=eot, eot_model=eot_model,
     )
 
     def factory():
@@ -278,9 +310,15 @@ def url(
 @click.option("--whisper-model", default="large-v3-turbo-q5_0", show_default=True)
 @click.option("--language", default="auto", show_default=True)
 @click.option("--threads", type=int, default=6, show_default=True)
+@click.option("--initial-prompt", default="",
+              help="Whisper bias prompt — name the domain and a few expected proper "
+                   "nouns. Cuts WER 15-25 pp on AMI (2026-06-30 sweep).")
 @click.option("--jsonl", is_flag=True, default=False,
               help="Emit {\"path\": ..., \"text\": ...} JSON on stdout.")
-def transcribe(path: str, whisper_model: str, language: str, threads: int, jsonl: bool) -> None:
+def transcribe(
+    path: str, whisper_model: str, language: str, threads: int,
+    initial_prompt: str, jsonl: bool,
+) -> None:
     """One-shot transcription of a WAV file (skip VAD / diarization)."""
     import numpy as np
     import soundfile as sf
@@ -293,6 +331,7 @@ def transcribe(path: str, whisper_model: str, language: str, threads: int, jsonl
     text = transcribe_pcm(
         pcm=pcm, sr=int(sr),
         model=whisper_model, language=language, threads=threads,
+        initial_prompt=initial_prompt or "",
     )
     if jsonl:
         click.echo(json.dumps({"path": path, "text": text}))

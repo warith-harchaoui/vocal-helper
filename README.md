@@ -86,14 +86,14 @@ and does its own segmentation.
 pip install 'vocal-helper[all]'
 ```
 
-The `[all]` extra brings the mic source, pyannote, and Ollama. Pick à la carte if you don't need everything :
+The `[all]` extra brings the mic source, both diarization backends (NeMo — the default — and pyannote), and Ollama. Pick à la carte if you don't need everything :
 
 | Extra | Brings | Required when |
 |---|---|---|
 | (none) | `pywhispercpp`, `silero-vad`, `audio-helper` | File / numpy sources, no diarization |
 | `[mic]` | `capture-helper` | Live microphone source |
-| `[pyannote]` | `pyannote.audio` | `diar={'backend': 'pyannote'}` (default) |
-| `[nemo]` | `torch`, `nemo-toolkit[asr]` | `diar={'backend': 'nemo'}` |
+| `[pyannote]` | `pyannote.audio` | `diar={'backend': 'pyannote'}` (lighter ~500 MB fallback) |
+| `[nemo]` | `torch`, `nemo-toolkit[asr]` | `diar={'backend': 'nemo'}` (default — TitaNet, ~5 GB) |
 | `[llm]` | `ollama` | `llm={'model': 'gemma3:4b'}` (default) |
 | `[all]` | All of the above | One-line install |
 
@@ -127,7 +127,9 @@ copy never masquerades as real credentials.
 ### Live microphone → terminal
 
 ```bash
-export HF_TOKEN=hf_yourtoken    # required to fetch pyannote/embedding
+# The default nemo/TitaNet backend needs no token. Only export this
+# when you pass --diar-backend pyannote (gated Hub download).
+export HF_TOKEN=hf_yourtoken
 vocal-helper mic --llm
 ```
 

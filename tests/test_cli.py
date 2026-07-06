@@ -249,3 +249,56 @@ def test_click_subcommand_help_exits_zero(sub: str) -> None:
     runner = CliRunner()
     result = runner.invoke(click_cli, [sub, "--help"])
     assert result.exit_code == 0
+
+
+# ---------------------------------------------------------------------------
+# Canonical config builder — vocal_helper.cli_argparse._build_pipeline_config
+#
+# This is the builder wired into the shipped ``vocal-helper`` entry point,
+# so its defaults are what users actually get. We drive it through the real
+# parser (``build_parser``) to catch drift between the flag defaults and the
+# library defaults (nemo backend, gemma3:4b analyst, initial_prompt, EOT).
+# ---------------------------------------------------------------------------
+
+
+def _argparse_config(argv: list[str]):
+    from vocal_helper.cli_argparse import _build_pipeline_config, build_parser
+
+    args = build_parser().parse_args(argv)
+    return _build_pipeline_config(args)
+
+
+def test_argparse_default_backend_is_nemo() -> None:
+    """The shipped default online-diar backend must be nemo (2026-06-30 sweep)."""
+    cfg = _argparse_config(["mic"])
+    assert cfg.diar["backend"] == "nemo"
+
+
+def test_argparse_default_llm_model_is_gemma3() -> None:
+    """--llm must default to the Pareto-best gemma3:4b analyst."""
+    cfg = _argparse_config(["mic", "--llm"])
+    assert cfg.llm == {"model": "gemma3:4b", "recent_window_s": 60.0}
+
+
+def test_argparse_initial_prompt_threads_into_asr() -> None:
+    """--initial-prompt must reach the ASR config (whisper bias prompt)."""
+    cfg = _argparse_config(["mic", "--initial-prompt", "telemedicine consult"])
+    assert cfg.asr["initial_prompt"] == "telemedicine consult"
+
+
+def test_argparse_initial_prompt_defaults_empty() -> None:
+    """No --initial-prompt → empty string (generic transcription)."""
+    cfg = _argparse_config(["mic"])
+    assert cfg.asr["initial_prompt"] == ""
+
+
+def test_argparse_eot_opt_in() -> None:
+    """--eot builds an EOT block; --eot-model uses the SemanticEOTStage key."""
+    cfg = _argparse_config(["mic", "--eot", "--eot-model", "qwen2.5:3b"])
+    assert cfg.eot == {"eot_model": "qwen2.5:3b"}
+
+
+def test_argparse_eot_absent_by_default() -> None:
+    """Without --eot the pipeline gets no EOT stage (one LLM hop is not free)."""
+    cfg = _argparse_config(["mic"])
+    assert cfg.eot is None
