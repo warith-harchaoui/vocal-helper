@@ -5,6 +5,8 @@ This project adheres to [Semantic Versioning](https://semver.org).
 
 ## [Unreleased]
 
+## [0.3.0] — 2026-07-06
+
 ### Added
 
 - `OnlineDiarStage` and `OfflineDiarStage` now accept a `device`
@@ -38,6 +40,21 @@ This project adheres to [Semantic Versioning](https://semver.org).
   matrix 3.10/3.11/3.12/3.13 + coverage report on 3.12), and
   `pre-commit` (mirror of the local commit-time hooks). Adds pip
   caching and per-ref concurrency cancellation.
+- Whisper **bias prompt** — `WhisperStage(initial_prompt=…)` and
+  `transcribe_pcm(initial_prompt=…)`, surfaced as `--initial-prompt`
+  on every CLI. Empty by default; a domain-aligned prompt cut WER
+  15–25 pp and saved up to 39 % RTF on the 2026-06-30 AMI sweep.
+- **`SemanticEOTStage`** (`vocal_helper.eot`) — opt-in, LiveKit-style
+  turn detector that holds back VAD segments that look mid-thought and
+  merges them with their successor. Enable with `PipelineConfig(eot=…)`
+  or `--eot` / `--eot-model`; off by default (one extra LLM hop per
+  voiced segment). Offline path deliberately has no EOT block.
+- **Multi-surface exposure** — the same pipeline is now reachable via
+  the argparse CLI (`vocal-helper`), a click twin (`vocal-helper-click`),
+  a FastAPI HTTP app (`vocal_helper.api`), and an MCP server
+  (`vocal-helper-mcp`), all sharing one config builder.
+- `vocal_helper.tts` (local Piper TTS) and a
+  `vocal_helper.parallel_pipelines` demonstrator.
 
 ### Changed
 
@@ -49,6 +66,18 @@ This project adheres to [Semantic Versioning](https://semver.org).
   now passes from a clean checkout.
 - Ruff exclusion list moved from `tests/` to `studies/` — one-off
   research scripts are no longer linted, but tests now are.
+- **Default online-diar backend** switched `pyannote` → `nemo`
+  (TitaNet) per the 2026-06-30 embedding sweep (+76 % separability
+  margin on AMI). Pass `backend="pyannote"` to skip the ~5 GB NeMo
+  install.
+- **Default LLM analyst model** switched `gemma4:e4b` → `gemma3:4b`
+  per the 2026-06-30 7-model Pareto sweep (3× faster *and* higher
+  cos_sim). Reflected across the library and every CLI surface.
+- `vocal_helper.cli` is now a thin backward-compat shim; the canonical
+  argparse implementation lives in `vocal_helper.cli_argparse`, so the
+  four surfaces share a single config builder with no drift.
+- Removed the attribution-audit CI job and pre-commit hook;
+  `nomoreclaude.sh` is no longer tracked (kept as a local-only tool).
 
 ## [0.1.0] — 2026-06-30
 
