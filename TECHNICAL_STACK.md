@@ -519,13 +519,6 @@ Heavy yt-dlp usage triggers YT's 429. Two mitigations :
   and `podcast-helper` don't ship this today ; add it in your job
   scheduler.
 
-### 6. Attribution audit gate
-
-Every repo in the suite carries `nomoreclaude.sh` and a CI job that
-runs it (`attribution-audit`). Keep this in your deployment pipeline
-too — if you build a Docker image, add a `RUN bash nomoreclaude.sh`
-step so a bad commit can't ship.
-
 ## Full install checklist
 
 ```bash

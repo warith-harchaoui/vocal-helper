@@ -40,21 +40,6 @@ repos:
         stages: [manual]
 
   # ---------------------------------------------------------------------
-  # Attribution audit — reject any commit that would ship
-  # AI-attribution mentions (Claude / Anthropic / Claude-Code / …).
-  # Same script that runs in the CI ``attribution-audit`` job.
-  # ---------------------------------------------------------------------
-  - repo: local
-    hooks:
-      - id: attribution-audit
-        name: attribution-audit
-        entry: bash nomoreclaude.sh
-        language: system
-        pass_filenames: false
-        always_run: true
-        stages: [pre-push]
-
-  # ---------------------------------------------------------------------
   # Pytest unit smoke — the default -m 'not integration' run.
   # Skipped by default at commit-time (too slow for tight loops) ; wired
   # to ``pre-push`` so the local flow still catches regressions.

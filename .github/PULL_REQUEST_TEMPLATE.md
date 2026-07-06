@@ -48,11 +48,6 @@ $ ruff check .
 <paste "All checks passed!" or the fixes applied>
 ```
 
-```
-$ bash nomoreclaude.sh | tail -3
-<confirms zero attribution hits>
-```
-
 ## Deployment note
 
 <!--

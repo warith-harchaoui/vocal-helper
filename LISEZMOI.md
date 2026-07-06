@@ -6,7 +6,6 @@
 [![License: BSD-3-Clause](https://img.shields.io/badge/License-BSD%203--Clause-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.10%E2%80%933.13-blue.svg)](#)
 [![Code style: ruff](https://img.shields.io/badge/code%20style-ruff-000000.svg)](https://github.com/astral-sh/ruff)
-[![Audit d'attribution](https://img.shields.io/badge/attribution--audit-clean-brightgreen.svg)](nomoreclaude.sh)
 [![PRs bienvenues](https://img.shields.io/badge/PRs-bienvenues-brightgreen.svg)](.github/PULL_REQUEST_TEMPLATE.md)
 
 `Vocal Helper` fait partie de la collection `AI Helpers` — des bibliothèques Python pensées pour bâtir des outils d'intelligence artificielle.

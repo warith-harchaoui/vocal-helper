@@ -37,18 +37,6 @@ jobs:
         run: ruff format --check .
         continue-on-error: true   # Formatter is informational until we adopt it.
 
-  attribution-audit:
-    name: Attribution audit
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          # Full history — the audit walks every commit on every ref.
-          fetch-depth: 0
-
-      - name: Run nomoreclaude.sh (audit)
-        run: bash nomoreclaude.sh
-
   test:
     name: Tests (py${{ matrix.python-version }})
     runs-on: ubuntu-latest

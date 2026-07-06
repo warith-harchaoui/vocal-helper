@@ -30,3 +30,6 @@ settings.yaml
 # yt-dlp / test integration artefacts
 *ytdlp_cookie*
 *.vtt
+
+# Local-only attribution maintenance tool (not shipped)
+nomoreclaude.sh
