@@ -72,10 +72,14 @@ def _build_pipeline_config(args: argparse.Namespace) -> PipelineConfig:
         A ready-to-use pipeline configuration (VAD / diar / ASR / LLM).
     """
     # ASR dict passed straight through to WhisperStage.__init__.
+    # ``getattr`` guards partial Namespaces built by tests that predate a
+    # given lever — the CLI always populates these, but the fallbacks keep
+    # config building total.
     asr_cfg: dict = {
         "model": args.whisper_model,
         "language": args.language,
         "threads": args.threads,
+        "initial_prompt": getattr(args, "initial_prompt", "") or "",
     }
     # Diar dict — pyannote or NeMo backend, optional HF token.
     diar_cfg: dict = {"backend": args.diar_backend}
@@ -94,7 +98,18 @@ def _build_pipeline_config(args: argparse.Namespace) -> PipelineConfig:
         }
         if args.ollama_host:
             llm_cfg["host"] = args.ollama_host
-    return PipelineConfig(diar=diar_cfg, asr=asr_cfg, llm=llm_cfg)
+    # SemanticEOTStage is opt-in — enabling it activates the LiveKit-style
+    # turn detector that holds back VAD segments that look mid-thought. The
+    # keys must match :class:`vocal_helper.eot.SemanticEOTStage.__init__`
+    # (``eot_model`` / ``host``), since the pipeline splats this dict.
+    eot_cfg: dict | None = None
+    if getattr(args, "eot", False):
+        eot_cfg = {}
+        if getattr(args, "eot_model", None):
+            eot_cfg["eot_model"] = args.eot_model
+        if args.ollama_host:
+            eot_cfg["host"] = args.ollama_host
+    return PipelineConfig(diar=diar_cfg, asr=asr_cfg, llm=llm_cfg, eot=eot_cfg)
 
 
 def _print_event(ev: dict, jsonl: bool) -> None:
@@ -192,6 +207,7 @@ def _handle_transcribe(args: argparse.Namespace) -> int:
         model=args.whisper_model,
         language=args.language,
         threads=args.threads,
+        initial_prompt=getattr(args, "initial_prompt", "") or "",
     )
     if args.jsonl:
         sys.stdout.write(json.dumps({"path": args.path, "text": text}) + "\n")
@@ -216,8 +232,18 @@ def _add_common_flags(sp: argparse.ArgumentParser) -> None:
                     help="ISO-639-1 code (en/fr/…) or 'auto' for language ID.")
     sp.add_argument("--threads", type=int, default=6,
                     help="whisper.cpp CPU threads (default 6).")
-    sp.add_argument("--diar-backend", choices=["pyannote", "nemo"], default="pyannote",
-                    help="Speaker-embedding backend for the online diarizer.")
+    sp.add_argument("--initial-prompt", default="",
+                    help="Whisper bias prompt — name the conversational domain "
+                         "and a few expected proper nouns / technical terms. "
+                         "Strongly recommended: cuts WER 15-25 pp and saves up to "
+                         "39%% RTF on AMI (2026-06-30 sweep). Example: 'medical "
+                         "telemedicine consultation: patient symptoms, medication "
+                         "review, follow-up appointment'.")
+    sp.add_argument("--diar-backend", choices=["pyannote", "nemo"], default="nemo",
+                    help="Speaker-embedding backend for the online diarizer. "
+                         "Default 'nemo' (TitaNet) — +76%% separability margin over "
+                         "'pyannote' on AMI (2026-06-30 sweep). Switch to 'pyannote' "
+                         "to skip the ~5 GB NeMo install.")
     sp.add_argument("--hf-token", default=None,
                     help="HuggingFace token for pyannote model fetch. "
                          "Falls back to $HF_TOKEN then settings.yaml (secrets.hf_token).")
@@ -225,12 +251,21 @@ def _add_common_flags(sp: argparse.ArgumentParser) -> None:
                     help="Cosine-distance join threshold for the online diarizer (default 0.30).")
     sp.add_argument("--llm", action="store_true",
                     help="Enable the Gemma analyst stage (rolling summary).")
-    sp.add_argument("--llm-model", default="gemma4:e4b",
-                    help="Ollama model tag (default gemma4:e4b).")
+    sp.add_argument("--llm-model", default="gemma3:4b",
+                    help="Ollama model tag (default gemma3:4b — Pareto sweet spot of "
+                         "the 2026-06-30 7-model sweep).")
     sp.add_argument("--llm-recent-window-s", type=float, default=60.0,
                     help="Verbatim window (seconds) kept out of the summary (default 60).")
     sp.add_argument("--ollama-host", default=None,
                     help="Override for the Ollama server host (default 127.0.0.1:11434).")
+    sp.add_argument("--eot", action="store_true",
+                    help="Enable the SemanticEOTStage (LiveKit-style turn detector). "
+                         "Holds back VAD segments that look mid-thought and merges "
+                         "them with their successor, reducing mid-sentence cuts at the "
+                         "cost of one extra LLM hop per voiced segment.")
+    sp.add_argument("--eot-model", default=None,
+                    help="Ollama model for the EOT completeness classifier "
+                         "(default qwen2.5:3b).")
     sp.add_argument("--jsonl", action="store_true",
                     help="Emit one JSON event per line instead of human-readable output.")
 
@@ -279,6 +314,9 @@ def _add_transcribe(sub: argparse._SubParsersAction) -> None:
     p.add_argument("--whisper-model", default="large-v3-turbo-q5_0")
     p.add_argument("--language", default="auto")
     p.add_argument("--threads", type=int, default=6)
+    p.add_argument("--initial-prompt", default="",
+                   help="Whisper bias prompt — name the domain and a few expected "
+                        "proper nouns. Cuts WER 15-25 pp on AMI (2026-06-30 sweep).")
     p.add_argument("--jsonl", action="store_true",
                    help="Emit {\"path\": ..., \"text\": ...} JSON on stdout.")
     p.set_defaults(func=_handle_transcribe)

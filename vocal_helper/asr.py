@@ -201,10 +201,17 @@ def transcribe_pcm(
     model: str = DEFAULT_MODEL,
     language: str = DEFAULT_LANGUAGE,
     threads: int = DEFAULT_THREADS,
+    initial_prompt: str = DEFAULT_INITIAL_PROMPT,
 ) -> str:
-    """Synchronous one-shot transcription. Loads whisper.cpp on call."""
+    """Synchronous one-shot transcription. Loads whisper.cpp on call.
+
+    ``initial_prompt`` is the same domain-bias lever as
+    :class:`WhisperStage` — empty by default, but strongly recommended
+    (cuts WER 15-25 pp on AMI, saves up to 39 % RTF).
+    """
     stage = WhisperStage(
         model=model, language=language, threads=threads, word_timestamps=False,
+        initial_prompt=initial_prompt,
     )
     stage._ensure_model()
     seg = DiarizedSegment(
