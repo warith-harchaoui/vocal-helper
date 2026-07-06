@@ -74,6 +74,6 @@ if __name__ == "__main__":
                    help="HuggingFace token (falls back to $HF_TOKEN, then "
                         "settings.yaml secrets.hf_token).")
     p.add_argument("--llm", action="store_true")
-    p.add_argument("--llm-model", default="gemma4:e4b")
+    p.add_argument("--llm-model", default="gemma3:4b")
     args = p.parse_args()
     asyncio.run(amain(args))

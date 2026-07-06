@@ -38,7 +38,18 @@ def test_pipeline_config_defaults_values() -> None:
     assert cfg.vad == {}
     assert cfg.diar == {}
     assert cfg.asr == {}
+    # Optional stages default to ``None`` — enable by passing a dict.
+    assert cfg.eot is None, (
+        "SemanticEOTStage must be opt-in — one extra LLM hop per voiced "
+        "segment is not free"
+    )
     assert cfg.llm is None
+
+
+def test_pipeline_config_eot_accepts_dict() -> None:
+    """When callers opt into semantic EOT, the config must round-trip the dict."""
+    cfg = vh.PipelineConfig(eot={"model": "gemma4:e4b", "threshold": 0.5})
+    assert cfg.eot == {"model": "gemma4:e4b", "threshold": 0.5}
 
 
 def test_offline_pipeline_config_defaults() -> None:
@@ -48,6 +59,9 @@ def test_offline_pipeline_config_defaults() -> None:
     assert cfg.llm is None
     # No VAD block — the offline path delegates to the diar backend.
     assert not hasattr(cfg, "vad")
+    # No EOT block either — semantic EOT only makes sense on a live
+    # stream where cutting a caller off mid-sentence matters.
+    assert not hasattr(cfg, "eot")
 
 
 # ---------------------------------------------------------------------------

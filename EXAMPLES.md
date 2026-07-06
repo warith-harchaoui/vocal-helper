@@ -18,8 +18,11 @@ Prefer a file? Copy `settings.yaml.example` to `settings.yaml` and set
 ## 1. Live mic → terminal transcript
 
 ```bash
-vocal-helper mic --language fr
+vocal-helper mic --language fr \
+  --initial-prompt "Réunion d'équipe : design, marketing, planning, livrables"
 ```
+
+The `--initial-prompt` arg is **strongly recommended** : the 2026-06-30 sweep on AMI dev-slice (`studies/whisper_prompt_lang_lock.py`) showed a domain-aligned bias prompt drops WER by 15-25 percentage points and saves up to 39 % RTF — name your conversational domain and a handful of expected proper nouns or technical terms.
 
 Or in Python (the demo at `examples/live_mic_to_text.py`) :
 
@@ -30,7 +33,10 @@ async def main():
     p = vh.Pipeline(
         source=lambda: vh.sources.from_microphone(),
         config=vh.PipelineConfig(
-            asr={"language": "fr"},
+            asr={
+                "language": "fr",
+                "initial_prompt": "Réunion d'équipe : design, marketing, planning, livrables",
+            },
         ),
     )
     async for ev in p.run():

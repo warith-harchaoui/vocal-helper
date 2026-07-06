@@ -1,0 +1,313 @@
+% vocal-helper bibliography.
+% House rule (memory feedback_bib_must_have_url) : every entry MUST
+% carry a ``url`` field, even when a DOI / arXiv ID is already there.
+
+% --- VAD ---------------------------------------------------------
+
+@misc{silero,
+  title        = {Silero VAD: pre-trained enterprise-grade Voice Activity Detector},
+  author       = {{Silero Team}},
+  howpublished = {\url{https://github.com/snakers4/silero-vad}},
+  url          = {https://github.com/snakers4/silero-vad}
+}
+
+% --- Diarization & speaker embeddings ----------------------------
+
+@inproceedings{bredin2023pyannote,
+  title     = {pyannote.audio 2.1 speaker diarization pipeline: principle, benchmark, and recipe},
+  author    = {Bredin, Herv{\'e}},
+  booktitle = {Proc. INTERSPEECH 2023},
+  year      = {2023},
+  url       = {https://www.isca-archive.org/interspeech_2023/bredin23_interspeech.html}
+}
+
+@misc{pyannoteembedding,
+  title        = {{pyannote/embedding} model card},
+  author       = {{pyannote.audio}},
+  howpublished = {\url{https://huggingface.co/pyannote/embedding}},
+  url          = {https://huggingface.co/pyannote/embedding}
+}
+
+@misc{pyannotediarization,
+  title        = {{pyannote/speaker-diarization-3.1} model card},
+  author       = {{pyannote.audio}},
+  howpublished = {\url{https://huggingface.co/pyannote/speaker-diarization-3.1}},
+  url          = {https://huggingface.co/pyannote/speaker-diarization-3.1}
+}
+
+@misc{titanet,
+  title        = {{TitaNet}: Neural Model for Speaker Representation with 1D Depth-wise Separable Convolutions and Global Context},
+  author       = {Koluguri, Nithin Rao and Park, Taejin and Ginsburg, Boris},
+  year         = {2022},
+  eprint       = {2110.04410},
+  archivePrefix= {arXiv},
+  primaryClass = {eess.AS},
+  url          = {https://arxiv.org/abs/2110.04410}
+}
+
+@misc{nemo,
+  title        = {{NVIDIA NeMo}: a toolkit for conversational AI},
+  author       = {{NVIDIA}},
+  howpublished = {\url{https://github.com/NVIDIA/NeMo}},
+  url          = {https://github.com/NVIDIA/NeMo}
+}
+
+@misc{sortformer,
+  title        = {Sortformer: end-to-end speaker diarization via sort-aware transformer},
+  author       = {{NVIDIA NeMo}},
+  howpublished = {\url{https://huggingface.co/nvidia/diar_sortformer_v1}},
+  url          = {https://huggingface.co/nvidia/diar_sortformer_v1}
+}
+
+@misc{picovoicefalcon,
+  title        = {State of Speaker Diarization 2026: pyannote vs Falcon},
+  author       = {{Picovoice}},
+  year         = {2026},
+  howpublished = {\url{https://picovoice.ai/blog/state-of-speaker-diarization/}},
+  url          = {https://picovoice.ai/blog/state-of-speaker-diarization/}
+}
+
+% --- ASR / STT ---------------------------------------------------
+
+@inproceedings{radford2023whisper,
+  title     = {Robust Speech Recognition via Large-Scale Weak Supervision},
+  author    = {Radford, Alec and Kim, Jong Wook and Xu, Tao and Brockman, Greg and McLeavey, Christine and Sutskever, Ilya},
+  booktitle = {Proceedings of the 40th International Conference on Machine Learning},
+  year      = {2023},
+  url       = {https://arxiv.org/abs/2212.04356}
+}
+
+@misc{whispercpp,
+  title        = {whisper.cpp: Port of OpenAI's Whisper model in C/C++},
+  author       = {Gerganov, Georgi},
+  howpublished = {\url{https://github.com/ggerganov/whisper.cpp}},
+  url          = {https://github.com/ggerganov/whisper.cpp}
+}
+
+@misc{pywhispercpp,
+  title        = {pywhispercpp: Python bindings for whisper.cpp},
+  author       = {Saidi, Abdeladim},
+  howpublished = {\url{https://github.com/abdeladim-s/pywhispercpp}},
+  url          = {https://github.com/abdeladim-s/pywhispercpp}
+}
+
+@misc{whisperturbo,
+  title        = {{whisper-large-v3-turbo}: a faster Whisper inspired by Distil-Whisper},
+  author       = {{OpenAI}},
+  year         = {2024},
+  howpublished = {\url{https://huggingface.co/openai/whisper-large-v3-turbo}},
+  url          = {https://huggingface.co/openai/whisper-large-v3-turbo}
+}
+
+@misc{distilwhisper,
+  title        = {Distil-Whisper: Robust Knowledge Distillation via Large-Scale Pseudo Labelling},
+  author       = {Gandhi, Sanchit and von Platen, Patrick and Rush, Alexander M.},
+  year         = {2023},
+  eprint       = {2311.00430},
+  archivePrefix= {arXiv},
+  primaryClass = {cs.CL},
+  url          = {https://arxiv.org/abs/2311.00430}
+}
+
+@misc{distilwhispercard,
+  title        = {{distil-large-v3} model card},
+  author       = {{Hugging Face — distil-whisper}},
+  howpublished = {\url{https://huggingface.co/distil-whisper/distil-large-v3}},
+  url          = {https://huggingface.co/distil-whisper/distil-large-v3}
+}
+
+@misc{bofenghuangfrench,
+  title        = {{whisper-large-v3-french} and distilled variants ({dec16}, {dec8}, {dec4})},
+  author       = {Huang, Bofeng},
+  howpublished = {\url{https://huggingface.co/bofenghuang}},
+  url          = {https://huggingface.co/bofenghuang/whisper-large-v3-french-distil-dec4}
+}
+
+@misc{fasterwhisper,
+  title        = {faster-whisper: Faster Whisper transcription with CTranslate2},
+  author       = {{SYSTRAN} and contributors},
+  howpublished = {\url{https://github.com/SYSTRAN/faster-whisper}},
+  url          = {https://github.com/SYSTRAN/faster-whisper}
+}
+
+@misc{ctranslate2,
+  title        = {CTranslate2: Fast inference engine for Transformer models},
+  author       = {{OpenNMT}},
+  howpublished = {\url{https://github.com/OpenNMT/CTranslate2}},
+  url          = {https://github.com/OpenNMT/CTranslate2}
+}
+
+% --- LLM serving + models ----------------------------------------
+
+@misc{ollama,
+  title        = {Ollama: Get up and running with large language models locally},
+  author       = {{Ollama}},
+  howpublished = {\url{https://ollama.com}},
+  url          = {https://ollama.com}
+}
+
+@misc{vllm,
+  title        = {vLLM: Easy, fast, and cheap {LLM} serving with {PagedAttention}},
+  author       = {{vLLM Team}},
+  howpublished = {\url{https://github.com/vllm-project/vllm}},
+  url          = {https://github.com/vllm-project/vllm}
+}
+
+@misc{mlxlm,
+  title        = {{mlx-lm}: Generate text and fine-tune {LLMs} with {Apple MLX}},
+  author       = {{Apple ML Research}},
+  howpublished = {\url{https://github.com/ml-explore/mlx-lm}},
+  url          = {https://github.com/ml-explore/mlx-lm}
+}
+
+@misc{gemma3,
+  title        = {{Gemma 3} model family},
+  author       = {{Google DeepMind}},
+  year         = {2025},
+  howpublished = {\url{https://ai.google.dev/gemma}},
+  url          = {https://ai.google.dev/gemma}
+}
+
+@misc{gemma4,
+  title        = {{Gemma 4} model family ({MLX} variants on Apple Silicon)},
+  author       = {{Google DeepMind}},
+  year         = {2026},
+  howpublished = {\url{https://ai.google.dev/gemma}},
+  url          = {https://ai.google.dev/gemma}
+}
+
+@misc{qwen25,
+  title        = {{Qwen2.5}: A Party of Foundation Models},
+  author       = {{Qwen Team, Alibaba}},
+  year         = {2024},
+  howpublished = {\url{https://qwenlm.github.io/blog/qwen2.5/}},
+  url          = {https://qwenlm.github.io/blog/qwen2.5/}
+}
+
+@misc{qwen3,
+  title        = {{Qwen3}: Think Deeper, Act Faster},
+  author       = {{Qwen Team, Alibaba}},
+  year         = {2025},
+  howpublished = {\url{https://qwenlm.github.io/blog/qwen3/}},
+  url          = {https://qwenlm.github.io/blog/qwen3/}
+}
+
+@misc{llama32,
+  title        = {{Llama 3.2}: Lightweight and Vision Models for Local Inference},
+  author       = {{Meta AI}},
+  year         = {2024},
+  howpublished = {\url{https://ai.meta.com/blog/llama-3-2-connect-2024-vision-edge-mobile-devices/}},
+  url          = {https://ai.meta.com/blog/llama-3-2-connect-2024-vision-edge-mobile-devices/}
+}
+
+% --- TTS ---------------------------------------------------------
+
+@misc{piper,
+  title        = {Piper: A fast, local neural text-to-speech system},
+  author       = {Hansen, Michael},
+  howpublished = {\url{https://github.com/rhasspy/piper}},
+  url          = {https://github.com/rhasspy/piper}
+}
+
+@misc{pipervoices,
+  title        = {{piper-voices}: ONNX voice models for Piper},
+  author       = {{rhasspy}},
+  howpublished = {\url{https://huggingface.co/rhasspy/piper-voices}},
+  url          = {https://huggingface.co/rhasspy/piper-voices}
+}
+
+% --- End-of-turn / turn-taking -----------------------------------
+
+@misc{livekitturndetector,
+  title        = {Solving end-of-turn detection — {LiveKit Turn Detector v1.0}},
+  author       = {{LiveKit}},
+  year         = {2026},
+  howpublished = {\url{https://livekit.com/blog/solving-end-of-turn-detection}},
+  url          = {https://livekit.com/blog/solving-end-of-turn-detection}
+}
+
+@misc{livekitturnblog,
+  title        = {Turn Detection for Voice Agents: VAD, Endpointing, and Model-Based Detection},
+  author       = {{LiveKit}},
+  howpublished = {\url{https://livekit.com/blog/turn-detection-voice-agents-vad-endpointing-model-based-detection}},
+  url          = {https://livekit.com/blog/turn-detection-voice-agents-vad-endpointing-model-based-detection}
+}
+
+@article{sacks1974simplest,
+  title   = {A Simplest Systematics for the Organization of Turn-Taking for Conversation},
+  author  = {Sacks, Harvey and Schegloff, Emanuel A. and Jefferson, Gail},
+  journal = {Language},
+  volume  = {50},
+  number  = {4},
+  pages   = {696--735},
+  year    = {1974},
+  doi     = {10.2307/412243},
+  url     = {https://doi.org/10.2307/412243}
+}
+
+% --- Frameworks --------------------------------------------------
+
+@misc{livekitagents,
+  title        = {{LiveKit Agents}: A framework for building realtime voice {AI} agents},
+  author       = {{LiveKit}},
+  howpublished = {\url{https://github.com/livekit/agents}},
+  url          = {https://github.com/livekit/agents}
+}
+
+@misc{pipecat,
+  title        = {Pipecat: Open-source Python framework for voice and multimodal {AI} agents},
+  author       = {{Daily}},
+  howpublished = {\url{https://github.com/pipecat-ai/pipecat}},
+  url          = {https://github.com/pipecat-ai/pipecat}
+}
+
+@misc{pipecatdocs,
+  title        = {Pipecat — Pipeline \& Frame Processing},
+  author       = {{Daily / Pipecat}},
+  howpublished = {\url{https://docs.pipecat.ai/guides/learn/pipeline}},
+  url          = {https://docs.pipecat.ai/guides/learn/pipeline}
+}
+
+% --- pdbms research code base (upstream) -------------------------
+
+@misc{pdbms,
+  title        = {pdbms: pas de bonne ou de mauvaise situation — speech research codebase},
+  author       = {Harchaoui, Warith},
+  howpublished = {\url{https://github.com/warith-harchaoui/pdbms}},
+  url          = {https://github.com/warith-harchaoui/pdbms}
+}
+
+% --- AMI / corpora ------------------------------------------------
+
+@inproceedings{carletta2007unleashing,
+  title     = {Unleashing the killer corpus: experiences in creating the multi-everything {AMI} Meeting Corpus},
+  author    = {Carletta, Jean},
+  booktitle = {Language Resources and Evaluation},
+  year      = {2007},
+  url       = {https://groups.inf.ed.ac.uk/ami/corpus/}
+}
+
+@misc{commonvoice,
+  title        = {Common Voice: the world's largest crowdsourced multilingual voice dataset},
+  author       = {{Mozilla}},
+  howpublished = {\url{https://commonvoice.mozilla.org}},
+  url          = {https://commonvoice.mozilla.org}
+}
+
+@misc{librispeech,
+  title        = {{LibriSpeech} ASR corpus},
+  author       = {Panayotov, Vassil and Chen, Guoguo and Povey, Daniel and Khudanpur, Sanjeev},
+  year         = {2015},
+  howpublished = {\url{https://www.openslr.org/12/}},
+  url          = {https://www.openslr.org/12/}
+}
+
+@misc{multilinguallibrispeech,
+  title        = {MLS: A Large-Scale Multilingual Dataset for Speech Research},
+  author       = {Pratap, Vineel and Xu, Qiantong and Sriram, Anuroop and Synnaeve, Gabriel and Collobert, Ronan},
+  year         = {2020},
+  eprint       = {2012.03411},
+  archivePrefix= {arXiv},
+  primaryClass = {cs.CL},
+  url          = {https://arxiv.org/abs/2012.03411}
+}

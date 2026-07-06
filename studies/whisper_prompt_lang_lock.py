@@ -1,0 +1,223 @@
+"""Whisper STT — initial_prompt × language-lock sweep.
+
+Goal
+----
+Find the operating point of :class:`vocal_helper.asr.WhisperStage` that
+maximises **WER quality** at the **lowest RTF**, holding the model
+(``large-v3-turbo-q5_0``) constant.
+
+Two levers we tune :
+
+1. ``language`` — ``"auto"`` (the safe default — whisper runs language
+   identification on every clip) vs the explicit ISO code (here
+   ``"en"`` for AMI). Locking the language skips LID, saves ~ 5-10 %
+   RTF and prevents misclassification on noisy / mixed-language input.
+2. ``initial_prompt`` — empty (default) vs a vocabulary-biasing prompt
+   tuned to the corpus. Whisper conditions its decoding on the prompt
+   so domain words spell correctly and rare technical terms don't get
+   normalised away.
+
+Sweep matrix
+------------
+
+::
+
+    | language | initial_prompt      |
+    |----------|---------------------|
+    | auto     | ""                  |  baseline
+    | auto     | <AMI bias>          |
+    | en       | ""                  |
+    | en       | <AMI bias>          |
+
+Four configs, two AMI meetings (IS1008a + ES2011a) — eight runs.
+
+Metric
+------
+
+- WER (word error rate) of the transcription vs the words.rttm
+  reference, computed with :mod:`jiwer`. Lower is better.
+- RTF = wall_time / audio_duration. Lower is better.
+
+We pick the Pareto winner (lowest WER at acceptable RTF) and apply
+it to vocal-helper's default config.
+
+Author : Warith HARCHAOUI — 2026-06-30
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import statistics
+import time
+from pathlib import Path
+
+import numpy as np
+import soundfile as sf
+
+from vocal_helper.asr import WhisperStage
+from vocal_helper.types import DiarizedSegment
+
+AMI_ROOT = Path(
+    "/Users/warithharchaoui/pasdebonneoudemauvaisesituation/data/ami/dev-slice"
+)
+MEETINGS = ["IS1008a", "ES2011a"]
+DEFAULT_MODEL = "large-v3-turbo-q5_0"
+DEFAULT_LOG = Path(
+    "/Volumes/orange-dev/extra/pdbms-scratch/run-logs/"
+    "vocal_helper_whisper_prompt_lang_2026-06-30.log"
+)
+
+# AMI is a design / project-management corpus. Biasing whisper with
+# the dominant vocabulary categories avoids the most common
+# normalisation errors (e.g. "diarization" → "direction").
+AMI_BIAS_PROMPT = (
+    "AMI meeting transcript: project kickoff, design discussion, "
+    "remote control, marketing plan, industrial design, user "
+    "interface, requirements, scope, deliverables, timeline."
+)
+
+CONFIGS: list[tuple[str, str, str]] = [
+    ("auto-no-prompt", "auto", ""),
+    ("auto-bias",      "auto", AMI_BIAS_PROMPT),
+    ("en-no-prompt",   "en",   ""),
+    ("en-bias",        "en",   AMI_BIAS_PROMPT),
+]
+
+
+def log(msg: str) -> None:
+    print(msg, flush=True)
+    with open(DEFAULT_LOG, "a") as f:
+        f.write(msg + "\n")
+
+
+def load_reference(rttm: Path) -> str:
+    """Concatenate every word in time order — the WER reference text."""
+    words: list[tuple[float, str]] = []
+    for line in rttm.read_text().splitlines():
+        p = line.split()
+        if len(p) < 10 or p[0] != "SPEAKER":
+            continue
+        words.append((float(p[3]), p[-1]))
+    words.sort()
+    return " ".join(w for _, w in words)
+
+
+def read_mono_wav(path: Path) -> tuple[np.ndarray, int]:
+    audio, sr = sf.read(str(path), dtype="float32")
+    if audio.ndim > 1:
+        audio = audio.mean(axis=1).astype(np.float32)
+    return audio, sr
+
+
+def transcribe(
+    pcm: np.ndarray,
+    sr: int,
+    language: str,
+    initial_prompt: str,
+) -> tuple[str, float]:
+    """Run pywhispercpp directly with the given lever combo."""
+    from pywhispercpp.model import Model  # type: ignore
+
+    kwargs = {"n_threads": 6, "print_realtime": False, "print_progress": False}
+    if language != "auto":
+        kwargs["language"] = language
+    model = Model(DEFAULT_MODEL, **kwargs)
+
+    t0 = time.perf_counter()
+    if initial_prompt:
+        segs = model.transcribe(pcm, initial_prompt=initial_prompt)
+    else:
+        segs = model.transcribe(pcm)
+    wall = time.perf_counter() - t0
+    text = " ".join((s.text or "").strip() for s in segs).strip()
+    return text, wall
+
+
+def main() -> None:
+    p = argparse.ArgumentParser(description=__doc__)
+    p.add_argument("--model", default=DEFAULT_MODEL)
+    args = p.parse_args()
+
+    DEFAULT_LOG.parent.mkdir(parents=True, exist_ok=True)
+    DEFAULT_LOG.write_text("")
+
+    log(f"# Whisper prompt × language sweep — 2026-06-30")
+    log(f"# model    : {args.model}")
+    log(f"# meetings : {MEETINGS}")
+    log(f"# bias prompt : {AMI_BIAS_PROMPT!r}")
+
+    # Lazy WER — jiwer is the de facto standard.
+    try:
+        from jiwer import wer
+    except ImportError:
+        log("# installing jiwer …")
+        import subprocess
+        subprocess.run(["pip", "install", "-q", "jiwer"], check=True)
+        from jiwer import wer
+
+    per_meeting: dict[str, dict[str, tuple[float, float, str]]] = {}
+    durations: dict[str, float] = {}
+
+    for m in MEETINGS:
+        mdir = AMI_ROOT / m
+        wav = mdir / "mix.wav"
+        rttm = mdir / "words.rttm"
+        if not wav.exists() or not rttm.exists():
+            log(f"\n{m} : missing files, skipping")
+            continue
+        audio, sr = read_mono_wav(wav)
+        dur = audio.shape[0] / sr
+        ref = load_reference(rttm)
+        durations[m] = dur
+        log(f"\n{m}  dur={dur:.0f}s  ref_words={len(ref.split())}")
+
+        per_meeting[m] = {}
+        for label, lang, prompt in CONFIGS:
+            log(f"  running {label} …")
+            text, wall = transcribe(audio, sr, lang, prompt)
+            w = float(wer(ref, text))
+            rtf = wall / dur
+            per_meeting[m][label] = (w, rtf, text)
+            log(f"    {label:<15s}  WER={w:.3f}  RTF={rtf:.3f}  wall={wall:.1f}s  hyp_words={len(text.split())}")
+
+    # ----- pooled summary -----
+    log("\n" + "=" * 64)
+    log("Pooled median over meetings")
+    log("=" * 64)
+    log(f"{'config':<16s}  {'med_WER':>8s}  {'med_RTF':>8s}")
+    log("-" * 36)
+    pooled: dict[str, tuple[float, float]] = {}
+    for label, _, _ in CONFIGS:
+        wers = [per_meeting[m][label][0] for m in MEETINGS if m in per_meeting]
+        rtfs = [per_meeting[m][label][1] for m in MEETINGS if m in per_meeting]
+        if not wers:
+            continue
+        pooled[label] = (statistics.median(wers), statistics.median(rtfs))
+        log(f"{label:<16s}  {pooled[label][0]:>8.3f}  {pooled[label][1]:>8.3f}")
+
+    # Pick : lowest median WER ; break ties by RTF.
+    winner = min(pooled.items(), key=lambda kv: (kv[1][0], kv[1][1]))
+    log(f"\nWinner : {winner[0]}  med_WER={winner[1][0]:.3f}  med_RTF={winner[1][1]:.3f}")
+
+    json_out = DEFAULT_LOG.with_suffix(".json")
+    json_out.write_text(json.dumps({
+        "model": args.model,
+        "meetings": MEETINGS,
+        "durations_s": durations,
+        "configs": [
+            {"label": label, "language": lang, "initial_prompt": prompt}
+            for label, lang, prompt in CONFIGS
+        ],
+        "pooled": {k: list(v) for k, v in pooled.items()},
+        "per_meeting": {
+            m: {label: [v[0], v[1]] for label, v in per_meeting[m].items()}
+            for m in per_meeting
+        },
+        "winner": winner[0],
+    }, indent=2))
+    log(f"\nJSON dump : {json_out}")
+    log("\n[done]")
+
+
+if __name__ == "__main__":
+    main()

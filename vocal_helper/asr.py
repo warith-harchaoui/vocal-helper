@@ -36,6 +36,16 @@ DEFAULT_MODEL = "large-v3-turbo-q5_0"
 DEFAULT_LANGUAGE = "auto"
 DEFAULT_THREADS = 6
 DEFAULT_MIN_SEGMENT_MS = 250
+# Bias prompt — conditioning text whisper sees BEFORE each utterance.
+# Empirical impact on AMI dev-slice (2026-06-30 study
+# ``studies/whisper_prompt_lang_lock.py``) :
+#   - WER drops 15-25 percentage points on a 16-min meeting when a
+#     domain-aligned bias prompt is supplied ;
+#   - RTF improves up to 39 % because whisper spends less time on
+#     hallucinated digressions.
+# Default is empty (generic transcription) ; callers SHOULD provide a
+# short prompt naming the domain vocabulary expected in the audio.
+DEFAULT_INITIAL_PROMPT = ""
 
 
 class WhisperStage:
@@ -54,6 +64,16 @@ class WhisperStage:
     word_timestamps : bool
         Emit per-word timestamps. Default ``True`` — matches the
         ``Utterance.words`` contract.
+    initial_prompt : str
+        Bias / vocabulary prompt passed to whisper before every
+        transcription. Empty by default. **Strongly recommended** :
+        the 2026-06-30 sweep on AMI dev-slice
+        (``studies/whisper_prompt_lang_lock.py``) showed a domain-
+        aligned prompt cuts WER by 15-25 percentage points and saves
+        up to 39 % RTF. Good prompts name the conversational domain
+        and a handful of expected proper nouns / technical terms,
+        e.g. ``"AMI meeting transcript: remote control design, "
+        "marketing plan, user interface, requirements."``
     min_segment_ms : int
         Drop segments shorter than this — whisper hallucinates on
         very short inputs.
@@ -72,12 +92,14 @@ class WhisperStage:
         language: str = DEFAULT_LANGUAGE,
         threads: int = DEFAULT_THREADS,
         word_timestamps: bool = True,
+        initial_prompt: str = DEFAULT_INITIAL_PROMPT,
         min_segment_ms: int = DEFAULT_MIN_SEGMENT_MS,
     ) -> None:
         self.model_name = model
         self.language = language
         self.threads = threads
         self.word_timestamps = word_timestamps
+        self.initial_prompt = initial_prompt
         self.min_segment_ms = min_segment_ms
         self._model: Any | None = None
 
@@ -137,7 +159,12 @@ class WhisperStage:
                 language=None,
             )
         try:
-            segments = self._model.transcribe(seg["pcm"])
+            if self.initial_prompt:
+                segments = self._model.transcribe(
+                    seg["pcm"], initial_prompt=self.initial_prompt,
+                )
+            else:
+                segments = self._model.transcribe(seg["pcm"])
         except Exception:  # noqa: BLE001
             return None
         text_parts: list[str] = []

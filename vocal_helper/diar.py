@@ -147,7 +147,17 @@ class OnlineDiarStage:
     def __init__(
         self,
         *,
-        backend: BackendName = "pyannote",
+        # Default ``"nemo"`` (TitaNet) selected by the 2026-06-30
+        # embedding-backend sweep (``studies/diar_embedding_backend.py``)
+        # on AMI dev-slice : TitaNet gives a 0.354 separability margin
+        # (inter-speaker − intra-speaker median cosine distance) vs
+        # 0.201 for pyannote/embedding — a 76 % uplift. The cost is
+        # ~ 7 × per-call latency (45 ms vs 6 ms) which is negligible
+        # in a streaming per-segment workload.
+        # Fall back to ``"pyannote"`` if the NeMo install footprint is
+        # prohibitive (NeMo + torch is ~ 5 GB ; pyannote alone is
+        # ~ 500 MB). Pass ``backend="pyannote"`` explicitly to opt out.
+        backend: BackendName = "nemo",
         join_threshold: float = 0.30,
         ema_alpha: float = 0.1,
         min_segment_ms: int = 500,

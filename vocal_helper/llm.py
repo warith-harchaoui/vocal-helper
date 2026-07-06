@@ -53,7 +53,27 @@ def _extract_response_text(resp: object) -> str:
     # Last-resort fallback — the model dump.
     return str(resp).strip()
 
-DEFAULT_MODEL = "gemma4:e4b"
+# Default selected by the 2026-06-30 7-model Pareto sweep
+# (``studies/llm_model_size_sweep.py``, cadence ``flush_every_s=60``)
+# on AMI IS1008a. Each model evaluated against its OWN single-shot
+# offline-on-full-transcript summary :
+#
+#   model                RTF    cos_sim
+#   gemma4:e2b-mlx     0.193    0.456
+#   gemma4:e4b-mlx     0.313    0.420   ← initial default, now superseded
+#   gemma4:12b-mlx     2.453    0.496   (Pareto on quality, too slow)
+#   gemma3:4b          0.099    0.466   ← Pareto sweet spot, NEW DEFAULT
+#   qwen2.5:3b         0.043    0.399   (Pareto on RTF, lower quality)
+#   qwen3:8b           1.628    0.350   (dominated)
+#   llama3.2:3b        0.066    0.367   (dominated)
+#
+# ``gemma3:4b`` dominates the prior default on BOTH axes simultaneously :
+# 3 × faster (RTF 0.099 vs 0.313) AND higher cos_sim (0.466 vs 0.420).
+# ``gemma4:12b-mlx`` is the absolute quality champion if the caller
+# can afford RTF 2.45 (batch / offline use). ``qwen2.5:3b`` is the
+# minimum-RTF pick at 0.043 — useful when running alongside a heavy
+# TTS or on a constrained box.
+DEFAULT_MODEL = "gemma3:4b"
 DEFAULT_RECENT_WINDOW_S = 60.0
 # ``flush_every_n`` is the count-based fallback — refresh the summary
 # every N evicted utterances. Used only when ``flush_every_s`` is
@@ -63,21 +83,30 @@ DEFAULT_FLUSH_EVERY_N = 5
 # summary whenever the accumulated evicted-content duration crosses
 # this many seconds.
 #
-# Default 60.0 selected in the 2026-06-30 single-meeting cadence
-# sweep (``studies/llm_cadence_sweep.py``) on AMI IS1008a (16 min,
-# 4 speakers) against an offline single-shot reference summary
-# produced by Gemma 4 e4b on the full transcript :
+# Default 60.0 — selected from two complementary 2026-06-30 sweeps :
 #
+# ``studies/llm_cadence_sweep.py`` — single-meeting (AMI IS1008a) :
 #   config     RTF    cos_sim
 #   n=20      0.260    0.397
 #   t=30s     0.490    0.414
-#   ⭐ t=60s   0.311    0.420   ← highest cos_sim
+#   t=60s     0.311    0.420   ← highest cos_sim
 #   t=120s    0.192    0.407
 #
-# t=60s is the Pareto-best cos_sim (0.420 = 42 % TF-IDF overlap with
-# the offline reference) at a comfortable real-time-streaming RTF.
-# Callers that need a faster pipeline can lower this to ``t=120`` for
-# RTF 0.192 at a small (−0.013) cos_sim cost.
+# ``studies/llm_cadence_sweep_multi.py`` — pooled median across
+# 4 AMI meetings (IS1008a + ES2011a + ES2011d + TS3004a) :
+#   config    med_RTF  med_n  med_cos
+#   n=20       0.369    23    0.354  ← highest med_cos
+#   t=60s      0.278    17    0.339
+#   t=120s    0.181     9    0.315
+#
+# The multi-meeting median crowns ``n=20`` on cos_sim but t=60s
+# remains the production pick :
+#   - the (0.354 − 0.339) cos_sim gap is well within the inter-meeting
+#     noise (cos_sim ranges from 0.279 to 0.471 for the same config) ;
+#   - t=60s is 25 % faster (RTF 0.278 vs 0.369) ;
+#   - time-based cadence delivers a predictable "summary refreshes
+#     every ~ 1 minute" UX regardless of how chatty the speakers are ;
+#   - matches the user spec "rolling summary up to 1 minute before now".
 DEFAULT_FLUSH_EVERY_S: float | None = 60.0
 DEFAULT_SUMMARY_PROMPT = (
     "You are a meeting note-taker. Update the running summary below "
