@@ -1,0 +1,14 @@
+# vocal-helper — dev + test requirements.
+# Runtime deps plus test/lint/build tooling.
+#
+#     pip install -r requirements-dev.txt
+#     pip install -e .
+
+-r requirements.txt
+
+# Dev / test tooling:
+pytest>=8
+click>=8.1,<9
+fastapi>=0.115
+httpx>=0.27
+python-multipart>=0.0.9

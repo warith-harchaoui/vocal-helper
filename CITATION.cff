@@ -1,0 +1,40 @@
+cff-version: 1.2.0
+title: "vocal-helper: an async producer-consumer speech pipeline"
+message: >-
+  If you use this software in a publication, please cite it as below.
+type: software
+authors:
+  - given-names: Warith
+    family-names: HARCHAOUI
+    email: warith@deraison.ai
+    orcid: "https://orcid.org/0000-0002-3487-7134"
+    affiliation: "Deraison AI"
+repository-code: "https://github.com/warith-harchaoui/vocal-helper"
+url: "https://github.com/warith-harchaoui/vocal-helper"
+abstract: >-
+  vocal-helper turns a live PCM audio stream (or a URL / WAV file) into
+  diarised, transcribed utterances and, optionally, a rolling LLM summary.
+  The pipeline chains a Silero VAD, an online cosine-clustering diarizer
+  built on pyannote/embedding (or NVIDIA TitaNet via NeMo), a whisper.cpp
+  turbo ASR (large-v3-turbo-q5_0), and an Ollama-hosted Gemma analyst.
+  Every stage is an async coroutine wired by bounded asyncio queues, so
+  back-pressure and shutdown cascade cleanly through the chain. The
+  default operating points (join threshold 0.30 for the diarizer, 60 s
+  rolling window for the analyst, TitaNet as the embedding backend) are
+  each backed by a reproducible sweep under ``studies/`` on the AMI
+  meeting corpus.
+keywords:
+  - "speech recognition"
+  - "speaker diarization"
+  - "voice activity detection"
+  - "whisper"
+  - "pyannote"
+  - "silero"
+  - "streaming"
+  - "producer-consumer"
+  - "asyncio"
+  - "ollama"
+  - "gemma"
+license: BSD-3-Clause
+version: "0.1.0"
+date-released: "2026-06-30"

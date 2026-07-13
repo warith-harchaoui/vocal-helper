@@ -1,0 +1,27 @@
+# vocal-helper — pip requirements (portable, no `file://` deps).
+#
+# For a plain install:
+#     pip install -r requirements.txt
+#     pip install -e .           # vocal-helper itself (editable) or `pip install .`
+#
+# Heavy optional surfaces live behind extras (NOT pulled by this file):
+#     pip install '.[mic]'       # capture-helper — live microphone source
+#     pip install '.[stream]'    # podcast-helper — URL / stream source
+#     pip install '.[pyannote]'  # pyannote.audio diarization (upstream)
+#     pip install '.[nemo]'      # NeMo online diarization (upstream, ~5 GB)
+#     pip install '.[llm]'       # ollama business layer
+#     pip install '.[cli,api,mcp]'
+#
+# All suite pins are kept in lock-step with their newest release tags.
+
+# --- Suite dependencies (core) --------------------------------------------
+os-helper>=1.5.0
+audio-helper>=1.5.5
+# --- Suite dependencies (source extras — install via the extras above) ----
+# capture-helper @ git+https://github.com/warith-harchaoui/capture-helper.git@v0.2.2   # [mic]
+# podcast-helper @ git+https://github.com/warith-harchaoui/podcast-helper.git@v0.3.3   # [stream]
+
+# --- Core runtime ---------------------------------------------------------
+numpy>=1.24
+silero-vad>=5.1
+pywhispercpp>=1.2

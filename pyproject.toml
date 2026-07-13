@@ -1,0 +1,206 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "vocal-helper"
+version = "0.3.7"
+description = "Vocal Helper — async producer/consumer pipeline turning a live PCM stream into diarized, transcribed utterances and (optionally) a rolling LLM summary. Stages: VAD (Silero) → online speaker diarization (Hungarian-style cosine clustering on backend embeddings) → STT (pywhispercpp turbo) → optional analyst (Gemma 3 4b via Ollama)."
+readme = "README.md"
+requires-python = ">=3.10,<3.14"
+license = {text = "BSD-3-Clause"}
+authors = [
+    {name = "Warith HARCHAOUI", email = "warith@deraison.ai"},
+]
+keywords = [
+    "voice", "speech", "asr", "diarization", "vad", "whisper",
+    "pywhispercpp", "silero", "streaming", "producer-consumer",
+    "asyncio", "ollama", "gemma", "live",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: BSD License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Multimedia :: Sound/Audio :: Speech",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+
+# Runtime contract :
+# - PCM frames at 16 kHz mono float32, shape (n_samples,). The same
+#   shape produced by ``capture_helper.iter_mic_audio`` and
+#   ``podcast_helper.extract_audio_stream``.
+# - VAD : Silero v5 ONNX (CPU). Fast, deterministic, ~ 32 ms window.
+# - Diarization : online cosine clustering with constrained Hungarian
+#   assignment on per-segment speaker embeddings, sliding window over
+#   ``window_s`` (default 20 s, the operating point validated at
+#   pdbms-canonical N=2089 — see vocal-helper README "Diarization choice").
+# - ASR : pywhispercpp turbo (``large-v3-turbo-q5_0`` by default).
+# - LLM analyst : Ollama-served Gemma 4 e4b with a rolling summary
+#   buffer ; everything older than ``recent_window_s`` (default 60 s)
+#   gets folded into the summary.
+dependencies = [
+    "os-helper>=1.5.0",
+    "audio-helper>=1.5.5",
+    "numpy>=1.24",
+    "scipy>=1.15",
+    "silero-vad>=5.1",
+    "pywhispercpp>=1.2",
+]
+
+[project.optional-dependencies]
+# Live microphone input depends on capture-helper's per-OS ffmpeg path.
+mic = [
+    "capture-helper>=0.2.2",
+]
+# URL source — YouTube / Vimeo / Twitch / podcast RSS / direct audio.
+# podcast-helper brings the yt-dlp + ffmpeg streaming chain that feeds
+# sources.from_url ; matches the same PcmFrame shape vocal-helper expects.
+stream = [
+    "podcast-helper>=0.3.3",
+]
+# pyannote.audio drives the embedding-based speaker model used by the
+# online diarizer when ``backend='pyannote'``.
+pyannote = [
+    "pyannote.audio>=3.3",
+]
+# NeMo Sortformer backend (Apple-Silicon-friendly; heavy install).
+nemo = [
+    "torch>=2.5,<3",
+    "torchaudio>=2.5,<3",
+    "nemo-toolkit[asr]>=2.0",
+]
+# Local LLM analyst via Ollama.
+llm = [
+    "ollama>=0.4",
+]
+# Click twin of the argparse CLI. Kept as an extra so the stdlib
+# argparse entry point works with a bare install.
+cli = [
+    "click>=8.1,<9",
+]
+# FastAPI HTTP surface at ``vocal_helper.api:app``. python-multipart is
+# required for the ``UploadFile`` fields on POST /transcribe and /pipeline.
+api = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "python-multipart>=0.0.9",
+]
+# MCP surface via fastapi-mcp — mounts the FastAPI app as MCP tools.
+mcp = [
+    "fastapi-mcp>=0.3",
+]
+# Local neural TTS via Piper — CPU-only, ONNX, voices auto-downloaded
+# from rhasspy/piper-voices on Hugging Face. See vocal_helper.tts.
+tts = [
+    "piper-tts>=1.2",
+]
+# Independent language-ID cross-check (SpeechBrain VoxLingua107) used by
+# vocal_helper.lid.cross_check_regions — a second audio classifier that
+# shares nothing with whisper but the signal.
+lid = [
+    "speechbrain>=1.0",
+    "torchaudio>=2.0",
+]
+# Convenience meta-extra : everything. Includes ``nemo`` since the
+# 2026-06-30 study made TitaNet the default online-diar embedding
+# (76 % wider separability margin vs pyannote/embedding). Skip it
+# explicitly if the ~ 5 GB NeMo install footprint is prohibitive :
+#   pip install 'vocal-helper[cli,api,mcp,mic,stream,pyannote,llm,tts]'
+# then pass ``backend="pyannote"`` to ``OnlineDiarStage``.
+all = [
+    "vocal-helper[cli,api,mcp,mic,stream,pyannote,nemo,llm,tts,lid]",
+]
+dev = [
+    "pytest>=8",
+    "click>=8.1,<9",
+    "fastapi>=0.115",
+    "httpx>=0.27",
+    "python-multipart>=0.0.9",
+]
+
+[project.urls]
+Homepage = "https://github.com/warith-harchaoui/vocal-helper"
+Documentation = "https://github.com/warith-harchaoui/vocal-helper#readme"
+Repository = "https://github.com/warith-harchaoui/vocal-helper"
+Issues = "https://github.com/warith-harchaoui/vocal-helper/issues"
+Changelog = "https://github.com/warith-harchaoui/vocal-helper/blob/main/CHANGELOG.md"
+"Deployment guide" = "https://github.com/warith-harchaoui/vocal-helper/blob/main/TECHNICAL_STACK.md"
+"Study log" = "https://github.com/warith-harchaoui/vocal-helper/tree/main/studies"
+
+[project.scripts]
+vocal-helper = "vocal_helper.cli_argparse:main"
+vocal-helper-click = "vocal_helper.cli_click:cli"
+vocal-helper-mcp = "vocal_helper.mcp:main"
+
+[tool.setuptools.packages.find]
+include = ["vocal_helper*"]
+exclude = ["tests*", "assets*", "examples*", "studies*", "doc*"]
+
+# PEP 561 — expose the py.typed marker so mypy / pyright pick up our
+# inline type hints for downstream consumers.
+[tool.setuptools.package-data]
+"vocal_helper" = ["py.typed"]
+
+[tool.pytest.ini_options]
+markers = [
+    "integration: tests that load Whisper / pyannote / NeMo / Ollama models (skipped by default)",
+]
+addopts = "-m 'not integration'"
+
+[tool.coverage.run]
+source = ["vocal_helper"]
+branch = true
+omit = [
+    # Optional-import modules that need real backend installs to hit :
+    # torch (eot_bench), piper-tts (tts), asyncio-heavy demo
+    # (parallel_pipelines). Excluded from the CI floor until they get
+    # dedicated integration tests.
+    "vocal_helper/eot.py",
+    "vocal_helper/eot_bench.py",
+    "vocal_helper/tts.py",
+    "vocal_helper/parallel_pipelines.py",
+    # Auto-generated / trivial re-exports.
+    "vocal_helper/__init__.py",
+]
+
+[tool.coverage.report]
+# Fail the CI if headline coverage on the core surface drops below
+# this floor. Set deliberately below the current headline (~ 40 %
+# after omitting model-loading paths) so an unrelated PR doesn't
+# red-line the pipeline. Bump in a standalone PR as the ML-backed
+# stages get their own integration harnesses.
+fail_under = 35
+show_missing = true
+skip_covered = false
+exclude_lines = [
+    "pragma: no cover",
+    "raise NotImplementedError",
+    "if TYPE_CHECKING:",
+    "if __name__ == .__main__.:",
+    # Model-loading paths behind lazy imports — the ImportError arm
+    # is only hit when the optional extra is missing, and the
+    # ``load()`` bodies require the heavy backend, so they live under
+    # the ``integration`` marker rather than the default suite.
+    "except ImportError",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+# ``studies/`` holds one-off research scripts (sweeps, ablations) ; we
+# lint shipped library code (``vocal_helper/``) and tests instead.
+extend-exclude = ["assets", "studies"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "C4", "UP", "SIM"]
+ignore = [
+    "E501",
+    "B008",
+    "SIM108",
+]

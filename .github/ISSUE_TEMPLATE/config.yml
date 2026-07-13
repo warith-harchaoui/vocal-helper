@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Deployment / production questions
+    url: https://github.com/warith-harchaoui/vocal-helper/blob/main/TECHNICAL_STACK.md
+    about: The GPU-server stack, install checklist and RTF numbers per GPU.
+  - name: Studies and benchmarks
+    url: https://github.com/warith-harchaoui/vocal-helper/tree/main/studies
+    about: Reproducible sweeps that motivated the current defaults.

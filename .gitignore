@@ -1,0 +1,44 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+
+# Tests
+.pytest_cache/
+.coverage
+htmlcov/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+.DS_Store
+
+# Local scratch
+*.wav
+!tests/fixtures/*.wav
+*.jsonl
+
+# Study run artefacts — the studies/*.py scripts are tracked, their
+# generated logs / metrics dumps are not.
+studies/*.log
+studies/*.json
+
+settings.yaml
+
+# yt-dlp / test integration artefacts
+*ytdlp_cookie*
+*.vtt
+
+# Local-only attribution maintenance tool (not shipped)
+
+# local-only tooling & secrets
+nomoreclaude.sh
+.secrets/
+.pypirc
