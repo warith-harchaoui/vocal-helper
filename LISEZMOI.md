@@ -14,6 +14,12 @@
 
 Vocal Helper est un **pipeline producteur/consommateur asynchrone** qui transforme un flux audio PCM en direct en énoncés diarizés et transcrits — et, en option, en résumé glissant produit par un LLM.
 
+# Documentation
+
+[💻 Documentation](https://harchaoui.org/warith/ai-helpers/docs/vocal-helper-doc/)
+
+[📋 Exemples](https://github.com/warith-harchaoui/vocal-helper/blob/main/EXAMPLES.md)
+
 ## Pipeline
 
 Toutes les frontières entre étages sont des `asyncio.Queue` bornées ;

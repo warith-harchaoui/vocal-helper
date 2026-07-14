@@ -19,6 +19,12 @@ Vocal Helper is an **async producer/consumer pipeline** turning audio into diari
 - **Online** (`voh.Pipeline`) — live PCM stream → live transcript + live summary. Each stage runs at its own cadence, decoupled by bounded queues. The STT stage warms up on start so the first caption doesn't stall on whisper's cold inference.
 - **Offline** (`voh.OfflinePipeline`) — full audio buffer → highest-quality diarization (pyannote 3.1 runs the whole meeting in one call — the 2026-07-14 offline map-reduce study found whole-buffer strictly best for DER; chunk-and-stitch survives only as a memory backstop past ~1 h) → **full-throttle batched transcript** (consecutive segments concatenated into ≤ 24 s whisper calls — ~6.5× lower RTF at better WER per the 2026-07-09 sweep) → summary. Opt back into per-segment ASR with `OfflinePipelineConfig(asr={"batch": False})`.
 
+# Documentation
+
+[💻 Documentation](https://harchaoui.org/warith/ai-helpers/docs/vocal-helper-doc/)
+
+[📋 Examples](https://github.com/warith-harchaoui/vocal-helper/blob/main/EXAMPLES.md)
+
 ## Pipelines
 
 Every edge is a bounded `asyncio.Queue` ; every stage is its own
