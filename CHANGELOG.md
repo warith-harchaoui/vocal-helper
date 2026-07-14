@@ -5,6 +5,20 @@ This project adheres to [Semantic Versioning](https://semver.org).
 
 ## [Unreleased]
 
+### Changed
+
+- **Offline diarization chunking validated as a memory ceiling, not a quality
+  lever.** The pdbms offline map-reduce study (2026-07-14 — full stack VAD +
+  ASR + diar on 3 AMI scenario meetings, scored by VAD F1 / WER / DER-JER
+  against AMI ground truth) confirms `OfflineDiarStage`'s defaults sit on the
+  safe side of the diarization knee: DER is strictly monotone in chunk size
+  (whole-buffer best; `ideal_duration_s=300` costs only ~0.03 DER; 120 s / 60 s
+  are cliffs at median DER 0.31 / 0.50), VAD is chunk-invariant, and ASR
+  *destabilises* when chunked (one meeting hit WER 1.17 on a long-window
+  whisper loop). Verdict: offline map-reduce is not beneficial for quality —
+  keep chunks as large as memory allows and **do not lower `ideal_duration_s`**.
+  Rationale codified in the `OfflineDiarStage` docstring; no default changed.
+
 ## [0.3.7] - 2026-07-13
 
 ### Changed

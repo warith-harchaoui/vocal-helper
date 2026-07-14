@@ -412,6 +412,17 @@ class OfflineDiarStage:
     critical AMI-style work, use ``pdbms.diar.offline_chunked.ChunkedOfflineDiarizer``
     directly.
 
+    Chunking is a memory ceiling, not a quality lever — do not lower it.
+    The pdbms offline map-reduce study (2026-07-14, full stack VAD + ASR
+    + diar on 3 AMI scenario meetings) found DER strictly *monotone* in
+    chunk size: whole-buffer is best, ``ideal_duration_s=300`` costs only
+    ~0.03 DER (safe side of the knee), but 120 s / 60 s are cliffs
+    (median DER 0.31 / 0.50 — speaker fragmentation outruns the stitch).
+    ASR also destabilises when chunked (a long-window whisper loop drove
+    one meeting to WER 1.17). 300 s is retained because it bounds
+    pyannote memory on long inputs while staying past the knee ; raise it
+    toward whole-buffer only when memory allows and the input is short.
+
     Parameters
     ----------
     backend : "pyannote" | "nemo"
