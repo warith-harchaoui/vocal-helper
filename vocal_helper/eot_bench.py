@@ -85,6 +85,8 @@ class EOTPair:
 
 def _latency_s(pair: EOTPair) -> float:
     """Signed latency : positive = detector fired *after* true end."""
+    # Sign convention is the whole point : negative ⇒ premature cutoff,
+    # positive ⇒ hang. Both metrics below key off this single subtraction.
     return pair.detector_commit_s - pair.true_turn_end_s
 
 

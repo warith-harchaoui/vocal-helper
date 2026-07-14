@@ -39,11 +39,14 @@ def test_invoke_subscribers_swallows_and_continues() -> None:
     seen: list[str] = []
 
     async def bad(_item: object) -> None:
+        """First subscriber : always raises to exercise the swallow path."""
         raise ValueError("boom")
 
     async def good(_item: object) -> None:
+        """Second subscriber : records that it ran despite the first raising."""
         seen.append("ran")
 
+    # ``bad`` raising must not short-circuit the list — ``good`` still fires.
     asyncio.run(_invoke_subscribers([bad, good], object(), "test"))
     assert seen == ["ran"], "second subscriber didn't run after first raised"
 

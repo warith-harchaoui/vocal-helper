@@ -493,6 +493,21 @@ class _TitaNetEmbedder:
         self._model = EncDecSpeakerLabelModel.from_pretrained("titanet_large").eval()
 
     def embed(self, pcm: NDArray[np.float32], sr: int) -> NDArray[np.float32]:
+        """Return a single TitaNet speaker embedding for one segment.
+
+        Parameters
+        ----------
+        pcm : NDArray[np.float32]
+            Mono PCM samples for the segment.
+        sr : int
+            Sample rate of ``pcm`` (unused by TitaNet's forward path, kept
+            for interface parity with :class:`_PyannoteEmbedder`).
+
+        Returns
+        -------
+        NDArray[np.float32]
+            The TitaNet speaker embedding vector.
+        """
         import torch  # type: ignore
 
         wave = torch.from_numpy(pcm).unsqueeze(0)
