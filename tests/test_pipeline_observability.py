@@ -57,8 +57,11 @@ def test_invoke_subscribers_logs_warning_with_stage_and_callback(
     """The failure must be observable via the pipeline logger."""
 
     async def kaboom(_item: object) -> None:
+        """A subscriber that raises with a distinctive message we can grep for."""
         raise RuntimeError("kaboom")
 
+    # Capture at WARNING on the pipeline logger — the contract says the swallow
+    # must still leave a record here, tagged with the stage name ("diar").
     with caplog.at_level(logging.WARNING, logger="vocal_helper.pipeline"):
         asyncio.run(_invoke_subscribers([kaboom], object(), "diar"))
 
