@@ -228,6 +228,38 @@ L'étude `pdbms` (2026-06-29, N=2089 par système) classe les diariseurs en stre
 
 Vocal Helper spécialise cette décision : puisque le VAD isole déjà chaque segment voisé, la machinerie à fenêtre glissante se réduit à un embedding par segment + clustering par moyenne mobile sur distance cosinus. Le `join_threshold=0.30` par défaut est la valeur sélectionnée sur AMI dev-slice N=8 dans le sweep `pyannote_stitch_threshold_sweep` du 2026-06-30.
 
+## Identification de la langue parlée
+
+Avant même de transcrire un mot, `vocal_helper.lid` détermine **quelle langue
+est parlée** — pour le fichier entier, ou par région dans un enregistrement où
+l'on alterne les langues. C'est décisif : une passe whisper `"auto"` se
+verrouille sur la première langue entendue et *traduit* le reste dans
+celle-ci ; identifier la langue acoustiquement **d'abord** permet de
+transcrire chaque région dans sa propre langue. Cela rattrape aussi les
+données mal étiquetées : sur un corpus de 423 appels, le recensement
+acoustique a corrigé l'étiquette de dossier de 21 fichiers (des appels
+anglais et néerlandais rangés sous « FR », etc.).
+
+| Fonction | Rôle |
+|---|---|
+| `detect_language(pcm)` | Une détection globale, restreinte à un ensemble `supported` routable (pour que whisper ne classe jamais un proche non routable — le galicien devant l'espagnol — sur une fenêtre courte). Renvoie `(iso_639_1, probabilité)`. |
+| `detect_language_regions(pcm)` | Découpe un audio multilingue en `LangRegion`s mono-langue via une **courbe de postérieurs** à fenêtres chevauchantes — lissée par gaussienne, frontières raffinées localement puis calées sur le silence le plus proche. |
+| `detect_language_regions_fast(pcm)` | Chemin rapide *(nouveau en 0.4.2)* : une détection globale bon marché ; si elle dépasse le seuil de confiance (`DEFAULT_FAST_CONF_GATE`, 0.5) sur une langue routable, le fichier est traité comme monolingue — une seule région — sinon repli sur le scan complet. **~73 s → ~1 s par fichier** sur la majorité monolingue, sortie identique. |
+| `cross_check_regions(pcm, regions)` | Vérification indépendante optionnelle via SpeechBrain VoxLingua107 (livré dans le bundle diarization-engines) — un second avis, issu d'un autre modèle, sur la langue de chaque région. |
+
+```python
+import vocal_helper as voh
+
+# Chemin rapide — le bon défaut pour un corpus batch majoritairement monolingue :
+regions = voh.detect_language_regions_fast(pcm, 16_000)
+for r in regions:
+    print(f"{r.lang}  [{r.t0:.1f}–{r.t1:.1f}s]")
+```
+
+L'ensemble `supported` par défaut est une large liste ISO-639-1 ; restreignez-le
+aux langues que vous savez réellement router (p. ex. `supported=("en", "fr",
+"es", "it", "pl", "nl")`) pour qu'un proche non routable ne l'emporte jamais.
+
 ## Auteur
 
 [Warith HARCHAOUI](https://linkedin.com/in/warith-harchaoui) — `warith@deraison.ai`

@@ -284,6 +284,37 @@ The `pdbms` study (2026-06-29, N=2089 per system) ranks the online streaming dia
 
 Vocal Helper specialises that decision : since the VAD already isolates each voiced segment for us, the sliding-window machinery collapses to per-segment embedding + cosine-distance running-mean clustering. The default `join_threshold=0.30` is the value selected on AMI dev-slice N=8 in the 2026-06-30 `pyannote_stitch_threshold_sweep`.
 
+## Spoken-language identification
+
+Before a word is transcribed, `vocal_helper.lid` decides **which language is
+being spoken** — for the whole file, or per region of a code-switched
+recording. This matters because a plain whisper `"auto"` pass locks onto the
+first language it hears and *translates* the rest into it; identifying the
+language acoustically **first** lets each region be transcribed in its own
+language. It also catches mislabeled data: on a 423-call corpus the acoustic
+census overrode the folder labels on 21 files (English and Dutch calls filed
+under "FR", etc.).
+
+| Function | What it does |
+|---|---|
+| `detect_language(pcm)` | One global detection, restricted to a routable `supported` set (so whisper never ranks an un-routable relative — Galician over Spanish — on a short window). Returns `(iso_639_1, probability)`. |
+| `detect_language_regions(pcm)` | Partitions code-switched audio into mono-language `LangRegion`s via an overlapping-window **posterior curve** — Gaussian-smoothed, boundaries locally refined and snapped to the nearest silence. |
+| `detect_language_regions_fast(pcm)` | Fast path *(new in 0.4.2)*: one cheap whole-file detection ; if it clears the confidence gate (`DEFAULT_FAST_CONF_GATE`, 0.5) on a routable language the file is treated as monolingual — a single region — otherwise it falls back to the full posterior scan. **~73 s → ~1 s per file** on the monolingual majority, identical output. |
+| `cross_check_regions(pcm, regions)` | Optional independent verification with SpeechBrain VoxLingua107 (shipped in the diarization-engines bundle) — a second, model-diverse opinion on each region's language. |
+
+```python
+import vocal_helper as voh
+
+# Fast path — the right default for batch corpora that are mostly monolingual:
+regions = voh.detect_language_regions_fast(pcm, 16_000)
+for r in regions:
+    print(f"{r.lang}  [{r.t0:.1f}–{r.t1:.1f}s]")
+```
+
+The `supported` set defaults to a broad ISO-639-1 list ; restrict it to the
+languages you can actually route (e.g. `supported=("en", "fr", "es", "it",
+"pl", "nl")`) so a close but un-routable relative never wins.
+
 ## Roadmap
 
 - v0.2 — JSONL output writer + standard WebSocket relay (mirroring `capture-helper`'s publish path).
