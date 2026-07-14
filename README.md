@@ -72,6 +72,10 @@ and does its own segmentation.
 
 ## Quickstart
 
+> **More recipes?** See [`EXAMPLES.md`](https://github.com/warith-harchaoui/vocal-helper/blob/main/EXAMPLES.md)
+> for a self-contained, copy-runnable cookbook of the common workflows
+> (live mic, URL replay, offline batch, subscribers, multi-surface exposure).
+
 > **Deploying on a GPU server?** See [TECHNICAL_STACK.md](https://github.com/warith-harchaoui/vocal-helper/blob/main/TECHNICAL_STACK.md)
 > for the full stack recipe : CUDA + PyTorch, whisper.cpp with `GGML_CUDA=on`,
 > pyannote 3.1 on MPS/CUDA, Ollama systemd, Docker Compose template,

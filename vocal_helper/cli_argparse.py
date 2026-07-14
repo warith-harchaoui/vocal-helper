@@ -137,6 +137,8 @@ async def _run_pipeline(args: argparse.Namespace, source_factory) -> None:
     config = _build_pipeline_config(args)
     if getattr(args, "offline", False):
         # Offline pipeline skips the VAD and gives the diar backend the whole buffer.
+        # We re-project the shared config onto the offline shape (no ``vad`` /
+        # ``eot`` block) so the two pipelines stay driven by one CLI namespace.
         offline_cfg = OfflinePipelineConfig(
             diar=config.diar,
             asr=config.asr,
@@ -145,31 +147,41 @@ async def _run_pipeline(args: argparse.Namespace, source_factory) -> None:
         pipeline = OfflinePipeline(source=source_factory, config=offline_cfg)
     else:
         pipeline = Pipeline(source=source_factory, config=config)
+    # Drain the async event stream synchronously — one line per event as it lands.
     async for ev in pipeline.run():
         _print_event(ev, args.jsonl)
 
 
 def _handle_mic(args: argparse.Namespace) -> int:
+    """Handle ``vocal-helper mic`` — stream the live microphone through the pipeline."""
     # Import lazily so users without the [mic] extra can still use file/url.
     from vocal_helper.sources import from_microphone
 
     def factory():
+        """Open a fresh 16 kHz / 20 ms microphone stream on each pipeline start."""
+        # 16 kHz mono matches whisper.cpp's native rate ; 20 ms frames are the
+        # Silero VAD stride, so no downstream resampling / reframing is needed.
         return from_microphone(
             device_name=args.device,
             sample_rate=16_000,
             frame_ms=20,
         )
 
+    # The whole pipeline lives inside one event loop for this process.
     asyncio.run(_run_pipeline(args, factory))
     return 0
 
 
 def _handle_file(args: argparse.Namespace) -> int:
+    """Handle ``vocal-helper file`` — replay a WAV file through the pipeline."""
     from vocal_helper.sources import from_wav_file
 
     path = Path(args.path)
 
     def factory():
+        """Open the WAV source ; honour ``--no-real-time`` to skip wall-clock pacing."""
+        # Real-time pacing mimics a live feed (useful for demos / latency numbers) ;
+        # ``--no-real-time`` fires frames as fast as they decode for batch throughput.
         return from_wav_file(path, real_time=not args.no_real_time)
 
     asyncio.run(_run_pipeline(args, factory))
@@ -177,10 +189,12 @@ def _handle_file(args: argparse.Namespace) -> int:
 
 
 def _handle_url(args: argparse.Namespace) -> int:
+    """Handle ``vocal-helper url`` — stream any yt-dlp-reachable URL through the pipeline."""
     # URL streaming needs podcast_helper (the [stream] extra).
     from vocal_helper.sources import from_url
 
     def factory():
+        """Open a streaming source for the given URL (yt-dlp resolves the media)."""
         return from_url(args.url)
 
     asyncio.run(_run_pipeline(args, factory))
@@ -419,6 +433,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     """
     parser = build_parser()
     args = parser.parse_args(argv)
+    # Every subparser wired a ``func`` handler via ``set_defaults`` ; dispatch to
+    # it and normalise the return to a plain int exit code for ``SystemExit``.
     return int(args.func(args))
 
 

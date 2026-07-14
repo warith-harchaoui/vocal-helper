@@ -122,18 +122,29 @@ class SemanticEOTStage:
         min_incomplete_ms: int = DEFAULT_MIN_INCOMPLETE_MS,
         host: str | None = None,
     ) -> None:
+        """Store the EOT-gating knobs ; defer all model loads to first ``run``."""
         self.eot_model = eot_model
         self.stt_model = stt_model
         self.max_merge_s = max_merge_s
         self.min_incomplete_ms = min_incomplete_ms
         self.host = host
+        # Clients are lazy — an EOT-disabled pipeline must never import ollama /
+        # pywhispercpp just by being constructed. Populated by ``_ensure_clients``.
         self._ollama = None
         self._whisper = None
+        # At most one segment is held back at a time — the merge chain is linear.
         self._pending: _PendingSegment | None = None
 
     # ----- lifecycle ------------------------------------------------------
 
     def _ensure_clients(self) -> None:
+        """Lazily construct the Ollama classifier client and the whisper STT model.
+
+        Idempotent — safe to call on every ``run`` ; the heavy imports and the
+        model load happen exactly once, on the first invocation.
+        """
+        # Ollama client — routed to an explicit host if the caller gave one,
+        # else it resolves $OLLAMA_HOST / localhost on its own.
         if self._ollama is None:
             try:
                 import ollama  # type: ignore
@@ -143,6 +154,8 @@ class SemanticEOTStage:
                     "Install with `pip install vocal-helper[llm]`."
                 ) from e
             self._ollama = ollama.Client(host=self.host) if self.host else ollama.Client()
+        # whisper.cpp model for the fast partial-transcript pass. Silenced
+        # (no realtime / progress prints) so it never pollutes the CLI stream.
         if self._whisper is None:
             try:
                 from pywhispercpp.model import Model  # type: ignore
@@ -180,15 +193,21 @@ class SemanticEOTStage:
     # ----- core ---------------------------------------------------------
 
     async def _handle(self, seg: VoicedSegment) -> list[VoicedSegment]:
+        """Decide the fate of one VoicedSegment ; return the segments to emit now.
+
+        Returns an empty list when the segment is held back mid-thought (it will
+        surface later, merged with its successor), or a single-element list with
+        the segment (or its merged super-segment) once judged complete / capped.
+        """
         dur_ms = (seg["t1"] - seg["t0"]) * 1000.0
 
-        # Short segments — gate by classifier.
+        # Cheap heuristic first : with nothing pending, a long segment is almost
+        # certainly a closed turn — skip the STT + LLM round-trip and emit it.
         if self._pending is None and dur_ms >= self.min_incomplete_ms:
-            # Long enough that it's almost certainly a complete turn —
-            # skip the classifier call and emit directly.
             return [seg]
 
-        # Build the candidate (either fresh or merged-with-pending).
+        # Build the candidate — a fresh short segment, or the pending chain glued
+        # to this segment so the classifier judges the growing whole, not a shard.
         if self._pending is None:
             candidate = seg
             accumulated_text = ""
@@ -196,22 +215,26 @@ class SemanticEOTStage:
             candidate = self._merge_segments(self._pending.seg, seg)
             accumulated_text = self._pending.accumulated_text
 
-        # Time-cap force-emit.
+        # Hard latency guard : never hold audio past ``max_merge_s``, even if the
+        # classifier still thinks it's mid-thought — bounded lag beats a lost turn.
         candidate_dur = candidate["t1"] - candidate["t0"]
         if candidate_dur >= self.max_merge_s:
             self._pending = None
             return [candidate]
 
-        # Get partial transcript + classify.
+        # Transcribe the candidate and ask the LLM whether the turn is complete.
+        # Both are blocking C / HTTP calls — offloaded so the event loop keeps
+        # servicing upstream VAD frames while they run.
         text = await asyncio.to_thread(self._partial_transcribe, candidate["pcm"])
         full_text = (accumulated_text + " " + text).strip()
         complete = await asyncio.to_thread(self._classify, full_text)
 
+        # Complete → release the whole (possibly merged) segment downstream.
         if complete:
             self._pending = None
             return [candidate]
 
-        # Hold back ; wait for the next segment to merge.
+        # Incomplete → stash it and wait ; the next segment extends this chain.
         self._pending = _PendingSegment(
             seg=candidate,
             received_at=time.monotonic(),
@@ -237,11 +260,18 @@ class SemanticEOTStage:
         )
 
     def _partial_transcribe(self, pcm: NDArray[np.float32]) -> str:
+        """Run the fast whisper pass over ``pcm`` ; return the flattened text.
+
+        A transcription failure is non-fatal here — an empty string simply
+        yields a benign classifier verdict rather than crashing the stage.
+        """
         assert self._whisper is not None
         try:
             segs = self._whisper.transcribe(pcm)
         except Exception:  # noqa: BLE001
+            # Decode error on a tiny/odd buffer — treat as "no text" and move on.
             return ""
+        # whisper returns per-window segments ; join them into one utterance line.
         return " ".join((s.text or "").strip() for s in segs).strip()
 
     def _classify(self, text: str) -> bool:

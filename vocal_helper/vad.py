@@ -86,6 +86,31 @@ class SileroVADStage:
         edge_pad_ms: int = 200,
         sample_rate: int = 16_000,
     ) -> None:
+        """Configure the Silero VAD stage ; the model loads lazily.
+
+        Parameters
+        ----------
+        activity_threshold : float
+            Silero speech-probability threshold above which a window
+            counts as voiced. Default 0.5.
+        min_silence_ms : int
+            Minimum silence duration that closes an ongoing run.
+            Default 300 ms.
+        min_speech_ms : int
+            Minimum voiced duration for a run to be emitted at all.
+            Default 300 ms.
+        edge_pad_ms : int
+            Context padding prepended / appended to each emitted run so
+            ASR sees a natural envelope. Default 200 ms.
+        sample_rate : int
+            Input sample rate ; must be 16 000 — Silero v5 is trained at
+            16 kHz. Default 16 000.
+
+        Raises
+        ------
+        ValueError
+            If ``sample_rate`` is not 16 000.
+        """
         if sample_rate != 16_000:
             raise ValueError(f"SileroVADStage requires sample_rate=16000, got {sample_rate}")
         self.activity_threshold = activity_threshold
@@ -112,6 +137,12 @@ class SileroVADStage:
     # ----- lifecycle ------------------------------------------------------
 
     def _ensure_model(self) -> None:
+        """Lazily load the Silero VAD model (and torch handle) on first use.
+
+        Idempotent — returns immediately once the model is loaded, so it
+        is safe to call at the top of :meth:`run`. The CPU-only ONNX model
+        makes this cheap.
+        """
         if self._model is not None:
             return
         import torch  # type: ignore

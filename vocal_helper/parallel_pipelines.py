@@ -107,24 +107,34 @@ def run_parallel_sync(
     dict
         ``{name: (result, wall_seconds)}`` in the input order.
     """
+    # Empty sweep — nothing to fan out over, return an empty table.
     if not branches:
         return {}
+    # One worker per branch by default : a compare-N-backends sweep wants
+    # all branches running at once, not queued behind a small pool.
     max_workers = max_workers or len(branches)
     results: dict[str, tuple[R, float]] = {}
 
     def _time_one(name: str, fn: Callable[[T], R]) -> tuple[str, R, float]:
+        """Run one branch on the shared input and wall-time it."""
+        # ``perf_counter`` (monotonic, high-res) is the right clock for a
+        # duration measurement — immune to wall-clock adjustments.
         t0 = time.perf_counter()
         out = fn(upstream_input)
         return name, out, time.perf_counter() - t0
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as pool:
+        # Submit every branch ; they run concurrently on the pool threads.
         futures = [pool.submit(_time_one, name, fn) for name, fn in branches]
-        # Preserve input-order in results.
+        # Branches finish in completion order, but the caller expects the
+        # ORIGINAL branch order — remember each name's slot and reassemble.
         order = {name: i for i, (name, _) in enumerate(branches)}
         rows = [None] * len(branches)  # type: ignore[assignment]
+        # Drain as results land (fail-fast on the first exception raised).
         for f in concurrent.futures.as_completed(futures):
             name, out, wall = f.result()
             rows[order[name]] = (name, out, wall)
+    # Rebuild the dict in input order — insertion order is the public contract.
     for name, out, wall in rows:  # type: ignore[misc]
         results[name] = (out, wall)
     return results
@@ -141,13 +151,20 @@ async def run_parallel_async(
     the others ; wrap in try/except at the branch level if
     per-branch fault isolation matters.
     """
+    # Empty sweep — nothing to await, return an empty table.
     if not branches:
         return {}
 
     async def _time_one(name: str, fn: Callable[[T], Awaitable[R]]) -> tuple[str, R, float]:
+        """Await one branch coroutine on the shared input and wall-time it."""
+        # Same monotonic clock as the sync path so the two variants report
+        # wall-times on the identical scale.
         t0 = time.perf_counter()
         out = await fn(upstream_input)
         return name, out, time.perf_counter() - t0
 
+    # ``gather`` preserves argument order in its result list regardless of
+    # which coroutine finishes first — so the dict comes out in branch order
+    # without any explicit re-sort (unlike the thread pool above).
     triplets = await asyncio.gather(*(_time_one(name, fn) for name, fn in branches))
     return {name: (out, wall) for name, out, wall in triplets}

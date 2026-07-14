@@ -64,20 +64,29 @@ __all__ = [
 
 def _strip_comment(value: str) -> str:
     """Drop the first un-quoted ``#`` comment, keeping ``#`` inside quotes."""
+    # Track quote context by hand — a URL like ``https://…#frag`` inside
+    # a quoted value must survive, so a naive ``split("#")`` won't do.
     in_single = False
     in_double = False
     for i, ch in enumerate(value):
+        # A single quote only toggles state when we're NOT inside a
+        # double-quoted run (and vice-versa) ; that's how the two quote
+        # styles nest without clobbering each other.
         if ch == "'" and not in_double:
             in_single = not in_single
         elif ch == '"' and not in_single:
             in_double = not in_double
+        # A ``#`` outside every quote starts the comment — truncate here.
         elif ch == "#" and not in_single and not in_double:
             return value[:i]
     return value
 
 
 def _unquote(value: str) -> str:
+    """Strip one matching pair of surrounding quotes, if present."""
     value = value.strip()
+    # Only peel quotes when both ends match the SAME quote char — a value
+    # like ``"a'`` (mismatched) is left verbatim rather than corrupted.
     if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
         return value[1:-1]
     return value
@@ -92,11 +101,16 @@ def _parse_minimal_yaml(text: str) -> dict[str, dict[str, str]]:
     safely on either level.
     """
     out: dict[str, dict[str, str]] = {}
+    # ``current`` names the section we're accumulating keys into ; ``None``
+    # means we're at top level (or inside an unrecognised construct).
     current: str | None = None
     for raw_line in text.splitlines():
+        # Strip inline comments and trailing whitespace up front so the
+        # structural checks below only ever see meaningful content.
         line = _strip_comment(raw_line).rstrip()
         if not line.strip():
             continue
+        # Zero indentation ⇒ a top-level line, i.e. a new section header.
         if not line.startswith((" ", "\t")):
             # New top-level section header — ``section:``.
             if line.endswith(":"):
@@ -106,12 +120,16 @@ def _parse_minimal_yaml(text: str) -> dict[str, dict[str, str]]:
                 # Top-level scalar — not part of the schema, skip.
                 current = None
             continue
-        # Indented line — only meaningful inside a known section.
+        # Indented line — only meaningful inside a known section. An
+        # indented key that appears before any header is orphaned; drop it.
         if current is None:
             continue
         stripped = line.lstrip()
+        # A ``key: value`` pair needs a colon ; anything else isn't schema.
         if ":" not in stripped:
             continue
+        # ``partition`` (not ``split``) so a value that itself contains a
+        # colon — e.g. an ``https://`` URL — keeps its right-hand side intact.
         key, _, value = stripped.partition(":")
         out[current][key.strip()] = _unquote(value)
     return out
@@ -131,11 +149,15 @@ def settings_path() -> Path | None:
     The example file (``settings.yaml.example``) is *not* searched ;
     users must copy it to ``settings.yaml`` to opt in.
     """
+    # (1) Explicit override wins — but only if it actually resolves to a
+    # file, so a stale env var can't shadow a valid on-disk settings file.
     override = os.environ.get("VOCAL_HELPER_SETTINGS")
     if override:
         p = Path(override).expanduser()
         if p.is_file():
             return p
+    # (2) CWD first, then (3) the repo root beside the package — CWD is
+    # checked first so a per-project settings.yaml beats a global one.
     candidates = [
         Path.cwd() / "settings.yaml",
         Path(__file__).resolve().parent.parent / "settings.yaml",
@@ -143,6 +165,7 @@ def settings_path() -> Path | None:
     for p in candidates:
         if p.is_file():
             return p
+    # Nothing found — callers treat ``None`` as "use built-in defaults".
     return None
 
 
@@ -156,6 +179,9 @@ def load_settings() -> dict[str, dict[str, str]]:
     p = settings_path()
     if p is None:
         return {}
+    # Swallow read errors (permission / race with deletion) into an empty
+    # mapping — config is optional, so an unreadable file must not crash
+    # a pipeline that would otherwise fall back to built-in defaults.
     try:
         return _parse_minimal_yaml(p.read_text(encoding="utf-8"))
     except OSError:

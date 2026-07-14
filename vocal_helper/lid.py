@@ -159,10 +159,14 @@ def detect_language(
         ``(iso_639_1_code, probability)`` — the top-ranked supported language.
     """
     stage = _get_stage(model, threads)
+    # whisper.cpp returns its full language distribution ; we ignore its own
+    # argmax (``_top``) and re-rank strictly within ``supported`` below.
     (_top, _p), all_probs = stage._model.auto_detect_language(  # type: ignore[attr-defined]
         np.asarray(pcm, dtype=np.float32),
         offset_ms=offset_ms,
     )
+    # Pick the best routable language ; a code absent from the distribution
+    # scores 0.0, so it can only win if literally nothing else was ranked.
     best = max(supported, key=lambda code: float(all_probs.get(code, 0.0)))
     return best, float(all_probs.get(best, 0.0))
 
@@ -434,7 +438,14 @@ _classifier = None  # lazily loaded EncoderClassifier singleton
 
 
 def _ensure_classifier():
+    """Lazily load (and cache) the SpeechBrain VoxLingua107 ECAPA classifier.
+
+    Returns the process-wide singleton, building it from the local self-hosted
+    snapshot on first call. Raises if SpeechBrain is missing or no bundle is
+    configured — the independent verification is strictly opt-in.
+    """
     global _classifier
+    # Singleton — the model is multi-hundred-MB ; load it at most once per process.
     if _classifier is not None:
         return _classifier
     try:

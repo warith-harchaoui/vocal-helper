@@ -164,6 +164,33 @@ class OnlineDiarStage:
         min_segment_ms: int = 500,
         device: str | None = None,
     ) -> None:
+        """Configure the online diarizer ; the embedder loads lazily.
+
+        Parameters
+        ----------
+        backend : "pyannote" | "nemo"
+            Embedding backend. Default ``"nemo"`` (TitaNet) for its sharper
+            cosine separation ; pass ``"pyannote"`` to opt out of the
+            heavier NeMo install.
+        join_threshold : float
+            Cosine-distance threshold below which a segment joins an
+            existing centroid. Default 0.30. Must be in ``(0, 2)``.
+        ema_alpha : float
+            Exponential-moving-average coefficient for centroid updates.
+            Default 0.1. Must be in ``(0, 1]``.
+        min_segment_ms : int
+            Minimum voiced-segment duration to attempt embedding.
+            Default 500 ms.
+        device : str, optional
+            Torch device for the pyannote embedder. ``None`` (default)
+            auto-picks CUDA > MPS > CPU. No effect on the NeMo backend.
+
+        Raises
+        ------
+        ValueError
+            If ``join_threshold`` is not in ``(0, 2)`` or ``ema_alpha`` is
+            not in ``(0, 1]``.
+        """
         if not 0.0 < join_threshold < 2.0:
             raise ValueError(f"join_threshold must be in (0, 2), got {join_threshold}")
         if not 0.0 < ema_alpha <= 1.0:
@@ -180,6 +207,16 @@ class OnlineDiarStage:
     # ----- backend ------------------------------------------------------
 
     def _ensure_embedder(self) -> None:
+        """Lazily instantiate and load the configured embedding backend.
+
+        Idempotent — returns immediately once the embedder exists, so it
+        is safe to call at the top of :meth:`run`.
+
+        Raises
+        ------
+        ValueError
+            If ``self.backend`` is neither ``"pyannote"`` nor ``"nemo"``.
+        """
         if self._embedder is not None:
             return
         if self.backend == "pyannote":
@@ -211,6 +248,23 @@ class OnlineDiarStage:
     # ----- core ---------------------------------------------------------
 
     def _label(self, seg: VoicedSegment) -> DiarizedSegment | None:
+        """Embed one voiced segment and assign it a speaker label.
+
+        Segments shorter than ``min_segment_ms`` — or that raise inside the
+        embedder — are labelled ``"S?"`` so callers can still ASR them
+        without a confident speaker id.
+
+        Parameters
+        ----------
+        seg : VoicedSegment
+            The voiced segment to label, carrying its PCM and timing.
+
+        Returns
+        -------
+        DiarizedSegment or None
+            The segment tagged with a speaker id (a real ``"S<n>"`` label,
+            or ``"S?"`` when embedding is skipped or fails).
+        """
         sr = seg["sample_rate"]
         dur_ms = (seg["t1"] - seg["t0"]) * 1000.0
         if dur_ms < self.min_segment_ms:
@@ -243,6 +297,26 @@ class OnlineDiarStage:
         )
 
     def _assign(self, emb: NDArray[np.float32], t: float) -> str:
+        """Nearest-centroid match on cosine distance, else mint a speaker.
+
+        L2-normalises ``emb``, then joins the closest existing centroid iff
+        its cosine distance is ``<= join_threshold`` — updating that
+        centroid by exponential moving average — otherwise spawns a new
+        speaker via :meth:`_spawn`.
+
+        Parameters
+        ----------
+        emb : NDArray[np.float32]
+            The segment embedding (normalised in place).
+        t : float
+            End time of the segment in seconds ; recorded as the matched
+            centroid's ``last_seen_t``.
+
+        Returns
+        -------
+        str
+            The speaker id (``"S<n>"``) the segment was assigned to.
+        """
         norm = float(np.linalg.norm(emb))
         if norm > 0:
             emb = emb / norm
@@ -265,6 +339,20 @@ class OnlineDiarStage:
         return self._spawn(emb, t)
 
     def _spawn(self, emb: NDArray[np.float32], t: float) -> str:
+        """Mint a new speaker centroid seeded from ``emb``.
+
+        Parameters
+        ----------
+        emb : NDArray[np.float32]
+            The (already normalised) embedding to seed the new centroid.
+        t : float
+            End time of the segment in seconds, stored as ``last_seen_t``.
+
+        Returns
+        -------
+        str
+            The freshly-allocated speaker id (``"S<n>"``).
+        """
         sid = f"S{self._next_id}"
         self._next_id += 1
         self._centroids.append(
@@ -287,10 +375,33 @@ class _PyannoteEmbedder:
     """Wraps ``pyannote.audio.Inference("pyannote/embedding")``."""
 
     def __init__(self, *, device: str | None = None) -> None:
+        """Store the requested device ; defer model loading to :meth:`load`.
+
+        Parameters
+        ----------
+        device : str, optional
+            Torch device for the embedder. ``None`` (default) auto-picks
+            CUDA > MPS > CPU at load time.
+        """
         self.device = device  # ``None`` → auto-pick at load time
         self._inference = None
 
     def load(self) -> None:
+        """Build the ``pyannote/embedding`` inference from the local bundle.
+
+        Loads the whole-segment ``pyannote/embedding`` checkpoint straight
+        from the self-hosted diarization-engines bundle (no HuggingFace
+        token, no network) and moves it to the chosen device, falling back
+        to CPU if the requested backend can't run the forward path.
+
+        Raises
+        ------
+        ImportError
+            If the optional ``pyannote`` extra is not installed.
+        RuntimeError
+            If no ``pyannote/embedding`` weight is present in the
+            diarization-engines bundle.
+        """
         try:
             import torch  # type: ignore
             from pyannote.audio import Inference, Model  # type: ignore
