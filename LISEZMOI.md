@@ -108,31 +108,33 @@ ollama pull gemma4:e4b
 ollama serve
 ```
 
-### Token HuggingFace
+### Poids des modèles — aucun HuggingFace requis
 
-Le backend pyannote télécharge des modèles gated. `vocal-helper`
-cherche le token dans cet ordre (premier non vide gagne) :
+Tous les poids sont fournis dans un **bundle diarization-engines**
+auto-hébergé (pyannote 3.1 offline, NeMo Sortformer, l'embedder online
+`pyannote/embedding`, SpeechBrain VoxLingua107). On pointe `vocal-helper`
+dessus une fois et toute la chaîne tourne **sans HuggingFace** — aucun
+token, aucun téléchargement gated, compatible `HF_HUB_OFFLINE=1`.
 
-1. `--hf-token hf_…` sur la CLI (ou `hf_token=` en kwarg sur
-   `OnlineDiarStage` / `OfflineDiarStage`).
-2. La variable d'environnement `HF_TOKEN`.
-3. La clé `secrets.hf_token` dans un `settings.yaml` local.
-
-Pour passer par le fichier, copiez le gabarit fourni puis renseignez
-le token :
+La configuration tient dans `settings.yaml` (seule config nécessaire) :
 
 ```bash
 cp settings.yaml.example settings.yaml
-# éditez `secrets.hf_token` — settings.yaml est gitignoré
+# settings.yaml contient déjà :
+#   engines:
+#     diarization_url: https://deraison.ai/diarization-engines.zip
+# settings.yaml est gitignoré.
 ```
 
-La valeur factice `hf_XXXX` est traitée comme absente : une copie non
-éditée ne se fait jamais passer pour un vrai token.
+L'URL du bundle est téléchargée une fois puis mise en cache sous
+`~/.cache/vocal-helper` ; vous pouvez aussi pointer
+`$VH_DIARIZATION_ENGINES` vers un dossier local. TitaNet (embedder online
+par défaut) se charge depuis NVIDIA NGC, sans HuggingFace non plus.
 
 ### Micro live → terminal
 
 ```bash
-export HF_TOKEN=hf_yourtoken    # nécessaire pour télécharger pyannote/embedding
+# Aucun token, aucun HuggingFace — les poids viennent du bundle diarization-engines.
 vocal-helper mic --llm
 ```
 

@@ -4,14 +4,14 @@ Hand-picked recipes for the common shapes. All examples assume :
 
 ```bash
 pip install 'vocal-helper[all]'
-export HF_TOKEN=hf_yourtoken    # pyannote backend
-ollama serve                    # LLM analyst
+cp settings.yaml.example settings.yaml   # carries the diarization-engines URL
+ollama serve                             # LLM analyst
 ```
 
-Prefer a file? Copy `settings.yaml.example` to `settings.yaml` and set
-`secrets.hf_token` — the library reads that file when neither
-`--hf-token` nor `HF_TOKEN` is provided. See the
-[README](README.md#huggingface-token) for the full resolution order.
+No HuggingFace token needed — all model weights come from the self-hosted
+diarization-engines bundle configured in `settings.yaml`
+(`engines.diarization_url`). See the
+[README](README.md#model-weights--no-huggingface-needed) for details.
 
 ---
 

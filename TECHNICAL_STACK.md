@@ -271,22 +271,23 @@ generating.
 
 ## Configuration
 
-### Secrets
+### Configuration
 
 ```bash
 sudo install -d -m 0700 -o vocalhelper /data/vocal-helper
 cat > /data/vocal-helper/settings.yaml <<'YAML'
-secrets:
-  hf_token: hf_XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+# The self-hosted model bundle — the only config the project needs.
+# No HuggingFace token required.
+engines:
+  diarization_url: https://deraison.ai/diarization-engines.zip
 YAML
 sudo chmod 0600 /data/vocal-helper/settings.yaml
 ```
 
-The token must be attached to an HF account that has **accepted the
-license** on :
-- `pyannote/segmentation-3.0`
-- `pyannote/speaker-diarization-3.1`
-- `pyannote/embedding`
+All model weights (offline pyannote 3.1, NeMo Sortformer, online
+`pyannote/embedding`, SpeechBrain VoxLingua107) ship in this bundle, so
+**no HuggingFace account or token is needed** and no gated licences must
+be accepted. TitaNet loads from NVIDIA NGC (also HF-free).
 
 ### Environment variables
 
