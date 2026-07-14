@@ -27,9 +27,11 @@ Warith HARCHAOUI — https://linkedin.com/in/warith-harchaoui
 from __future__ import annotations
 
 import asyncio
-import logging
+import traceback
 from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass, field
+
+from os_helper import warning
 
 from vocal_helper.asr import WhisperStage
 from vocal_helper.diar import OfflineDiarStage, OnlineDiarStage
@@ -52,8 +54,6 @@ from vocal_helper.types import (
 )
 from vocal_helper.vad import SileroVADStage
 
-logger = logging.getLogger(__name__)
-
 
 async def _await_task_swallow(t: asyncio.Task) -> None:
     """Await a cancelled / long-running task on pipeline shutdown.
@@ -72,10 +72,11 @@ async def _await_task_swallow(t: asyncio.Task) -> None:
         # Normal shutdown path.
         return
     except Exception:  # noqa: BLE001 — final barrier ; we log, then continue.
-        logger.warning(
-            "vocal_helper.pipeline: task %r crashed on shutdown",
-            t.get_name(),
-            exc_info=True,
+        # Route through os-helper's logging surface (suite convention) ;
+        # fold the traceback in explicitly since osh.warning has no exc_info.
+        warning(
+            f"vocal_helper.pipeline: task {t.get_name()!r} crashed on "
+            f"shutdown\n{traceback.format_exc()}"
         )
 
 

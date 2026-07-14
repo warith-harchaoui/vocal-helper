@@ -103,10 +103,15 @@ def false_cutoff_rate(
     early commit as a false cutoff ; realistic tolerances are
     50-150 ms (below human turn-taking noise floor).
     """
+    # Empty corpus ⇒ vacuously zero ; avoids a divide-by-zero below.
     if not pairs:
         return 0.0
+    # A negative tolerance would be nonsensical (it can't loosen an early
+    # threshold in a meaningful way) — reject it rather than guess intent.
     if tolerance_s < 0:
         raise ValueError("tolerance_s must be non-negative")
+    # "Fired early" ⇒ latency more negative than −tolerance : the detector
+    # committed while the speaker still held the floor beyond the slack.
     n_early = sum(1 for p in pairs if _latency_s(p) < -tolerance_s)
     return n_early / len(pairs)
 
@@ -123,20 +128,29 @@ def hang_rate(
     ``latency_budget_s`` is the acceptable upper bound (LiveKit
     uses 300 / 600 / 1200 ms bands).
     """
+    # Empty corpus ⇒ vacuously zero ; avoids a divide-by-zero below.
     if not pairs:
         return 0.0
+    # A negative budget can't describe an "acceptable wait", so reject it.
     if latency_budget_s < 0:
         raise ValueError("latency_budget_s must be non-negative")
+    # "Hung" ⇒ latency past the budget : the speaker finished but the
+    # detector kept the floor open longer than the caller tolerates.
     n_hang = sum(1 for p in pairs if _latency_s(p) > latency_budget_s)
     return n_hang / len(pairs)
 
 
 def median_latency_s(pairs: Sequence[EOTPair]) -> float:
     """Median signed latency across the corpus."""
+    # Local import : ``statistics`` is only needed on this rarely-hot path,
+    # so keep it out of module import time.
     import statistics
 
+    # Empty corpus has no median ; return the neutral 0.0.
     if not pairs:
         return 0.0
+    # Median (not mean) — robust to the outlier long-hang cases that would
+    # otherwise drag a mean latency well off the typical behaviour.
     return statistics.median(_latency_s(p) for p in pairs)
 
 
@@ -167,7 +181,11 @@ def score(
         "false_cutoff_rate": float,
         "hang_rate_at_ms": {band: rate, ...}}``.
     """
+    # Materialise once : the input may be a one-shot iterator, and we scan
+    # it several times below (median + false-cutoff + one pass per band).
     pairs = list(pairs)
+    # Report in milliseconds throughout — the helpers work in seconds, so
+    # convert both the tolerance (ms → s) going in and latencies (s → ms) out.
     return {
         "n": len(pairs),
         "median_latency_ms": median_latency_s(pairs) * 1000.0,
@@ -175,6 +193,8 @@ def score(
             pairs,
             tolerance_s=tolerance_ms / 1000.0,
         ),
+        # One hang rate per latency band, keyed by the band in ms so the
+        # report reads directly as {300: …, 600: …, 1200: …}.
         "hang_rate_at_ms": {
             band: hang_rate(pairs, latency_budget_s=band / 1000.0) for band in latency_bands_ms
         },

@@ -21,6 +21,7 @@ SR = 16000
 
 
 def _seg(t0: float, t1: float, speaker: str) -> DiarizedSegment:
+    """Build a silent :class:`DiarizedSegment` spanning ``[t0, t1]`` for one speaker."""
     n = int(round((t1 - t0) * SR))
     return DiarizedSegment(
         t0=t0,
@@ -45,6 +46,7 @@ def test_whisper_defaults() -> None:
 
 
 def test_whisper_accepts_overrides() -> None:
+    """Every constructor override is stored verbatim on the stage."""
     stage = WhisperStage(
         model="base",
         language="fr",
@@ -97,6 +99,7 @@ def test_pipeline_wiring_defaults() -> None:
 
 
 def test_pack_segments_respects_chunk_cap() -> None:
+    """``_pack_segments`` groups segments up to ``max_chunk_s``, isolating over-cap ones."""
     segs = [_seg(0, 2, "S0"), _seg(2, 4, "S1"), _seg(4, 6, "S0"), _seg(6, 20, "S1")]
     # cap 5 s : [2+2] together (4 + pad ≤ 5), then the 2 s, then the 14 s alone.
     chunks = _pack_segments(segs, max_chunk_s=5.0)
@@ -108,6 +111,7 @@ def test_pack_segments_respects_chunk_cap() -> None:
 
 
 def test_assign_window_containment_and_nearest() -> None:
+    """``_assign_window`` maps a time to its containing window, else the nearest edge."""
     windows = [(0.0, 2.0), (2.1, 4.1), (4.2, 6.2)]
     assert _assign_window(windows, 1.0) == 0
     assert _assign_window(windows, 3.0) == 1

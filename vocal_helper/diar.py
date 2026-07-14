@@ -625,6 +625,26 @@ class OfflineDiarStage:
         stitch_threshold: float = 0.35,
         device: str | None = None,
     ) -> None:
+        """Configure the offline diarizer ; backends load lazily.
+
+        Parameters
+        ----------
+        backend : "pyannote" | "nemo"
+            Offline backend. Default ``"pyannote"``.
+        ideal_duration_s : float, optional
+            Whole-buffer ceiling : inputs longer than this are chunked +
+            stitched, shorter ones run as a single call. ``None`` (default)
+            picks the backend default — 3600 s for pyannote (a memory
+            backstop), 60 s for NeMo (forced by its Sortformer 90 s cap).
+        overlap_s : float
+            Overlap between adjacent chunks when chunking. Default 10 s.
+        stitch_threshold : float
+            Cosine-distance threshold for cross-chunk AHC stitching.
+            Default 0.35.
+        device : str, optional
+            Torch device for the pyannote pipeline + embedder. ``None``
+            (default) auto-picks CUDA > MPS > CPU. No effect on NeMo.
+        """
         self.backend = backend
         if ideal_duration_s is None:
             ideal_duration_s = (
@@ -640,6 +660,17 @@ class OfflineDiarStage:
     # ----- lifecycle ----------------------------------------------------
 
     def _ensure_backend(self) -> None:
+        """Lazily instantiate and load the diarizer plus its embedder.
+
+        Idempotent — returns immediately once the backend exists. Pairs a
+        whole-buffer diarizer with the matching embedder (used only for
+        cross-chunk stitching on long inputs).
+
+        Raises
+        ------
+        ValueError
+            If ``self.backend`` is neither ``"pyannote"`` nor ``"nemo"``.
+        """
         if self._backend_obj is not None:
             return
         if self.backend == "pyannote":
@@ -718,6 +749,33 @@ class OfflineDiarStage:
         pcm: NDArray[np.float32],
         sr: int,
     ) -> list[tuple[float, float, str]]:
+        """Chunk, diarize per chunk, then stitch speakers across chunks.
+
+        Splits the buffer into ``ideal_duration_s`` windows with
+        ``overlap_s`` shared content, diarizes each chunk, embeds each
+        chunk-local speaker on its concatenated audio, then clusters all
+        chunk-local embeddings via cosine AHC (``stitch_threshold``) to
+        recover globally-consistent speaker ids. Neighbouring same-speaker
+        spans that overlap from the chunk overlap region are merged.
+
+        Parameters
+        ----------
+        pcm : NDArray[np.float32]
+            The full mono PCM buffer.
+        sr : int
+            Sample rate of ``pcm``.
+
+        Returns
+        -------
+        list[tuple[float, float, str]]
+            ``[(t0, t1, speaker), …]`` in seconds, sorted by start time,
+            with globally-stitched ``"S<n>"`` speaker ids.
+
+        Raises
+        ------
+        ValueError
+            If ``overlap_s`` is not strictly less than ``ideal_duration_s``.
+        """
         ideal = int(self.ideal_duration_s * sr)
         overlap = int(self.overlap_s * sr)
         if overlap >= ideal:
@@ -886,6 +944,16 @@ class _PyannoteOfflineDiar:
     """
 
     def __init__(self, *, device: str | None = None) -> None:
+        """Store the requested device ; defer pipeline loading to :meth:`load`.
+
+        Parameters
+        ----------
+        device : str, optional
+            Torch device for the pipeline. ``None`` (default) auto-picks
+            CUDA > MPS > CPU at load time. The resolved device is recorded
+            on ``self._device`` so :meth:`diarize` can place inputs
+            correctly.
+        """
         self.device = device  # ``None`` → auto-pick at load time
         self._pipeline = None
         # Resolved at load time so ``diarize`` knows where to put the
@@ -893,6 +961,21 @@ class _PyannoteOfflineDiar:
         self._device: str = "cpu"
 
     def load(self) -> None:
+        """Build the ``speaker-diarization-3.1`` pipeline from the local bundle.
+
+        Loads the pipeline from the self-hosted diarization-engines
+        bundle's local ``config.yaml`` (HF-free, no token, no network) and
+        moves it to the chosen device, staying on CPU if the requested
+        backend can't run every internal op.
+
+        Raises
+        ------
+        ImportError
+            If the optional ``pyannote`` extra is not installed.
+        RuntimeError
+            If no diarization-engines bundle is configured, or the local
+            config fails to instantiate the pipeline.
+        """
         try:
             import torch  # type: ignore
             from pyannote.audio import Pipeline  # type: ignore

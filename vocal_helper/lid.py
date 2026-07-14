@@ -255,6 +255,8 @@ def detect_language_regions(
     so each is transcribed in its own. Always returns ≥ 1 region.
     """
     n = int(pcm.shape[0])
+    # Degenerate empty input — return a single zero-length region so callers
+    # never have to special-case an empty list.
     if n == 0:
         return [LangRegion(supported[0], 0.0, 0.0)]
     dur = n / float(sample_rate)

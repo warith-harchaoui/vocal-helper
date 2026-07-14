@@ -93,13 +93,17 @@ def test_await_task_swallow_cancelled_is_silent(
     """CancelledError is the expected shutdown path — must NOT log."""
 
     async def sleeper() -> None:
+        """Long-lived task that is cancelled before its sleep completes."""
         await asyncio.sleep(10)  # will be cancelled before firing
 
     async def drive() -> None:
+        """Spawn the sleeper, cancel it, and let the swallow helper await it."""
         t = asyncio.create_task(sleeper(), name="voh.test.sleeper")
         t.cancel()
         await _await_task_swallow(t)
 
+    # CancelledError is the normal shutdown signal — capture WARNINGs so we can
+    # assert none were emitted for it.
     with caplog.at_level(logging.WARNING, logger="vocal_helper.pipeline"):
         asyncio.run(drive())
 
@@ -117,12 +121,16 @@ def test_await_task_swallow_other_exception_logs_warning(
     """A stage that crashes with a real exception MUST leave a trace."""
 
     async def crasher() -> None:
+        """Reproduce the exact pyannote 3.x AttributeError from the incident."""
         raise AttributeError("'DiarizeOutput' object has no attribute 'itertracks'")
 
     async def drive() -> None:
+        """Spawn the crasher and await it through the swallow helper."""
         t = asyncio.create_task(crasher(), name="voh.test.diar")
         await _await_task_swallow(t)
 
+    # A real (non-Cancelled) crash MUST surface as a WARNING with a traceback —
+    # the six-minute silent deadlock is what this test guards against.
     with caplog.at_level(logging.WARNING, logger="vocal_helper.pipeline"):
         asyncio.run(drive())
 
