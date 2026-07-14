@@ -143,12 +143,12 @@ class Pipeline:
     Usage
     -----
 
-    >>> import asyncio, vocal_helper as vh
+    >>> import asyncio, vocal_helper as voh
     >>>
     >>> async def main():
-    ...     pipeline = vh.Pipeline(
-    ...         source=lambda: vh.sources.from_microphone(),
-    ...         config=vh.PipelineConfig(
+    ...     pipeline = voh.Pipeline(
+    ...         source=lambda: voh.sources.from_microphone(),
+    ...         config=voh.PipelineConfig(
     ...             diar={"backend": "pyannote"},
     ...             asr={"model": "large-v3-turbo-q5_0"},
     ...             llm={"model": "gemma4:e4b"},
@@ -222,12 +222,12 @@ class Pipeline:
         """Run the pipeline ; yield every Utterance and SummarySnapshot."""
         tasks: list[asyncio.Task] = []
         # Inbound — read the source and push frames into q_pcm.
-        tasks.append(asyncio.create_task(self._source_loop(), name="vh.source"))
+        tasks.append(asyncio.create_task(self._source_loop(), name="voh.source"))
         # VAD : q_pcm → q_voiced (with tee to subscribers).
         tasks.append(
             asyncio.create_task(
                 self._vad.run(self._q_pcm, self._q_voiced),
-                name="vh.vad",
+                name="voh.vad",
             )
         )
         # Tee voiced subscribers + forward to diar (or to EOT then diar).
@@ -235,7 +235,7 @@ class Pipeline:
         tasks.append(
             asyncio.create_task(
                 self._tee(self._q_voiced, q_voiced_for_diar, self._voiced_subs),
-                name="vh.tee.voiced",
+                name="voh.tee.voiced",
             )
         )
         if self._eot is not None:
@@ -248,20 +248,20 @@ class Pipeline:
             tasks.append(
                 asyncio.create_task(
                     self._eot.run(q_voiced_for_diar, q_voiced_post_eot),
-                    name="vh.eot",
+                    name="voh.eot",
                 )
             )
             tasks.append(
                 asyncio.create_task(
                     self._diar.run(q_voiced_post_eot, self._q_diar),
-                    name="vh.diar",
+                    name="voh.diar",
                 )
             )
         else:
             tasks.append(
                 asyncio.create_task(
                     self._diar.run(q_voiced_for_diar, self._q_diar),
-                    name="vh.diar",
+                    name="voh.diar",
                 )
             )
         # Tee diar subscribers + forward to ASR.
@@ -269,13 +269,13 @@ class Pipeline:
         tasks.append(
             asyncio.create_task(
                 self._tee(self._q_diar, q_diar_for_asr, self._diar_subs),
-                name="vh.tee.diar",
+                name="voh.tee.diar",
             )
         )
         tasks.append(
             asyncio.create_task(
                 self._asr.run(q_diar_for_asr, self._q_utt),
-                name="vh.asr",
+                name="voh.asr",
             )
         )
         # Tee utterance subscribers + forward to LLM (if configured) and
@@ -285,14 +285,14 @@ class Pipeline:
         tasks.append(
             asyncio.create_task(
                 self._tee_two(self._q_utt, q_utt_for_output, q_utt_for_llm, self._utt_subs),
-                name="vh.tee.utt",
+                name="voh.tee.utt",
             )
         )
         if self._llm is not None:
             tasks.append(
                 asyncio.create_task(
                     self._llm.run(q_utt_for_llm, self._q_summary),
-                    name="vh.llm",
+                    name="voh.llm",
                 )
             )
         else:
@@ -300,7 +300,7 @@ class Pipeline:
             tasks.append(
                 asyncio.create_task(
                     self._drain(q_utt_for_llm),
-                    name="vh.llm.disabled",
+                    name="voh.llm.disabled",
                 )
             )
             # Push an immediate None into q_summary so the merger knows
@@ -432,13 +432,13 @@ class OfflinePipeline:
     Usage
     -----
 
-    >>> import asyncio, vocal_helper as vh
+    >>> import asyncio, vocal_helper as voh
     >>>
     >>> async def main():
-    ...     pipeline = vh.OfflinePipeline(
-    ...         source=lambda: vh.sources.from_wav_file("meeting.wav",
+    ...     pipeline = voh.OfflinePipeline(
+    ...         source=lambda: voh.sources.from_wav_file("meeting.wav",
     ...                                                  real_time=False),
-    ...         config=vh.OfflinePipelineConfig(
+    ...         config=voh.OfflinePipelineConfig(
     ...             diar={"backend": "pyannote"},
     ...             asr={"language": "en"},
     ...             llm={"model": "gemma4:e4b"},
@@ -502,24 +502,24 @@ class OfflinePipeline:
 
     async def run(self) -> AsyncIterator[Utterance | SummarySnapshot]:
         tasks: list[asyncio.Task] = []
-        tasks.append(asyncio.create_task(self._source_loop(), name="vh.offline.source"))
+        tasks.append(asyncio.create_task(self._source_loop(), name="voh.offline.source"))
         tasks.append(
             asyncio.create_task(
                 self._diar.run(self._q_pcm, self._q_diar),
-                name="vh.offline.diar",
+                name="voh.offline.diar",
             )
         )
         q_diar_for_asr: asyncio.Queue = asyncio.Queue(maxsize=self.config.qsize_seg)
         tasks.append(
             asyncio.create_task(
                 self._tee(self._q_diar, q_diar_for_asr, self._diar_subs),
-                name="vh.offline.tee.diar",
+                name="voh.offline.tee.diar",
             )
         )
         tasks.append(
             asyncio.create_task(
                 self._asr.run(q_diar_for_asr, self._q_utt),
-                name="vh.offline.asr",
+                name="voh.offline.asr",
             )
         )
         q_utt_for_llm: asyncio.Queue = asyncio.Queue(maxsize=self.config.qsize_seg)
@@ -527,21 +527,21 @@ class OfflinePipeline:
         tasks.append(
             asyncio.create_task(
                 self._tee_two(self._q_utt, q_utt_for_output, q_utt_for_llm, self._utt_subs),
-                name="vh.offline.tee.utt",
+                name="voh.offline.tee.utt",
             )
         )
         if self._llm is not None:
             tasks.append(
                 asyncio.create_task(
                     self._llm.run(q_utt_for_llm, self._q_summary),
-                    name="vh.offline.llm",
+                    name="voh.offline.llm",
                 )
             )
         else:
             tasks.append(
                 asyncio.create_task(
                     self._drain(q_utt_for_llm),
-                    name="vh.offline.llm.disabled",
+                    name="voh.offline.llm.disabled",
                 )
             )
             await self._q_summary.put(None)

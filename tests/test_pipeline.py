@@ -17,7 +17,7 @@ import asyncio
 import numpy as np
 import pytest
 
-import vocal_helper as vh
+import vocal_helper as voh
 
 # ---------------------------------------------------------------------------
 # PipelineConfig defaults
@@ -26,14 +26,14 @@ import vocal_helper as vh
 
 def test_pipeline_config_defaults_are_independent() -> None:
     """Two configs must NOT share the per-stage default dicts."""
-    a = vh.PipelineConfig()
-    b = vh.PipelineConfig()
+    a = voh.PipelineConfig()
+    b = voh.PipelineConfig()
     a.diar["backend"] = "nemo"
     assert b.diar == {}, "PipelineConfig leaked a shared diar dict"
 
 
 def test_pipeline_config_defaults_values() -> None:
-    cfg = vh.PipelineConfig()
+    cfg = voh.PipelineConfig()
     assert cfg.qsize_pcm > 0
     assert cfg.qsize_seg > 0
     assert cfg.vad == {}
@@ -48,12 +48,12 @@ def test_pipeline_config_defaults_values() -> None:
 
 def test_pipeline_config_eot_accepts_dict() -> None:
     """When callers opt into semantic EOT, the config must round-trip the dict."""
-    cfg = vh.PipelineConfig(eot={"model": "gemma4:e4b", "threshold": 0.5})
+    cfg = voh.PipelineConfig(eot={"model": "gemma4:e4b", "threshold": 0.5})
     assert cfg.eot == {"model": "gemma4:e4b", "threshold": 0.5}
 
 
 def test_offline_pipeline_config_defaults() -> None:
-    cfg = vh.OfflinePipelineConfig()
+    cfg = voh.OfflinePipelineConfig()
     assert cfg.qsize_pcm > 0
     assert cfg.qsize_seg > 0
     assert cfg.llm is None
@@ -73,12 +73,12 @@ def _silent_source(duration_s: float = 0.05):
     """Build a source factory returning ``duration_s`` of silence."""
     n = int(16_000 * duration_s)
     pcm = np.zeros(n, dtype=np.float32)
-    return lambda: vh.sources.from_numpy_array(pcm)
+    return lambda: voh.sources.from_numpy_array(pcm)
 
 
 def test_pipeline_queues_honour_config_sizes() -> None:
-    cfg = vh.PipelineConfig(qsize_pcm=7, qsize_seg=3)
-    p = vh.Pipeline(source=_silent_source(), config=cfg)
+    cfg = voh.PipelineConfig(qsize_pcm=7, qsize_seg=3)
+    p = voh.Pipeline(source=_silent_source(), config=cfg)
     # Queue sizes are private but we can probe via the public attr.
     assert p._q_pcm.maxsize == 7
     assert p._q_voiced.maxsize == 3
@@ -88,13 +88,13 @@ def test_pipeline_queues_honour_config_sizes() -> None:
 
 
 def test_pipeline_disables_llm_when_unconfigured() -> None:
-    cfg = vh.PipelineConfig()  # llm=None
-    p = vh.Pipeline(source=_silent_source(), config=cfg)
+    cfg = voh.PipelineConfig()  # llm=None
+    p = voh.Pipeline(source=_silent_source(), config=cfg)
     assert p._llm is None
 
 
 def test_pipeline_subscribers_register() -> None:
-    p = vh.Pipeline(source=_silent_source())
+    p = voh.Pipeline(source=_silent_source())
     seen: list[str] = []
 
     async def voiced_cb(_x: object) -> None:
@@ -151,9 +151,9 @@ def test_pipeline_run_completes_with_empty_buffer() -> None:
     # Patch the heavy stages with no-op coroutines so this stays unit-fast.
     pcm = np.zeros(0, dtype=np.float32)
 
-    p = vh.Pipeline(
-        source=lambda: vh.sources.from_numpy_array(pcm),
-        config=vh.PipelineConfig(),
+    p = voh.Pipeline(
+        source=lambda: voh.sources.from_numpy_array(pcm),
+        config=voh.PipelineConfig(),
     )
 
     async def passthrough_vad(inbox: asyncio.Queue, outbox: asyncio.Queue) -> None:

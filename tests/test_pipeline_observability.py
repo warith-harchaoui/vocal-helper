@@ -90,7 +90,7 @@ def test_await_task_swallow_cancelled_is_silent(
         await asyncio.sleep(10)  # will be cancelled before firing
 
     async def drive() -> None:
-        t = asyncio.create_task(sleeper(), name="vh.test.sleeper")
+        t = asyncio.create_task(sleeper(), name="voh.test.sleeper")
         t.cancel()
         await _await_task_swallow(t)
 
@@ -114,7 +114,7 @@ def test_await_task_swallow_other_exception_logs_warning(
         raise AttributeError("'DiarizeOutput' object has no attribute 'itertracks'")
 
     async def drive() -> None:
-        t = asyncio.create_task(crasher(), name="vh.test.diar")
+        t = asyncio.create_task(crasher(), name="voh.test.diar")
         await _await_task_swallow(t)
 
     with caplog.at_level(logging.WARNING, logger="vocal_helper.pipeline"):
@@ -133,6 +133,6 @@ def test_await_task_swallow_other_exception_logs_warning(
         "exception message did not reach the log record"
     )
     # Task name should be in the log message.
-    assert "vh.test.diar" in records[0].getMessage(), (
+    assert "voh.test.diar" in records[0].getMessage(), (
         "task name not surfaced ; harder to debug in a multi-stage pipeline"
     )

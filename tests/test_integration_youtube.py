@@ -8,7 +8,7 @@ pyannote and a network connection. Run with::
 Stack split (one responsibility per helper)
 -------------------------------------------
 
-* ``podcast-helper`` owns the **audio** path. ``vh.sources.from_url``
+* ``podcast-helper`` owns the **audio** path. ``voh.sources.from_url``
   is a thin async wrapper over
   ``podcast_helper.extract_audio_stream`` — URL → 16 kHz mono float32
   PCM frames. Same entry point for RSS, direct audio URLs, HLS and
@@ -26,10 +26,10 @@ What we cover
    side before the heavy ASR work : if the URL has no captions,
    later assertions can't be meaningful, fail fast.
 2. ``test_streaming_pipeline_yields_utterance`` — short clip through
-   the streaming :class:`vh.Pipeline` (Silero VAD + online diar +
+   the streaming :class:`voh.Pipeline` (Silero VAD + online diar +
    whisper.cpp). Asserts at least one non-empty utterance is emitted.
 3. ``test_offline_pipeline_vs_youtube_captions`` — the headline
-   test : run :class:`vh.OfflinePipeline` on a 60 s clip, compare
+   test : run :class:`voh.OfflinePipeline` on a 60 s clip, compare
    the transcript with the YouTube auto-captions on the same window,
    require Jaccard overlap on word sets ≥ ``MIN_JACCARD``.
 4. ``test_streaming_realtime_pacing`` — proves
@@ -53,7 +53,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-import vocal_helper as vh
+import vocal_helper as voh
 
 # ---------------------------------------------------------------------------
 # Test parameters — knobs in one place.
@@ -134,10 +134,10 @@ async def _clipped_url_source(
     max_s: float,
     *,
     realtime: bool = False,
-) -> AsyncIterator[vh.PcmFrame]:
-    """Wrap ``vh.sources.from_url`` and stop after ``max_s`` of audio."""
+) -> AsyncIterator[voh.PcmFrame]:
+    """Wrap ``voh.sources.from_url`` and stop after ``max_s`` of audio."""
     accumulated_s = 0.0
-    async for frame in vh.sources.from_url(url, realtime=realtime):
+    async for frame in voh.sources.from_url(url, realtime=realtime):
         yield frame
         accumulated_s += frame["pcm"].shape[0] / float(frame["sample_rate"])
         if accumulated_s >= max_s:
@@ -274,7 +274,7 @@ def test_youtube_captions_fetchable(yt_subtitles: Path) -> None:
 def test_streaming_pipeline_yields_utterance(
     smoke_pcm: tuple[np.ndarray, int],
 ) -> None:
-    """Live :class:`vh.Pipeline` surfaces at least one non-empty utterance.
+    """Live :class:`voh.Pipeline` surfaces at least one non-empty utterance.
 
     The fixture has already streamed audio via podcast-helper — we feed
     the in-memory buffer into the streaming Pipeline. This isolates the
@@ -282,9 +282,9 @@ def test_streaming_pipeline_yields_utterance(
     Silero VAD → online diar → whisper.cpp end-to-end.
     """
     pcm, sample_rate = smoke_pcm
-    pipeline = vh.Pipeline(
-        source=lambda: vh.sources.from_numpy_array(pcm, sample_rate=sample_rate),
-        config=vh.PipelineConfig(
+    pipeline = voh.Pipeline(
+        source=lambda: voh.sources.from_numpy_array(pcm, sample_rate=sample_rate),
+        config=voh.PipelineConfig(
             diar={"backend": "pyannote"},
             asr={"language": "auto"},
         ),
@@ -311,7 +311,7 @@ def test_offline_pipeline_vs_youtube_captions(
     clip_pcm: tuple[np.ndarray, int],
     yt_subtitles: Path,
 ) -> None:
-    """Compare :class:`vh.OfflinePipeline` transcript with YouTube captions.
+    """Compare :class:`voh.OfflinePipeline` transcript with YouTube captions.
 
     Two noisy hypotheses of the same audio (Google STT vs whisper turbo
     on pyannote-segmented chunks). We don't expect identity — we expect
@@ -323,9 +323,9 @@ def test_offline_pipeline_vs_youtube_captions(
     time (MPS) — the test finishes well inside ``PIPELINE_TIMEOUT_S``.
     """
     pcm, sample_rate = clip_pcm
-    pipeline = vh.OfflinePipeline(
-        source=lambda: vh.sources.from_numpy_array(pcm, sample_rate=sample_rate),
-        config=vh.OfflinePipelineConfig(
+    pipeline = voh.OfflinePipeline(
+        source=lambda: voh.sources.from_numpy_array(pcm, sample_rate=sample_rate),
+        config=voh.OfflinePipelineConfig(
             diar={"backend": "pyannote"},
             asr={"language": "auto"},
         ),

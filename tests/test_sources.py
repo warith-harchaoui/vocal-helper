@@ -13,7 +13,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-import vocal_helper as vh
+import vocal_helper as voh
 
 # ---------------------------------------------------------------------------
 # from_numpy_array
@@ -24,8 +24,8 @@ def test_from_numpy_array_yields_correct_frame_count() -> None:
     """50 frames of 20 ms cover 1 s @ 16 kHz exactly."""
     pcm = np.zeros(16_000, dtype=np.float32)
 
-    async def collect() -> list[vh.PcmFrame]:
-        return [f async for f in vh.sources.from_numpy_array(pcm)]
+    async def collect() -> list[voh.PcmFrame]:
+        return [f async for f in voh.sources.from_numpy_array(pcm)]
 
     frames = asyncio.run(collect())
     assert len(frames) == 50
@@ -38,8 +38,8 @@ def test_from_numpy_array_pads_last_frame() -> None:
     # 17 ms → not a multiple of 20 ms ; expect 1 frame zero-padded.
     pcm = np.ones(272, dtype=np.float32)  # 17 ms @ 16 kHz
 
-    async def collect() -> list[vh.PcmFrame]:
-        return [f async for f in vh.sources.from_numpy_array(pcm)]
+    async def collect() -> list[voh.PcmFrame]:
+        return [f async for f in voh.sources.from_numpy_array(pcm)]
 
     frames = asyncio.run(collect())
     assert len(frames) == 1
@@ -54,7 +54,7 @@ def test_from_numpy_array_rejects_stereo() -> None:
     stereo = np.zeros((16_000, 2), dtype=np.float32)
 
     async def consume() -> None:
-        async for _ in vh.sources.from_numpy_array(stereo):
+        async for _ in voh.sources.from_numpy_array(stereo):
             pass
 
     with pytest.raises(ValueError, match="mono"):
@@ -65,8 +65,8 @@ def test_from_numpy_array_casts_dtype() -> None:
     """A float64 buffer is silently downcast to float32, not rejected."""
     pcm = np.zeros(800, dtype=np.float64)  # 50 ms @ 16 kHz
 
-    async def collect() -> list[vh.PcmFrame]:
-        return [f async for f in vh.sources.from_numpy_array(pcm)]
+    async def collect() -> list[voh.PcmFrame]:
+        return [f async for f in voh.sources.from_numpy_array(pcm)]
 
     frames = asyncio.run(collect())
     assert frames[0]["pcm"].dtype == np.float32
@@ -77,7 +77,7 @@ def test_from_numpy_array_t0_is_monotonic() -> None:
     pcm = np.zeros(16_000, dtype=np.float32)
 
     async def collect() -> list[float]:
-        return [f["t0"] async for f in vh.sources.from_numpy_array(pcm)]
+        return [f["t0"] async for f in voh.sources.from_numpy_array(pcm)]
 
     times = asyncio.run(collect())
     assert times == sorted(times)
@@ -103,8 +103,8 @@ def tiny_wav(tmp_path: Path) -> Path:
 def test_from_wav_file_round_trip(tiny_wav: Path) -> None:
     """A 100 ms WAV at 16 kHz / 20 ms frames → 5 frames."""
 
-    async def collect() -> list[vh.PcmFrame]:
-        return [f async for f in vh.sources.from_wav_file(tiny_wav, real_time=False)]
+    async def collect() -> list[voh.PcmFrame]:
+        return [f async for f in voh.sources.from_wav_file(tiny_wav, real_time=False)]
 
     frames = asyncio.run(collect())
     assert len(frames) == 5
@@ -121,8 +121,8 @@ def test_from_wav_file_resamples_wrong_sample_rate(tmp_path: Path) -> None:
     path = tmp_path / "sr8k.wav"
     wavfile.write(str(path), 8_000, np.zeros(800, dtype=np.float32))  # 100 ms @ 8 kHz
 
-    async def collect() -> list[vh.PcmFrame]:
-        return [f async for f in vh.sources.from_wav_file(path, real_time=False)]
+    async def collect() -> list[voh.PcmFrame]:
+        return [f async for f in voh.sources.from_wav_file(path, real_time=False)]
 
     frames = asyncio.run(collect())
     assert len(frames) == 5
@@ -139,8 +139,8 @@ def test_from_wav_file_handles_multichannel(tmp_path: Path) -> None:
     path = tmp_path / "stereo.wav"
     wavfile.write(str(path), 16_000, stereo)
 
-    async def collect() -> list[vh.PcmFrame]:
-        return [f async for f in vh.sources.from_wav_file(path, real_time=False)]
+    async def collect() -> list[voh.PcmFrame]:
+        return [f async for f in voh.sources.from_wav_file(path, real_time=False)]
 
     frames = asyncio.run(collect())
     # Stereo averages to ~0 ; PCM_16 quantisation can leak ~ ±1 LSB.
@@ -164,7 +164,7 @@ def test_from_microphone_raises_clear_error_without_extra(
     monkeypatch.setitem(sys.modules, "capture_helper", None)
 
     async def consume() -> None:
-        async for _ in vh.sources.from_microphone():
+        async for _ in voh.sources.from_microphone():
             pass
 
     with pytest.raises(ImportError, match=r"vocal-helper\[mic\]"):

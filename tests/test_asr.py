@@ -80,19 +80,19 @@ def test_batch_defaults_off() -> None:
 
 def test_pipeline_wiring_defaults() -> None:
     """Offline defaults to batched ASR ; streaming defaults to warm-up."""
-    import vocal_helper as vh
+    import vocal_helper as voh
 
     src = lambda: iter(())  # noqa: E731 — never run, just to construct.
-    online = vh.Pipeline(source=src)
+    online = voh.Pipeline(source=src)
     assert online._asr.batch is False
     assert online._asr.warmup is True
 
-    offline = vh.OfflinePipeline(source=src)
+    offline = voh.OfflinePipeline(source=src)
     assert offline._asr.batch is True
     assert offline._asr.warmup is False
 
     # Explicit config always wins over the pipeline default.
-    off2 = vh.OfflinePipeline(source=src, config=vh.OfflinePipelineConfig(asr={"batch": False}))
+    off2 = voh.OfflinePipeline(source=src, config=voh.OfflinePipelineConfig(asr={"batch": False}))
     assert off2._asr.batch is False
 
 

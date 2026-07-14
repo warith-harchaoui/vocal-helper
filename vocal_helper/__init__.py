@@ -32,12 +32,12 @@ Stages, all stitched by :class:`Pipeline` :
 Quickstart
 ----------
 
->>> import asyncio, vocal_helper as vh
+>>> import asyncio, vocal_helper as voh
 >>>
 >>> async def main():
-...     pipeline = vh.Pipeline(
-...         source=lambda: vh.sources.from_microphone(),
-...         config=vh.PipelineConfig(
+...     pipeline = voh.Pipeline(
+...         source=lambda: voh.sources.from_microphone(),
+...         config=voh.PipelineConfig(
 ...             diar={"backend": "pyannote"},
 ...             llm={"model": "gemma4:e4b"},
 ...         ),
@@ -52,12 +52,12 @@ Quickstart
 
 Usage Example
 -------------
->>> import asyncio, vocal_helper as vh
+>>> import asyncio, vocal_helper as voh
 >>>
 >>> async def main():
-...     pipeline = vh.Pipeline(
-...         source=lambda: vh.sources.from_wav_file("clip.wav"),
-...         config=vh.PipelineConfig(diar={"backend": "pyannote"}),
+...     pipeline = voh.Pipeline(
+...         source=lambda: voh.sources.from_wav_file("clip.wav"),
+...         config=voh.PipelineConfig(diar={"backend": "pyannote"}),
 ...     )
 ...     async for ev in pipeline.run():
 ...         if "text" in ev:

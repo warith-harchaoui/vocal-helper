@@ -16,8 +16,8 @@
 
 Vocal Helper is an **async producer/consumer pipeline** turning audio into diarized, transcribed utterances — and (optionally) a rolling LLM summary of the conversation. Two paths ship :
 
-- **Online** (`vh.Pipeline`) — live PCM stream → live transcript + live summary. Each stage runs at its own cadence, decoupled by bounded queues. The STT stage warms up on start so the first caption doesn't stall on whisper's cold inference.
-- **Offline** (`vh.OfflinePipeline`) — full audio buffer → highest-quality diarization (pyannote 3.1 runs the whole meeting in one call — the 2026-07-14 offline map-reduce study found whole-buffer strictly best for DER; chunk-and-stitch survives only as a memory backstop past ~1 h) → **full-throttle batched transcript** (consecutive segments concatenated into ≤ 24 s whisper calls — ~6.5× lower RTF at better WER per the 2026-07-09 sweep) → summary. Opt back into per-segment ASR with `OfflinePipelineConfig(asr={"batch": False})`.
+- **Online** (`voh.Pipeline`) — live PCM stream → live transcript + live summary. Each stage runs at its own cadence, decoupled by bounded queues. The STT stage warms up on start so the first caption doesn't stall on whisper's cold inference.
+- **Offline** (`voh.OfflinePipeline`) — full audio buffer → highest-quality diarization (pyannote 3.1 runs the whole meeting in one call — the 2026-07-14 offline map-reduce study found whole-buffer strictly best for DER; chunk-and-stitch survives only as a memory backstop past ~1 h) → **full-throttle batched transcript** (consecutive segments concatenated into ≤ 24 s whisper calls — ~6.5× lower RTF at better WER per the 2026-07-09 sweep) → summary. Opt back into per-segment ASR with `OfflinePipelineConfig(asr={"batch": False})`.
 
 ## Pipelines
 
@@ -161,12 +161,12 @@ vocal-helper mic --llm
 
 ```python
 import asyncio
-import vocal_helper as vh
+import vocal_helper as voh
 
 async def main():
-    pipeline = vh.Pipeline(
-        source=lambda: vh.sources.from_microphone(),
-        config=vh.PipelineConfig(
+    pipeline = voh.Pipeline(
+        source=lambda: voh.sources.from_microphone(),
+        config=voh.PipelineConfig(
             diar={"backend": "pyannote"},
             asr={"model": "large-v3-turbo-q5_0", "language": "fr"},
             llm={"model": "gemma3:4b"},   # remove to disable
@@ -192,14 +192,14 @@ The file source preserves real-time pacing by default ; pass `--no-real-time` fo
 ### **Offline** batch on a WAV (full-buffer pyannote 3.1)
 
 ```python
-import asyncio, vocal_helper as vh
+import asyncio, vocal_helper as voh
 
 async def main():
-    pipeline = vh.OfflinePipeline(
-        source=lambda: vh.sources.from_wav_file(
+    pipeline = voh.OfflinePipeline(
+        source=lambda: voh.sources.from_wav_file(
             "meeting.wav", real_time=False
         ),
-        config=vh.OfflinePipelineConfig(
+        config=voh.OfflinePipelineConfig(
             diar={"backend": "pyannote"},   # or "nemo" for ≤ 60 s clips
             asr={"language": "en"},
             llm={"model": "gemma3:4b"},    # remove to disable

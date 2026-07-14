@@ -142,12 +142,12 @@ vocal-helper mic --llm
 
 ```python
 import asyncio
-import vocal_helper as vh
+import vocal_helper as voh
 
 async def main():
-    pipeline = vh.Pipeline(
-        source=lambda: vh.sources.from_microphone(),
-        config=vh.PipelineConfig(
+    pipeline = voh.Pipeline(
+        source=lambda: voh.sources.from_microphone(),
+        config=voh.PipelineConfig(
             diar={"backend": "pyannote"},
             asr={"model": "large-v3-turbo-q5_0", "language": "fr"},
             llm={"model": "gemma4:e4b"},   # retirer pour désactiver

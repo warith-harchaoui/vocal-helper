@@ -186,13 +186,13 @@ async def from_url(
 
     Examples
     --------
-    >>> import asyncio, vocal_helper as vh
+    >>> import asyncio, vocal_helper as voh
     >>> async def main():
-    ...     pipeline = vh.Pipeline(
-    ...         source=lambda: vh.sources.from_url(
+    ...     pipeline = voh.Pipeline(
+    ...         source=lambda: voh.sources.from_url(
     ...             "https://www.youtube.com/watch?v=YE7VzlLtp-4",
     ...         ),
-    ...         config=vh.PipelineConfig(
+    ...         config=voh.PipelineConfig(
     ...             diar={"backend": "pyannote"},
     ...             llm={"model": "gemma4:e4b"},
     ...         ),

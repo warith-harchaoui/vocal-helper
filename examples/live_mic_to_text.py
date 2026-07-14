@@ -26,14 +26,14 @@ import argparse
 import asyncio
 import sys
 
-import vocal_helper as vh
+import vocal_helper as voh
 
 
 async def amain(args: argparse.Namespace) -> None:
     # The ``hf_token=None`` here delegates resolution to the stage
     # constructor, which calls ``_settings.resolve_hf_token`` and walks
     # the documented order : env var, then settings.yaml.
-    config = vh.PipelineConfig(
+    config = voh.PipelineConfig(
         diar={
             "backend": args.diar_backend,
             "hf_token": args.hf_token,
@@ -45,8 +45,8 @@ async def amain(args: argparse.Namespace) -> None:
         },
         llm=({"model": args.llm_model, "recent_window_s": 60.0} if args.llm else None),
     )
-    pipeline = vh.Pipeline(
-        source=lambda: vh.sources.from_microphone(device_name=args.device),
+    pipeline = voh.Pipeline(
+        source=lambda: voh.sources.from_microphone(device_name=args.device),
         config=config,
     )
     print("vocal-helper live — Ctrl-C to stop", file=sys.stderr)

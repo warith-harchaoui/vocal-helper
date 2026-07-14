@@ -453,12 +453,12 @@ whisper + pyannote init tax.
 
 ```python
 # /opt/warmup.py
-import asyncio, numpy as np, vocal_helper as vh
+import asyncio, numpy as np, vocal_helper as voh
 async def main():
     pcm = np.zeros(16000 * 5, dtype=np.float32)
-    p = vh.OfflinePipeline(
-        source=lambda: vh.sources.from_numpy_array(pcm),
-        config=vh.OfflinePipelineConfig(diar={"backend": "pyannote"}),
+    p = voh.OfflinePipeline(
+        source=lambda: voh.sources.from_numpy_array(pcm),
+        config=voh.OfflinePipelineConfig(diar={"backend": "pyannote"}),
     )
     async for _ in p.run():
         pass
@@ -566,10 +566,10 @@ sudo chmod 0600 /data/vocal-helper/settings.yaml
 # 10. Verify
 export VOCAL_HELPER_SETTINGS=/data/vocal-helper/settings.yaml
 python -c "
-import torch, vocal_helper as vh, music_helper as mh
+import torch, vocal_helper as voh, music_helper as mh
 assert torch.cuda.is_available(), 'CUDA not visible'
 print('torch :', torch.cuda.get_device_name(0))
-print('vocal-helper :', vh.__version__)
+print('vocal-helper :', voh.__version__)
 print('music-helper :', mh.__version__ if hasattr(mh, '__version__') else 'ok')
 "
 ```

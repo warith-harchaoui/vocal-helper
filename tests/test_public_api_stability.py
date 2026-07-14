@@ -19,7 +19,7 @@ import inspect
 import re
 from pathlib import Path
 
-import vocal_helper as vh
+import vocal_helper as voh
 from vocal_helper.types import (
     DiarizedSegment,
     PcmFrame,
@@ -61,8 +61,8 @@ _FROZEN_EXPORTS = {
 
 def test_public_exports_present() -> None:
     for name in _FROZEN_EXPORTS:
-        assert name in vh.__all__, f"{name} dropped from vocal_helper.__all__"
-        assert getattr(vh, name, None) is not None, f"vocal_helper.{name} is missing"
+        assert name in voh.__all__, f"{name} dropped from vocal_helper.__all__"
+        assert getattr(voh, name, None) is not None, f"vocal_helper.{name} is missing"
 
 
 # --------------------------------------------------------------------------
@@ -92,17 +92,17 @@ def test_typed_dict_keys_stable() -> None:
 
 def test_pipeline_constructors_accept_documented_kwargs() -> None:
     # ``source=`` + optional ``config=`` is the frozen construction shape.
-    for cls in (vh.Pipeline, vh.OfflinePipeline):
+    for cls in (voh.Pipeline, voh.OfflinePipeline):
         params = inspect.signature(cls).parameters
         assert "source" in params
         assert "config" in params and params["config"].default is not inspect.Parameter.empty
 
 
 def test_config_fields_stable() -> None:
-    pc = vh.PipelineConfig()
+    pc = voh.PipelineConfig()
     for f in ("vad", "eot", "diar", "asr", "llm", "qsize_pcm", "qsize_seg"):
         assert hasattr(pc, f), f"PipelineConfig lost field {f}"
-    oc = vh.OfflinePipelineConfig()
+    oc = voh.OfflinePipelineConfig()
     for f in ("diar", "asr", "llm", "qsize_pcm", "qsize_seg"):
         assert hasattr(oc, f), f"OfflinePipelineConfig lost field {f}"
 
@@ -114,7 +114,7 @@ def test_stage_constructors_have_no_new_required_args() -> None:
     with defaults, so a pinned downstream that constructs a stage the old
     way keeps working after a version bump.
     """
-    for cls in (vh.WhisperStage, vh.OnlineDiarStage, vh.OfflineDiarStage, vh.SileroVADStage):
+    for cls in (voh.WhisperStage, voh.OnlineDiarStage, voh.OfflineDiarStage, voh.SileroVADStage):
         for name, p in inspect.signature(cls).parameters.items():
             if p.kind in (p.VAR_POSITIONAL, p.VAR_KEYWORD):
                 continue
@@ -125,7 +125,7 @@ def test_stage_constructors_have_no_new_required_args() -> None:
 
 def test_offline_diar_backend_options_preserved() -> None:
     """pyannote stays the offline default ; nemo stays selectable."""
-    sig = inspect.signature(vh.OfflineDiarStage)
+    sig = inspect.signature(voh.OfflineDiarStage)
     assert sig.parameters["backend"].default == "pyannote"
 
 
@@ -135,7 +135,7 @@ def test_offline_diar_backend_options_preserved() -> None:
 
 
 def test_speaker_label_scheme_unchanged() -> None:
-    src = Path(vh.__file__).with_name("diar.py").read_text()
+    src = Path(voh.__file__).with_name("diar.py").read_text()
     # The unknown-speaker sentinel and the S<int> id scheme are contractual.
     assert '"S?"' in src, "the 'S?' unknown-speaker sentinel was removed"
     assert re.search(r'f"S\{', src), "the 'S<int>' speaker-id scheme changed"
