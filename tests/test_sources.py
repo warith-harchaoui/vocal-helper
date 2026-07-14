@@ -25,6 +25,7 @@ def test_from_numpy_array_yields_correct_frame_count() -> None:
     pcm = np.zeros(16_000, dtype=np.float32)
 
     async def collect() -> list[voh.PcmFrame]:
+        """Gather every frame the numpy source yields for this 1 s buffer."""
         return [f async for f in voh.sources.from_numpy_array(pcm)]
 
     frames = asyncio.run(collect())
@@ -39,6 +40,7 @@ def test_from_numpy_array_pads_last_frame() -> None:
     pcm = np.ones(272, dtype=np.float32)  # 17 ms @ 16 kHz
 
     async def collect() -> list[voh.PcmFrame]:
+        """Gather the single (padded) frame from the sub-frame buffer."""
         return [f async for f in voh.sources.from_numpy_array(pcm)]
 
     frames = asyncio.run(collect())
@@ -54,6 +56,7 @@ def test_from_numpy_array_rejects_stereo() -> None:
     stereo = np.zeros((16_000, 2), dtype=np.float32)
 
     async def consume() -> None:
+        """Drive the stereo buffer through the source to trigger the guard."""
         async for _ in voh.sources.from_numpy_array(stereo):
             pass
 
@@ -66,6 +69,7 @@ def test_from_numpy_array_casts_dtype() -> None:
     pcm = np.zeros(800, dtype=np.float64)  # 50 ms @ 16 kHz
 
     async def collect() -> list[voh.PcmFrame]:
+        """Gather frames from the float64 buffer to inspect the cast dtype."""
         return [f async for f in voh.sources.from_numpy_array(pcm)]
 
     frames = asyncio.run(collect())
@@ -77,6 +81,7 @@ def test_from_numpy_array_t0_is_monotonic() -> None:
     pcm = np.zeros(16_000, dtype=np.float32)
 
     async def collect() -> list[float]:
+        """Gather just the ``t0`` timestamp of each yielded frame."""
         return [f["t0"] async for f in voh.sources.from_numpy_array(pcm)]
 
     times = asyncio.run(collect())
@@ -104,6 +109,7 @@ def test_from_wav_file_round_trip(tiny_wav: Path) -> None:
     """A 100 ms WAV at 16 kHz / 20 ms frames → 5 frames."""
 
     async def collect() -> list[voh.PcmFrame]:
+        """Gather every frame decoded from the tiny WAV fixture."""
         return [f async for f in voh.sources.from_wav_file(tiny_wav, real_time=False)]
 
     frames = asyncio.run(collect())
@@ -122,6 +128,7 @@ def test_from_wav_file_resamples_wrong_sample_rate(tmp_path: Path) -> None:
     wavfile.write(str(path), 8_000, np.zeros(800, dtype=np.float32))  # 100 ms @ 8 kHz
 
     async def collect() -> list[voh.PcmFrame]:
+        """Gather frames from the 8 kHz WAV to verify transparent resampling."""
         return [f async for f in voh.sources.from_wav_file(path, real_time=False)]
 
     frames = asyncio.run(collect())
@@ -140,6 +147,7 @@ def test_from_wav_file_handles_multichannel(tmp_path: Path) -> None:
     wavfile.write(str(path), 16_000, stereo)
 
     async def collect() -> list[voh.PcmFrame]:
+        """Gather frames from the stereo WAV to check the mono averaging."""
         return [f async for f in voh.sources.from_wav_file(path, real_time=False)]
 
     frames = asyncio.run(collect())
@@ -164,6 +172,7 @@ def test_from_microphone_raises_clear_error_without_extra(
     monkeypatch.setitem(sys.modules, "capture_helper", None)
 
     async def consume() -> None:
+        """Try to iterate the mic source so the missing-extra ImportError fires."""
         async for _ in voh.sources.from_microphone():
             pass
 

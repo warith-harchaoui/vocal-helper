@@ -39,6 +39,8 @@ def test_extract_object_with_response_attr() -> None:
 
     @dataclass
     class FakeGenerateResponse:
+        """Stand-in for the ollama >= 0.4 object exposing a ``response`` attr."""
+
         response: str
 
     assert _extract_response_text(FakeGenerateResponse(response="  hi  ")) == "hi"
@@ -49,6 +51,8 @@ def test_extract_object_with_none_response_falls_through() -> None:
 
     @dataclass
     class FakeResp:
+        """Response object whose ``response`` attr is ``None`` (falls through)."""
+
         response: None = None
 
     # The fallback returns str(resp).strip() — which for a dataclass is
@@ -68,6 +72,7 @@ def test_extract_falls_back_to_str() -> None:
 
 
 def test_analyst_defaults() -> None:
+    """Bare ``GemmaAnalystStage`` mirrors the documented defaults, client unconnected."""
     stage = GemmaAnalystStage()
     assert stage.model == DEFAULT_MODEL
     assert stage.recent_window_s == DEFAULT_RECENT_WINDOW_S
@@ -81,6 +86,7 @@ def test_analyst_defaults() -> None:
 
 
 def test_analyst_accepts_overrides() -> None:
+    """Every constructor override is stored verbatim on the analyst stage."""
     stage = GemmaAnalystStage(
         model="qwen3:8b",
         recent_window_s=30.0,

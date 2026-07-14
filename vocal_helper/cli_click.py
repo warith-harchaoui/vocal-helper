@@ -74,20 +74,28 @@ def _pipeline_config(
     eot_model: str | None,
 ) -> PipelineConfig:
     """Build a :class:`PipelineConfig` from the shared click options."""
+    # ASR dict passed straight through to WhisperStage.__init__ — keys mirror
+    # the argparse twin so both CLIs produce byte-identical pipeline configs.
     asr_cfg: dict = {
         "model": whisper_model,
         "language": language,
         "threads": threads,
+        # Coerce a possible ``None`` bias prompt to "" — whisper rejects None.
         "initial_prompt": initial_prompt or "",
     }
     # Model weights load from the self-hosted diarization-engines bundle
     # (settings.yaml ``engines.diarization_url``) — no HuggingFace token.
     diar_cfg: dict = {"backend": diar_backend}
+    # Only override the join threshold when the user passed one — otherwise let
+    # the diarizer keep its tuned 0.30 default rather than pinning it here.
     if join_threshold is not None:
         diar_cfg["join_threshold"] = join_threshold
+    # LLM analyst is opt-in — leave it None unless ``--llm`` was passed.
     llm_cfg: dict | None = None
     if llm:
         llm_cfg = {"model": llm_model, "recent_window_s": llm_recent_window_s}
+        # Only forward the host override when the user set one ; otherwise the
+        # stage falls back to $OLLAMA_HOST / the localhost default itself.
         if ollama_host:
             llm_cfg["host"] = ollama_host
     # Keys must match SemanticEOTStage.__init__ (``eot_model`` / ``host``).
@@ -108,6 +116,8 @@ def _print_event(ev: dict, jsonl: bool) -> None:
         sys.stdout.write(json.dumps({k: v for k, v in ev.items() if k != "pcm"}) + "\n")
         sys.stdout.flush()
         return
+    # Human-readable branch — the event's shape tells us which template to use:
+    # a ``text`` key is an utterance line, a ``summary`` key is a rolling digest.
     if "text" in ev:
         sys.stdout.write(f"[{ev['t0']:7.2f}s -> {ev['t1']:7.2f}s  {ev['speaker']}]  {ev['text']}\n")
     elif "summary" in ev:
@@ -266,6 +276,9 @@ def mic(
     )
 
     def factory():
+        """Open a fresh 16 kHz / 20 ms microphone stream on each pipeline start."""
+        # 16 kHz mono is whisper.cpp's native rate ; 20 ms is the Silero VAD stride,
+        # so the source hands the pipeline frames it can consume without resampling.
         return from_microphone(device_name=device, sample_rate=16_000, frame_ms=20)
 
     pipeline = Pipeline(source=factory, config=cfg)
@@ -329,8 +342,13 @@ def file(
     )
 
     def factory():
+        """Open the WAV source ; ``--no-real-time`` skips wall-clock pacing for batch runs."""
+        # Real-time pacing simulates a live feed ; disabling it fires frames as fast
+        # as they decode, which is what you want when timing throughput on a file.
         return from_wav_file(Path(path), real_time=not no_real_time)
 
+    # ``--offline`` swaps in the full-buffer diarizer (best quality on long inputs) ;
+    # otherwise we run the streaming pipeline that diarizes segment-by-segment.
     if offline:
         pipeline = OfflinePipeline(
             source=factory,
@@ -384,6 +402,7 @@ def url(
     )
 
     def factory():
+        """Open a streaming source for the given URL (yt-dlp resolves the media)."""
         return _from_url(url)
 
     pipeline = Pipeline(source=factory, config=cfg)
@@ -418,6 +437,8 @@ def transcribe(
     jsonl: bool,
 ) -> None:
     """One-shot transcription of a WAV file (skip VAD / diarization)."""
+    # Lazy imports so ``--help`` never pays the numpy / audio-helper / whisper.cpp
+    # import cost for users who only wanted the usage text.
     import numpy as np
     from audio_helper import load_audio
 
@@ -425,6 +446,7 @@ def transcribe(
 
     # ffmpeg-backed decode — any format (mp3/m4a/opus/video), mono, native rate.
     pcm, sr = load_audio(path, to_mono=True, to_numpy=True)
+    # whisper.cpp wants a contiguous float32 buffer — coerce whatever dtype we got.
     pcm = np.asarray(pcm, dtype=np.float32)
     text = transcribe_pcm(
         pcm=pcm,

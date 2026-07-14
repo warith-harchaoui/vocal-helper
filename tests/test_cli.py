@@ -39,6 +39,7 @@ def _ns(**overrides: object) -> argparse.Namespace:
 
 
 def test_build_config_minimal() -> None:
+    """Bare namespace maps straight through to the ASR / diar config blocks."""
     cfg = cli._build_config(_ns())
     assert cfg.asr["model"] == "large-v3-turbo-q5_0"
     assert cfg.asr["language"] == "auto"
@@ -48,11 +49,13 @@ def test_build_config_minimal() -> None:
 
 
 def test_build_config_threads_through_join_threshold() -> None:
+    """A supplied ``--join-threshold`` lands in the diar block."""
     cfg = cli._build_config(_ns(join_threshold=0.42))
     assert cfg.diar["join_threshold"] == 0.42
 
 
 def test_build_config_llm_block_only_when_enabled() -> None:
+    """``--llm`` + host produce the full three-key LLM block."""
     cfg = cli._build_config(_ns(llm=True, ollama_host="http://localhost:11434"))
     assert cfg.llm == {
         "model": "gemma4:e4b",
@@ -62,6 +65,7 @@ def test_build_config_llm_block_only_when_enabled() -> None:
 
 
 def test_build_config_llm_block_without_host() -> None:
+    """Without ``--ollama-host`` the ``host`` key is omitted, not set to ``None``."""
     cfg = cli._build_config(_ns(llm=True))
     assert cfg.llm == {"model": "gemma4:e4b", "recent_window_s": 60.0}
     assert "host" not in cfg.llm
@@ -88,12 +92,14 @@ def test_build_config_has_no_hf_token(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def _real_parser() -> argparse.ArgumentParser:
+    """Return the real shipped argparse parser so tests never drift from it."""
     from vocal_helper.cli_argparse import build_parser
 
     return build_parser()
 
 
 def test_cli_parser_mic_minimal() -> None:
+    """``mic`` with no flags parses and defaults the diar backend to nemo."""
     args = _real_parser().parse_args(["mic"])
     assert args.command == "mic"
     # Default backend is nemo (2026-06-30 embedding sweep), not pyannote.
@@ -101,6 +107,7 @@ def test_cli_parser_mic_minimal() -> None:
 
 
 def test_cli_parser_file_with_overrides() -> None:
+    """``file`` with positional path and flags round-trips onto the namespace."""
     args = _real_parser().parse_args(
         [
             "file",
@@ -119,6 +126,7 @@ def test_cli_parser_file_with_overrides() -> None:
 
 
 def test_cli_parser_rejects_unknown_backend() -> None:
+    """An unlisted ``--diar-backend`` value makes argparse ``SystemExit``."""
     parser = _real_parser()
     with pytest.raises(SystemExit):
         parser.parse_args(["mic", "--diar-backend", "kaldi"])
@@ -219,6 +227,7 @@ def test_click_subcommand_help_exits_zero(sub: str) -> None:
 
 
 def _argparse_config(argv: list[str]):
+    """Parse ``argv`` through the real parser and build the shipped pipeline config."""
     from vocal_helper.cli_argparse import _build_pipeline_config, build_parser
 
     args = build_parser().parse_args(argv)

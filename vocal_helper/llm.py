@@ -35,6 +35,8 @@ import asyncio
 from collections import deque
 from dataclasses import dataclass, field
 
+import os_helper as osh
+
 from vocal_helper.types import SummarySnapshot, Utterance
 
 
@@ -164,6 +166,33 @@ class GemmaAnalystStage:
         host: str | None = None,
         prompt_template: str = DEFAULT_SUMMARY_PROMPT,
     ) -> None:
+        """Configure the analyst stage without touching the network.
+
+        The Ollama client is created lazily in :meth:`_ensure_client` so
+        constructing the stage stays cheap and import-safe ; nothing here
+        can fail on a box without the ``llm`` extra installed.
+
+        Parameters
+        ----------
+        model : str
+            Ollama model tag used for summarisation (see the Pareto-sweep
+            note on :data:`DEFAULT_MODEL`).
+        recent_window_s : float
+            Utterances newer than this many seconds stay in the verbatim
+            ``recent`` buffer ; older ones are evicted into the summary.
+        flush_every_n : int
+            Count-based cadence fallback — refresh the summary after this
+            many evicted utterances. Used only when ``flush_every_s`` is
+            ``None``.
+        flush_every_s : float | None
+            Duration-based cadence — refresh once the evicted block spans
+            this many seconds. Takes precedence over ``flush_every_n``.
+        host : str | None
+            Ollama host URL ; ``None`` lets the client use its default.
+        prompt_template : str
+            Summarisation prompt with ``{summary}`` / ``{new_block}``
+            placeholders.
+        """
         self.model = model
         self.recent_window_s = recent_window_s
         self.flush_every_n = flush_every_n
@@ -179,6 +208,19 @@ class GemmaAnalystStage:
     # ----- lifecycle ------------------------------------------------------
 
     def _ensure_client(self) -> None:
+        """Lazily construct the Ollama client on first use.
+
+        Idempotent : a second call is a no-op once the client exists.
+        The ``ollama`` import is deferred to here so the stage can be
+        imported and configured on a machine without the optional
+        ``llm`` extra ; only actually *running* the stage requires it.
+
+        Raises
+        ------
+        ImportError
+            When the ``ollama`` package is not installed, with a hint to
+            install the ``vocal-helper[llm]`` extra.
+        """
         if self._client is not None:
             return
         try:
@@ -223,6 +265,25 @@ class GemmaAnalystStage:
     # ----- core ---------------------------------------------------------
 
     async def _on_utterance(self, utt: Utterance) -> SummarySnapshot | None:
+        """Ingest one utterance and, if cadence fires, refresh the summary.
+
+        Appends ``utt`` to the verbatim recent buffer, evicts anything
+        older than ``recent_window_s`` into the pending-for-summary
+        queue, then decides whether the accumulated block warrants an
+        LLM refresh (duration cadence first, count cadence as fallback).
+
+        Parameters
+        ----------
+        utt : Utterance
+            The newly transcribed utterance ; ``t1`` is treated as
+            "now" for windowing.
+
+        Returns
+        -------
+        SummarySnapshot | None
+            The current ``(summary, recent)`` snapshot, or ``None`` for
+            an empty (VAD-blip) utterance that carries no text.
+        """
         if not utt["text"].strip():
             return None  # empty utterance — VAD blip
         now = utt["t1"]
@@ -249,6 +310,19 @@ class GemmaAnalystStage:
         return self._snapshot(item_t=now)
 
     def _summarise(self) -> str:
+        """Fold the pending block into the running summary via one LLM call.
+
+        Blocks on Ollama's HTTP client, so callers invoke it through
+        :func:`asyncio.to_thread` to keep the event loop responsive.
+
+        Returns
+        -------
+        str
+            The refreshed digest. On an empty pending queue the previous
+            summary is returned unchanged ; on a network / model error
+            the previous summary is kept and the poisoned block dropped
+            (so we never retry the same failing batch forever).
+        """
         if not self._buf.pending_for_summary:
             return self._buf.summary
         new_block = "\n".join(
@@ -264,9 +338,9 @@ class GemmaAnalystStage:
         except Exception as exc:  # noqa: BLE001
             # Network or model error — keep old summary, drop the block
             # so we don't infinitely retry the same poisoned batch.
-            from os_helper import warning
-
-            warning(f"GemmaAnalystStage: ollama call failed ({exc!r}); keeping previous summary")
+            osh.warning(
+                f"GemmaAnalystStage: ollama call failed ({exc!r}); keeping previous summary"
+            )
             self._buf.pending_for_summary.clear()
             return self._buf.summary
         text = _extract_response_text(resp)
@@ -274,6 +348,22 @@ class GemmaAnalystStage:
         return text
 
     def _snapshot(self, item_t: float | None) -> SummarySnapshot | None:
+        """Build a :class:`SummarySnapshot` from the current buffer state.
+
+        Parameters
+        ----------
+        item_t : float | None
+            Timestamp to stamp the snapshot with. When ``None`` (the
+            shutdown flush), we fall back to the last recent utterance's
+            ``t1``, or ``0.0`` if the recent buffer is already empty.
+
+        Returns
+        -------
+        SummarySnapshot | None
+            The snapshot, or ``None`` when there is nothing to report
+            yet (neither recent utterances nor a running summary) so
+            downstream consumers are not woken for an empty event.
+        """
         if not self._buf.recent and not self._buf.summary:
             return None
         recent_block = "\n".join(

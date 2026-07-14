@@ -74,6 +74,8 @@ async def from_microphone(
     device_index : int, optional
         Concrete device index (taken from ``capture_helper.list_sources``).
     """
+    # Lazy import : the mic backend is an optional extra, so keep it out of
+    # the import path for callers that only stream from files or URLs.
     try:
         import capture_helper as ch  # type: ignore
     except ImportError as e:  # noqa: BLE001
@@ -81,16 +83,21 @@ async def from_microphone(
             "from_microphone requires capture-helper. Install with `pip install vocal-helper[mic]`."
         ) from e
 
+    # Resolve the concrete device : name substring / index narrow it down,
+    # otherwise capture-helper falls back to the system default input.
     source = ch.pick_source(
         "microphone",
         name_substring=device_name,
         index=device_index,
     )
+    # Rebase timestamps to the first frame so ``t0`` is "seconds since
+    # capture started", independent of the machine's monotonic epoch.
     start: float | None = None
     async for f in ch.iter_mic_audio(
         source, target_sample_rate=sample_rate, frame_ms=frame_ms, to_mono=True
     ):
         now = time.monotonic()
+        # First frame establishes the zero point for every later t0.
         if start is None:
             start = now
         yield PcmFrame(
@@ -202,6 +209,8 @@ async def from_url(
     ...             print(f"[{ev['t0']:.1f}s {ev['speaker']}] {ev['text']}")
     >>> asyncio.run(main())  # doctest: +SKIP
     """
+    # Lazy import : the streaming backend (yt-dlp + ffmpeg) is an optional
+    # extra ; only pull it in when a caller actually streams from a URL.
     try:
         import podcast_helper as ph  # type: ignore
     except ImportError as e:  # noqa: BLE001
@@ -209,6 +218,8 @@ async def from_url(
             "from_url requires podcast-helper. Install with `pip install vocal-helper[stream]`."
         ) from e
 
+    # The upper bound a well-behaved producer must respect : 320 samples at
+    # 16 kHz / 20 ms. Precompute once to validate every frame cheaply below.
     expected_frame_samples = DEFAULT_SAMPLE_RATE * DEFAULT_FRAME_MS // 1000
 
     # podcast-helper's frame schema: {t_abs_s, pcm, voiced}. vocal-helper's
@@ -279,10 +290,14 @@ async def from_wav_file(
     from audio_helper import load_audio
 
     audio, sr = load_audio(str(path), target_sample_rate=sample_rate, to_mono=True, to_numpy=True)
+    # Force float32 : the whole pipeline (VAD / diar / whisper) ingests
+    # float32 PCM, so normalise here rather than let dtype drift downstream.
     audio = np.asarray(audio, dtype=np.float32)
 
+    # Walk the buffer in fixed frame_samples-sized blocks (a "cursor" chunker).
     frame_samples = sample_rate * frame_ms // 1000
     n = audio.shape[0]
+    # ``start`` anchors the real-time pacing clock ; ``cursor`` is the read head.
     start = time.monotonic()
     cursor = 0
     while cursor < n:
@@ -291,6 +306,8 @@ async def from_wav_file(
             # Right-pad the tail frame with zeros to keep the contract.
             pad = np.zeros(frame_samples - block.shape[0], dtype=np.float32)
             block = np.concatenate([block, pad], axis=0)
+        # ``t0`` is derived from the sample offset, NOT wall-clock — exact and
+        # reproducible whether we replay in real time or burst as fast as we can.
         t0 = cursor / float(sample_rate)
         yield PcmFrame(
             t0=t0,
@@ -298,9 +315,12 @@ async def from_wav_file(
             pcm=block,
         )
         cursor += frame_samples
+        # Real-time replay : sleep until this frame's natural playout instant so
+        # downstream stages see the same cadence a live source would produce.
         if real_time:
             target = start + (cursor / float(sample_rate))
             sleep_s = target - time.monotonic()
+            # Only sleep if we're ahead ; if decoding lagged, don't sleep negative.
             if sleep_s > 0:
                 await asyncio.sleep(sleep_s)
 
@@ -313,10 +333,14 @@ async def from_numpy_array(
     real_time: bool = False,
 ) -> AsyncIterator[PcmFrame]:
     """Yield PCM frames from an in-memory mono float32 buffer."""
+    # Fail loud on shape : a stereo/2-D array would silently mis-frame and
+    # corrupt every downstream stage, so reject it up front.
     if pcm.ndim != 1:
         raise ValueError(f"from_numpy_array expects mono PCM, got shape {pcm.shape}")
+    # Coerce dtype without copying when already float32 — cheap contract fix.
     if pcm.dtype != np.float32:
         pcm = pcm.astype(np.float32, copy=False)
+    # Same cursor-based chunker as from_wav_file (kept parallel on purpose).
     frame_samples = sample_rate * frame_ms // 1000
     n = pcm.shape[0]
     start = time.monotonic()
@@ -324,14 +348,18 @@ async def from_numpy_array(
     while cursor < n:
         block = pcm[cursor : cursor + frame_samples]
         if block.shape[0] < frame_samples:
+            # Zero-pad the final short frame so consumers get uniform lengths.
             pad = np.zeros(frame_samples - block.shape[0], dtype=np.float32)
             block = np.concatenate([block, pad], axis=0)
         yield PcmFrame(
+            # Sample-offset timestamp — deterministic regardless of pacing.
             t0=cursor / float(sample_rate),
             sample_rate=sample_rate,
             pcm=block,
         )
         cursor += frame_samples
+        # ``real_time`` defaults False here (tests want burst speed) ; when set,
+        # pace to playout so a synthetic stream mimics live cadence.
         if real_time:
             target = start + (cursor / float(sample_rate))
             sleep_s = target - time.monotonic()

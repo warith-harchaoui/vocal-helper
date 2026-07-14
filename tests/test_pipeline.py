@@ -33,6 +33,7 @@ def test_pipeline_config_defaults_are_independent() -> None:
 
 
 def test_pipeline_config_defaults_values() -> None:
+    """PipelineConfig defaults match the documented values (optional stages off)."""
     cfg = voh.PipelineConfig()
     assert cfg.qsize_pcm > 0
     assert cfg.qsize_seg > 0
@@ -53,6 +54,7 @@ def test_pipeline_config_eot_accepts_dict() -> None:
 
 
 def test_offline_pipeline_config_defaults() -> None:
+    """OfflinePipelineConfig omits the VAD and EOT blocks the live path carries."""
     cfg = voh.OfflinePipelineConfig()
     assert cfg.qsize_pcm > 0
     assert cfg.qsize_seg > 0
@@ -77,6 +79,7 @@ def _silent_source(duration_s: float = 0.05):
 
 
 def test_pipeline_queues_honour_config_sizes() -> None:
+    """Constructor sizes every internal queue from the config's qsize fields."""
     cfg = voh.PipelineConfig(qsize_pcm=7, qsize_seg=3)
     p = voh.Pipeline(source=_silent_source(), config=cfg)
     # Queue sizes are private but we can probe via the public attr.
@@ -88,22 +91,27 @@ def test_pipeline_queues_honour_config_sizes() -> None:
 
 
 def test_pipeline_disables_llm_when_unconfigured() -> None:
+    """With no ``llm`` block the pipeline builds no analyst stage."""
     cfg = voh.PipelineConfig()  # llm=None
     p = voh.Pipeline(source=_silent_source(), config=cfg)
     assert p._llm is None
 
 
 def test_pipeline_subscribers_register() -> None:
+    """Each subscribe_* call registers exactly one callback on its stage."""
     p = voh.Pipeline(source=_silent_source())
     seen: list[str] = []
 
     async def voiced_cb(_x: object) -> None:
+        """No-op voiced-segment subscriber used only to occupy a slot."""
         seen.append("voiced")
 
     async def diar_cb(_x: object) -> None:
+        """No-op diarized-segment subscriber used only to occupy a slot."""
         seen.append("diar")
 
     async def utt_cb(_x: object) -> None:
+        """No-op utterance subscriber used only to occupy a slot."""
         seen.append("utt")
 
     p.subscribe_voiced(voiced_cb)
@@ -130,6 +138,7 @@ def test_online_diar_rejects_bad_join_threshold() -> None:
 
 
 def test_online_diar_rejects_bad_ema_alpha() -> None:
+    """Out-of-range ``ema_alpha`` must blow up at construction, not runtime."""
     from vocal_helper.diar import OnlineDiarStage
 
     with pytest.raises(ValueError, match="ema_alpha"):
@@ -157,6 +166,7 @@ def test_pipeline_run_completes_with_empty_buffer() -> None:
     )
 
     async def passthrough_vad(inbox: asyncio.Queue, outbox: asyncio.Queue) -> None:
+        """No-op stage : forward only the ``None`` sentinel, load no model."""
         while True:
             item = await inbox.get()
             if item is None:
@@ -164,9 +174,11 @@ def test_pipeline_run_completes_with_empty_buffer() -> None:
                 return
 
     async def passthrough_diar(inbox: asyncio.Queue, outbox: asyncio.Queue) -> None:
+        """Diar stub reusing the VAD passthrough (sentinel-forward only)."""
         await passthrough_vad(inbox, outbox)
 
     async def passthrough_asr(inbox: asyncio.Queue, outbox: asyncio.Queue) -> None:
+        """ASR stub reusing the VAD passthrough (sentinel-forward only)."""
         await passthrough_vad(inbox, outbox)
 
     p._vad.run = passthrough_vad  # type: ignore[assignment]
@@ -174,6 +186,7 @@ def test_pipeline_run_completes_with_empty_buffer() -> None:
     p._asr.run = passthrough_asr  # type: ignore[assignment]
 
     async def drive() -> list:
+        """Run the pipeline to exhaustion and collect whatever it yields."""
         return [ev async for ev in p.run()]
 
     events = asyncio.run(drive())

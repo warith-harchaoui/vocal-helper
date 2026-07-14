@@ -60,6 +60,7 @@ _FROZEN_EXPORTS = {
 
 
 def test_public_exports_present() -> None:
+    """Every frozen public symbol stays in ``__all__`` and resolves non-None."""
     for name in _FROZEN_EXPORTS:
         assert name in voh.__all__, f"{name} dropped from vocal_helper.__all__"
         assert getattr(voh, name, None) is not None, f"vocal_helper.{name} is missing"
@@ -79,6 +80,7 @@ _FROZEN_KEYS = {
 
 
 def test_typed_dict_keys_stable() -> None:
+    """No frozen TypedDict key is ever dropped (additions are allowed)."""
     for td, frozen in _FROZEN_KEYS.items():
         live = set(td.__annotations__)
         missing = frozen - live
@@ -91,6 +93,7 @@ def test_typed_dict_keys_stable() -> None:
 
 
 def test_pipeline_constructors_accept_documented_kwargs() -> None:
+    """Both pipeline constructors keep ``source`` + optional ``config`` params."""
     # ``source=`` + optional ``config=`` is the frozen construction shape.
     for cls in (voh.Pipeline, voh.OfflinePipeline):
         params = inspect.signature(cls).parameters
@@ -99,6 +102,7 @@ def test_pipeline_constructors_accept_documented_kwargs() -> None:
 
 
 def test_config_fields_stable() -> None:
+    """Both config dataclasses keep every documented field."""
     pc = voh.PipelineConfig()
     for f in ("vad", "eot", "diar", "asr", "llm", "qsize_pcm", "qsize_seg"):
         assert hasattr(pc, f), f"PipelineConfig lost field {f}"
@@ -135,6 +139,7 @@ def test_offline_diar_backend_options_preserved() -> None:
 
 
 def test_speaker_label_scheme_unchanged() -> None:
+    """The ``S?`` sentinel and ``S<int>`` label scheme remain in diar.py source."""
     src = Path(voh.__file__).with_name("diar.py").read_text()
     # The unknown-speaker sentinel and the S<int> id scheme are contractual.
     assert '"S?"' in src, "the 'S?' unknown-speaker sentinel was removed"

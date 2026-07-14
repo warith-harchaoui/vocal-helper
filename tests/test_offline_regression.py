@@ -65,6 +65,7 @@ class DERMetric(BaseMetric):
     """
 
     def __init__(self, threshold: float) -> None:
+        """Store the DER threshold and null-init the DeepEval result fields."""
         # DeepEval reads these attributes after ``measure``.
         self.threshold: float = threshold
         self.score: float | None = None
@@ -120,6 +121,7 @@ class WERMetric(BaseMetric):
     """
 
     def __init__(self, threshold: float) -> None:
+        """Store the WER threshold and null-init the DeepEval result fields."""
         self.threshold: float = threshold
         self.score: float | None = None
         self.success: bool | None = None

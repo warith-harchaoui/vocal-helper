@@ -123,6 +123,7 @@ def _normalise_words(text: str) -> set[str]:
 
 
 def _jaccard(a: set[str], b: set[str]) -> float:
+    """Jaccard overlap of two word sets ; two empties count as identical (1.0)."""
     if not a and not b:
         return 1.0
     union = len(a | b)
@@ -174,6 +175,7 @@ async def _drain_with_timeout(url: str, max_s: float, timeout_s: float) -> tuple
     sample_rate = SR
 
     async def collect() -> None:
+        """Accumulate PCM frames from the clipped source into the outer list."""
         nonlocal sample_rate
         async for f in _clipped_url_source(url, max_s, realtime=False):
             sample_rate = f["sample_rate"]
@@ -210,6 +212,11 @@ def clip_pcm(ph) -> tuple[np.ndarray, int]:
 
 @pytest.fixture(scope="module")
 def smoke_pcm(ph) -> tuple[np.ndarray, int]:
+    """Stream the shorter ``SMOKE_CLIP_S`` head slice for the lightweight check.
+
+    Same timeout / skip contract as :func:`clip_pcm`, just a smaller window
+    so the "does it start" test stays fast.
+    """
     try:
         pcm, sample_rate = asyncio.run(
             _drain_with_timeout(VIDEO_URL, SMOKE_CLIP_S, INGEST_TIMEOUT_S)
@@ -291,6 +298,7 @@ def test_streaming_pipeline_yields_utterance(
     )
 
     async def collect() -> list:
+        """Drain every event the streaming pipeline emits into a list."""
         return [ev async for ev in pipeline.run()]
 
     try:
@@ -332,6 +340,7 @@ def test_offline_pipeline_vs_youtube_captions(
     )
 
     async def collect() -> list:
+        """Drain every event the offline pipeline emits into a list."""
         return [ev async for ev in pipeline.run()]
 
     try:
@@ -376,6 +385,7 @@ def test_streaming_realtime_pacing(ph) -> None:
     t0 = time.monotonic()
 
     async def drain() -> int:
+        """Consume the realtime-paced source and return the total sample count."""
         n_samples = 0
         async for f in _clipped_url_source(VIDEO_URL, target_s, realtime=True):
             n_samples += f["pcm"].shape[0]

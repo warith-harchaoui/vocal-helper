@@ -21,6 +21,7 @@ SR = 16000
 
 
 def _seg(t0: float, t1: float, speaker: str) -> DiarizedSegment:
+    """Build a silent :class:`DiarizedSegment` spanning ``[t0, t1]`` for one speaker."""
     n = int(round((t1 - t0) * SR))
     return DiarizedSegment(
         t0=t0,
@@ -45,6 +46,7 @@ def test_whisper_defaults() -> None:
 
 
 def test_whisper_accepts_overrides() -> None:
+    """Every constructor override is stored verbatim on the stage."""
     stage = WhisperStage(
         model="base",
         language="fr",
@@ -97,6 +99,7 @@ def test_pipeline_wiring_defaults() -> None:
 
 
 def test_pack_segments_respects_chunk_cap() -> None:
+    """``_pack_segments`` groups segments up to ``max_chunk_s``, isolating over-cap ones."""
     segs = [_seg(0, 2, "S0"), _seg(2, 4, "S1"), _seg(4, 6, "S0"), _seg(6, 20, "S1")]
     # cap 5 s : [2+2] together (4 + pad ≤ 5), then the 2 s, then the 14 s alone.
     chunks = _pack_segments(segs, max_chunk_s=5.0)
@@ -108,6 +111,7 @@ def test_pack_segments_respects_chunk_cap() -> None:
 
 
 def test_assign_window_containment_and_nearest() -> None:
+    """``_assign_window`` maps a time to its containing window, else the nearest edge."""
     windows = [(0.0, 2.0), (2.1, 4.1), (4.2, 6.2)]
     assert _assign_window(windows, 1.0) == 0
     assert _assign_window(windows, 3.0) == 1
@@ -119,7 +123,10 @@ def test_assign_window_containment_and_nearest() -> None:
 
 
 class _Phrase:
+    """Minimal stand-in for a whisper.cpp phrase (text + centisecond timings)."""
+
     def __init__(self, text: str, t0_cs: float, t1_cs: float, language: str | None = None):
+        """Store the phrase text, chunk-local timings, and optional language tag."""
         self.text = text
         self.t0 = t0_cs  # centiseconds, chunk-local (whisper.cpp convention)
         self.t1 = t1_cs
@@ -130,13 +137,16 @@ class _StubModel:
     """Returns phrases positioned to fall inside specific segment windows."""
 
     def __init__(self, phrases: list[_Phrase]):
+        """Capture the canned phrases to replay on every ``transcribe`` call."""
         self._phrases = phrases
 
     def transcribe(self, pcm, **kwargs):  # noqa: ANN001
+        """Ignore the audio and return the pre-positioned phrases."""
         return self._phrases
 
 
 def test_batched_chunk_preserves_one_utterance_per_segment() -> None:
+    """Batched decode emits exactly one utterance per input segment, in order."""
     # Three segments: S0 [0,2], S1 [2,3], S0 [3,5]. Concatenated with 0.1 s pads,
     # local windows ≈ [0,2] [2.1,3.1] [3.2,5.2].
     chunk = [_seg(0, 2, "S0"), _seg(2, 3, "S1"), _seg(3, 5, "S0")]
@@ -164,8 +174,13 @@ def test_batched_chunk_preserves_one_utterance_per_segment() -> None:
 
 
 def test_batched_chunk_transcribe_failure_keeps_contract() -> None:
+    """A model crash still yields one empty utterance per segment (never fewer)."""
+
     class _Boom:
+        """A model whose ``transcribe`` always raises, to test the failure path."""
+
         def transcribe(self, pcm, **kwargs):  # noqa: ANN001
+            """Simulate a whisper.cpp blow-up mid-decode."""
             raise RuntimeError("whisper exploded")
 
     chunk = [_seg(0, 2, "S0"), _seg(2, 4, "S1")]

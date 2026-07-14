@@ -24,6 +24,7 @@ from vocal_helper.lid import (
 
 
 def _spans(regions: list[LangRegion]) -> list[tuple[str, float, float]]:
+    """Flatten regions to ``(lang, t0, t1)`` triples for terse comparisons."""
     return [(r.lang, r.t0, r.t1) for r in regions]
 
 
@@ -31,6 +32,7 @@ def _spans(regions: list[LangRegion]) -> list[tuple[str, float, float]]:
 
 
 def test_lid_defaults() -> None:
+    """LID default constants match the documented window / min-region / lang set."""
     assert DEFAULT_WINDOW_S == 10.0
     assert DEFAULT_MIN_REGION_S == 8.0
     # Broad ISO-639-1 set, en first (the empty-input fallback language).
@@ -41,6 +43,7 @@ def test_lid_defaults() -> None:
 
 
 def test_snap_boundary_moves_to_silence() -> None:
+    """A language boundary snaps into the nearby silent gap, not mid-speech."""
     # 20 s tone with a silent gap at 9.5-10.5 s; a boundary at 9.0 s must snap
     # into the gap. Pure — no whisper model.
     sr = 16_000
@@ -57,6 +60,7 @@ def test_snap_boundary_moves_to_silence() -> None:
 
 
 def test_coalesce_merges_same_language_neighbours() -> None:
+    """Adjacent same-language regions collapse into one span."""
     regions = [
         LangRegion("en", 0.0, 20.0),
         LangRegion("en", 20.0, 40.0),
@@ -72,12 +76,14 @@ def test_coalesce_merges_same_language_neighbours() -> None:
 
 
 def test_coalesce_empty_and_singleton() -> None:
+    """Empty and single-region inputs pass through ``_coalesce`` unchanged."""
     assert _coalesce([]) == []
     one = [LangRegion("fr", 0.0, 30.0)]
     assert _spans(_coalesce(one)) == [("fr", 0.0, 30.0)]
 
 
 def test_coalesce_no_adjacent_duplicates_is_identity() -> None:
+    """With no same-language neighbours, ``_coalesce`` is a no-op."""
     regions = [
         LangRegion("en", 0.0, 20.0),
         LangRegion("fr", 20.0, 40.0),
@@ -90,6 +96,7 @@ def test_coalesce_no_adjacent_duplicates_is_identity() -> None:
 
 
 def test_absorb_short_region_into_longer_neighbour() -> None:
+    """A short blip between two long same-language stretches is absorbed and merged."""
     # A 4 s "fr" blip between two long "en" stretches is whisper noise :
     # relabel it "en" and re-coalesce back to a single region.
     regions = [
@@ -102,6 +109,7 @@ def test_absorb_short_region_into_longer_neighbour() -> None:
 
 
 def test_absorb_keeps_real_switch() -> None:
+    """Two regions that both clear the threshold are a real switch, left intact."""
     # Both regions clear the threshold → a genuine switch, left untouched.
     regions = [
         LangRegion("en", 0.0, 30.0),
@@ -112,6 +120,7 @@ def test_absorb_keeps_real_switch() -> None:
 
 
 def test_absorb_short_region_prefers_longer_side() -> None:
+    """A short region is relabelled to its longer neighbour, not just the left one."""
     # The short "es" region sits between a 25 s "en" and a 12 s "fr" — it is
     # relabelled to the *longer* (en) neighbour, not merely the left one.
     regions = [
@@ -124,6 +133,7 @@ def test_absorb_short_region_prefers_longer_side() -> None:
 
 
 def test_absorb_short_region_uses_right_when_no_left() -> None:
+    """A leading short region with no left neighbour is absorbed rightward."""
     # Leading short region has no left neighbour → absorbed rightward.
     regions = [
         LangRegion("fr", 0.0, 3.0),
@@ -134,6 +144,7 @@ def test_absorb_short_region_uses_right_when_no_left() -> None:
 
 
 def test_absorb_single_region_untouched_even_if_short() -> None:
+    """A lone short region survives — a short monolingual file mustn't vanish."""
     # A lone region is always returned — a short monolingual file must not
     # collapse to nothing.
     one = [LangRegion("nl", 0.0, 2.0)]
@@ -141,6 +152,7 @@ def test_absorb_single_region_untouched_even_if_short() -> None:
 
 
 def test_absorb_cascades_until_all_clear() -> None:
+    """Absorption repeats until every remaining region clears the threshold."""
     # Several short blips collapse into the dominant surrounding language.
     regions = [
         LangRegion("en", 0.0, 40.0),

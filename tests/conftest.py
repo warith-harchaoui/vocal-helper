@@ -26,17 +26,28 @@ from vocal_helper import _settings
 
 def _env_only_settings_path() -> Path | None:
     """Mirror :func:`settings_path` but skip the cwd / repo-root fallback."""
+    # Honour the explicit override env var — that path is set *by the test*
+    # itself, so it stays deterministic.
     override = os.environ.get("VOCAL_HELPER_SETTINGS")
     if override:
         p = Path(override).expanduser()
+        # A non-existent override is treated as "unset" rather than an error.
         if p.is_file():
             return p
+    # No override → return None instead of walking cwd / repo-root, which is
+    # the whole point : an ambient settings.yaml must never leak into a test.
     return None
 
 
 @pytest.fixture(autouse=True)
 def _isolate_settings(monkeypatch: pytest.MonkeyPatch) -> None:
     """Strip ambient HF/settings inputs from every test."""
+    # A developer's shell may export HF_TOKEN ; drop it so token-resolution
+    # tests see the CI-like "no token" world.
     monkeypatch.delenv("HF_TOKEN", raising=False)
+    # Clear any explicit settings pointer so each test starts from a clean
+    # slate and opts back in only when it needs to.
     monkeypatch.delenv("VOCAL_HELPER_SETTINGS", raising=False)
+    # Swap the resolver for the env-only variant : suppresses the implicit
+    # cwd / repo-root lookup for the duration of the test.
     monkeypatch.setattr(_settings, "settings_path", _env_only_settings_path)

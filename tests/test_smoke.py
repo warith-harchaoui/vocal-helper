@@ -19,6 +19,7 @@ def test_pcm_frame_shape() -> None:
     """``from_numpy_array`` should chunk a buffer at the configured frame size."""
 
     async def collect() -> list[voh.PcmFrame]:
+        """Chunk 1 s of silence into frames and gather them into a list."""
         pcm = np.zeros(16_000, dtype=np.float32)  # 1 s @ 16 kHz
         out: list[voh.PcmFrame] = []
         async for f in voh.sources.from_numpy_array(pcm, sample_rate=16_000, frame_ms=20):

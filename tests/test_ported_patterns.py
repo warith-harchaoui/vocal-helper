@@ -37,6 +37,7 @@ def test_eot_pair_is_frozen() -> None:
 
 
 def test_false_cutoff_and_hang_rates() -> None:
+    """False-cutoff and hang rates count early / over-budget commits correctly."""
     pairs = [
         EOTPair(10.0, 10.25),  # 250 ms late — OK
         EOTPair(20.0, 20.30),  # 300 ms late — OK
@@ -52,6 +53,7 @@ def test_false_cutoff_and_hang_rates() -> None:
 
 
 def test_median_latency_and_full_score() -> None:
+    """``median_latency_s`` and ``score`` report the expected aggregate shape."""
     pairs = [
         EOTPair(0.0, 0.10),
         EOTPair(0.0, 0.30),
@@ -65,6 +67,7 @@ def test_median_latency_and_full_score() -> None:
 
 
 def test_empty_input_is_safe() -> None:
+    """Every metric returns a benign zero on an empty pair list (no ZeroDivision)."""
     assert false_cutoff_rate([], tolerance_s=0.1) == 0.0
     assert hang_rate([], latency_budget_s=0.1) == 0.0
     assert median_latency_s([]) == 0.0
@@ -74,6 +77,7 @@ def test_empty_input_is_safe() -> None:
 
 
 def test_negative_tolerance_rejected() -> None:
+    """Negative tolerance / budget arguments are rejected with ``ValueError``."""
     with pytest.raises(ValueError):
         false_cutoff_rate([EOTPair(0.0, 0.0)], tolerance_s=-1.0)
     with pytest.raises(ValueError):
@@ -86,15 +90,20 @@ def test_negative_tolerance_rejected() -> None:
 
 
 def test_parallel_sync_runs_branches_concurrently() -> None:
+    """``run_parallel_sync`` runs branches in threads and keeps input order."""
+
     def slow_add(x):
+        """Branch : sleep 50 ms then return ``x + 1``."""
         time.sleep(0.05)
         return x + 1
 
     def slow_mul(x):
+        """Branch : sleep 50 ms then return ``x * 2``."""
         time.sleep(0.05)
         return x * 2
 
     def slow_pow(x):
+        """Branch : sleep 50 ms then return ``x ** 2``."""
         time.sleep(0.05)
         return x**2
 
@@ -117,19 +126,25 @@ def test_parallel_sync_runs_branches_concurrently() -> None:
 
 
 def test_parallel_sync_empty_branches_returns_empty() -> None:
+    """No branches → empty dict, not an error."""
     assert run_parallel_sync(42, []) == {}
 
 
 def test_parallel_async_runs_branches_concurrently() -> None:
+    """``run_parallel_async`` awaits branches concurrently on one event loop."""
+
     async def slow_add(x):
+        """Async branch : await 50 ms then return ``x + 1``."""
         await asyncio.sleep(0.05)
         return x + 1
 
     async def slow_mul(x):
+        """Async branch : await 50 ms then return ``x * 2``."""
         await asyncio.sleep(0.05)
         return x * 2
 
     async def main():
+        """Run both async branches and assert values + concurrent timing."""
         t0 = time.perf_counter()
         results = await run_parallel_async(
             10,
@@ -144,7 +159,10 @@ def test_parallel_async_runs_branches_concurrently() -> None:
 
 
 def test_parallel_async_empty_branches_returns_empty() -> None:
+    """No async branches → empty dict, not an error."""
+
     async def main():
+        """Await the empty-branch call so we can assert on its result."""
         return await run_parallel_async(1, [])
 
     assert asyncio.run(main()) == {}

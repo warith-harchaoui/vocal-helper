@@ -138,6 +138,40 @@ class WhisperStage:
         max_chunk_s: float = DEFAULT_MAX_CHUNK_S,
         warmup: bool = False,
     ) -> None:
+        """Configure the whisper stage ; the model itself loads lazily.
+
+        Parameters
+        ----------
+        model : str
+            pywhispercpp model name / path. Default :data:`DEFAULT_MODEL`.
+        language : str
+            Transcription language, or ``"auto"`` to let whisper detect
+            it. Default :data:`DEFAULT_LANGUAGE`.
+        threads : int
+            Number of CPU threads for whisper.cpp. Default
+            :data:`DEFAULT_THREADS`.
+        word_timestamps : bool
+            Emit per-word timestamps to fill ``Utterance.words``. Default
+            ``True``.
+        initial_prompt : str
+            Bias / vocabulary prompt passed before each transcription.
+            Default :data:`DEFAULT_INITIAL_PROMPT`.
+        min_segment_ms : int
+            Drop segments shorter than this — whisper hallucinates on very
+            short inputs. Default :data:`DEFAULT_MIN_SEGMENT_MS`.
+        batch : bool
+            Enable the offline full-throttle path (pack consecutive
+            segments into ``max_chunk_s`` windows). Off by default so the
+            streaming path and every existing caller keep the per-segment
+            behaviour.
+        max_chunk_s : float
+            Max concatenated-audio length per batched whisper call ; only
+            used when ``batch=True``. Default :data:`DEFAULT_MAX_CHUNK_S`.
+        warmup : bool
+            When ``True``, :meth:`run` front-loads whisper's first (slow)
+            inference on silence before consuming the queue. Off by
+            default ; the streaming pipeline turns it on.
+        """
         self.model_name = model
         self.language = language
         self.threads = threads
@@ -162,6 +196,16 @@ class WhisperStage:
     # ----- lifecycle ------------------------------------------------------
 
     def _ensure_model(self) -> None:
+        """Lazily instantiate the pywhispercpp model on first use.
+
+        Idempotent — returns immediately if the model is already loaded,
+        so it is safe to call at the top of every entry point.
+
+        Raises
+        ------
+        ImportError
+            If the ``pywhispercpp`` backend is not installed.
+        """
         if self._model is not None:
             return
         try:
@@ -290,6 +334,23 @@ class WhisperStage:
 
     @staticmethod
     def _empty_utt(seg: DiarizedSegment) -> Utterance:
+        """Build an empty :class:`Utterance` carrying a segment's metadata.
+
+        Used when a segment produces no transcription (too short, or no
+        phrase mapped to it) but must still be emitted so the output
+        contract stays one :class:`Utterance` per input segment.
+
+        Parameters
+        ----------
+        seg : DiarizedSegment
+            The source segment ; its ``t0`` / ``t1`` / ``speaker`` are
+            copied over, with empty ``text`` / ``words`` and no language.
+
+        Returns
+        -------
+        Utterance
+            An utterance with the segment's timing and speaker but no text.
+        """
         return Utterance(
             t0=seg["t0"],
             t1=seg["t1"],

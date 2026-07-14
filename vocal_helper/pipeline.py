@@ -52,6 +52,12 @@ from vocal_helper.types import (
 )
 from vocal_helper.vad import SileroVADStage
 
+# Module-scoped logger named ``vocal_helper.pipeline`` — callers (and tests)
+# filter on this name to observe swallowed stage / subscriber exceptions, and
+# ``exc_info=True`` attaches the real traceback to the record. os-helper's
+# ``osh.warning`` logs to the root logger without a name or ``exc_info``, so it
+# cannot express this named-logger-with-traceback contract ; stdlib logging is
+# the right tool here.
 logger = logging.getLogger(__name__)
 
 
@@ -72,6 +78,8 @@ async def _await_task_swallow(t: asyncio.Task) -> None:
         # Normal shutdown path.
         return
     except Exception:  # noqa: BLE001 — final barrier ; we log, then continue.
+        # Named logger + ``exc_info`` so the crash is observable with a full
+        # traceback ; this silent-swallow path once deadlocked the suite.
         logger.warning(
             "vocal_helper.pipeline: task %r crashed on shutdown",
             t.get_name(),
@@ -95,6 +103,8 @@ async def _invoke_subscribers(
         try:
             await cb(item)
         except Exception:  # noqa: BLE001 — user code ; log, then continue.
+            # Named logger + ``exc_info`` keeps the full traceback so a crashing
+            # subscriber is diagnosable without breaking the fan-out.
             logger.warning(
                 "vocal_helper.pipeline: subscriber %r on stage %r raised",
                 getattr(cb, "__qualname__", repr(cb)),
@@ -171,9 +181,17 @@ class Pipeline:
         source: SourceFactory,
         config: PipelineConfig | None = None,
     ) -> None:
+        """Wire up queues, stages and subscriber lists from ``config``.
+
+        Nothing runs here — construction only allocates the inter-stage queues
+        and instantiates each stage. The chain starts on :meth:`run`.
+        """
         self.source_factory = source
         self.config = config or PipelineConfig()
 
+        # One bounded queue per hand-off. PCM gets the deep buffer (bursty,
+        # 20 ms frames) ; the downstream segment queues stay shallow so a slow
+        # ASR / LLM consumer back-pressures upstream instead of hoarding memory.
         self._q_pcm: asyncio.Queue[PcmFrame | None] = asyncio.Queue(maxsize=self.config.qsize_pcm)
         self._q_voiced: asyncio.Queue[VoicedSegment | None] = asyncio.Queue(
             maxsize=self.config.qsize_seg
@@ -320,10 +338,13 @@ class Pipeline:
     # ----- internal coroutines ------------------------------------------
 
     async def _source_loop(self) -> None:
+        """Pump frames from the source factory into ``q_pcm`` until it's exhausted."""
         try:
             async for frame in self.source_factory():
                 await self._q_pcm.put(frame)
         finally:
+            # Always cap the stream with the None sentinel — even if the source
+            # raised — so the sentinel cascades and every stage shuts down.
             await self._q_pcm.put(None)
 
     async def _tee(
@@ -334,11 +355,15 @@ class Pipeline:
         *,
         stage: str = "tee",
     ) -> None:
+        """Forward every item inbox→outbox, fanning each out to ``subscribers`` too."""
         while True:
             item = await inbox.get()
+            # Forward first — the sentinel must propagate before we consider
+            # returning, so the downstream stage always sees end-of-stream.
             await outbox.put(item)
             if item is None:
                 return
+            # Subscribers are observers only ; a crash in one is isolated + logged.
             await _invoke_subscribers(subscribers, item, stage)
 
     async def _tee_two(
@@ -350,8 +375,11 @@ class Pipeline:
         *,
         stage: str = "tee_two",
     ) -> None:
+        """Fan every item to two outboxes (output + LLM) plus the subscriber list."""
         while True:
             item = await inbox.get()
+            # Both branches must receive the sentinel, else the merger / LLM
+            # stage would block forever waiting on a stream that never closes.
             await out_a.put(item)
             await out_b.put(item)
             if item is None:
@@ -359,6 +387,7 @@ class Pipeline:
             await _invoke_subscribers(subscribers, item, stage)
 
     async def _drain(self, inbox: asyncio.Queue) -> None:
+        """Swallow a queue to /dev/null so an unused branch can't back-pressure the tee."""
         while True:
             item = await inbox.get()
             if item is None:
@@ -371,13 +400,18 @@ class Pipeline:
     ) -> AsyncIterator[Utterance | SummarySnapshot]:
         """Interleave Utterance + SummarySnapshot streams until both end."""
 
+        # One-shot ``get`` wrapped as a task so ``asyncio.wait`` can race the
+        # two queues and yield whichever event lands first.
         async def reader(q: asyncio.Queue):
+            """Await and return the next item from ``q`` (one queue read)."""
             return await q.get()
 
         utt_task = asyncio.create_task(reader(utt_q))
         sum_task = asyncio.create_task(reader(summary_q))
         utt_done = False
         sum_done = False
+        # Loop until BOTH streams have delivered their None sentinel — a closed
+        # stream drops out of ``pending`` so we stop re-reading it.
         while not (utt_done and sum_done):
             pending = {t for t, done in [(utt_task, utt_done), (sum_task, sum_done)] if not done}
             if not pending:
@@ -385,6 +419,8 @@ class Pipeline:
             done, _ = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
             for d in done:
                 item = d.result()
+                # For each finished read : a None retires that stream, otherwise
+                # we yield the event and immediately re-arm a fresh read of it.
                 if d is utt_task:
                     if item is None:
                         utt_done = True
@@ -464,9 +500,12 @@ class OfflinePipeline:
         source: SourceFactory,
         config: OfflinePipelineConfig | None = None,
     ) -> None:
+        """Wire up the batch chain (no VAD): queues, offline diar, ASR, LLM."""
         self.source_factory = source
         self.config = config or OfflinePipelineConfig()
 
+        # Same bounded-queue rationale as the streaming pipeline — deep PCM
+        # buffer, shallow segment queues that back-pressure the diarizer.
         self._q_pcm: asyncio.Queue[PcmFrame | None] = asyncio.Queue(maxsize=self.config.qsize_pcm)
         self._q_diar: asyncio.Queue[DiarizedSegment | None] = asyncio.Queue(
             maxsize=self.config.qsize_seg
@@ -495,13 +534,17 @@ class OfflinePipeline:
     # ----- public API ----------------------------------------------------
 
     def subscribe_diarized(self, cb: Callable[[DiarizedSegment], Awaitable[None]]) -> None:
+        """Register an async callback fired for every :class:`DiarizedSegment`."""
         self._diar_subs.append(cb)
 
     def subscribe_utterances(self, cb: Callable[[Utterance], Awaitable[None]]) -> None:
+        """Register an async callback fired for every :class:`Utterance`."""
         self._utt_subs.append(cb)
 
     async def run(self) -> AsyncIterator[Utterance | SummarySnapshot]:
+        """Run the batch chain ; yield every Utterance and SummarySnapshot."""
         tasks: list[asyncio.Task] = []
+        # Inbound — feed the whole PCM buffer to the offline diarizer.
         tasks.append(asyncio.create_task(self._source_loop(), name="voh.offline.source"))
         tasks.append(
             asyncio.create_task(
@@ -538,6 +581,9 @@ class OfflinePipeline:
                 )
             )
         else:
+            # No analyst configured — drain the LLM branch and hand the merger
+            # an immediate None so it never waits on a summary stream that
+            # will never produce one.
             tasks.append(
                 asyncio.create_task(
                     self._drain(q_utt_for_llm),
@@ -550,6 +596,8 @@ class OfflinePipeline:
             async for ev in self._merge(q_utt_for_output, self._q_summary):
                 yield ev
         finally:
+            # Cancel any still-running stage, then await each so exceptions
+            # (other than the expected CancelledError) get surfaced + logged.
             for t in tasks:
                 if not t.done():
                     t.cancel()
@@ -559,10 +607,12 @@ class OfflinePipeline:
     # ----- internal coroutines (mirrors the streaming pipeline) ----------
 
     async def _source_loop(self) -> None:
+        """Pump frames from the source factory into ``q_pcm`` until it's exhausted."""
         try:
             async for frame in self.source_factory():
                 await self._q_pcm.put(frame)
         finally:
+            # Sentinel-cap the stream even on source error, so diar shuts down.
             await self._q_pcm.put(None)
 
     async def _tee(
@@ -573,8 +623,10 @@ class OfflinePipeline:
         *,
         stage: str = "tee",
     ) -> None:
+        """Forward every item inbox→outbox, fanning each out to ``subscribers`` too."""
         while True:
             item = await inbox.get()
+            # Propagate first so the sentinel always reaches the next stage.
             await outbox.put(item)
             if item is None:
                 return
@@ -589,8 +641,10 @@ class OfflinePipeline:
         *,
         stage: str = "tee_two",
     ) -> None:
+        """Fan every item to two outboxes (output + LLM) plus the subscriber list."""
         while True:
             item = await inbox.get()
+            # Both branches must see the sentinel or the merger blocks forever.
             await out_a.put(item)
             await out_b.put(item)
             if item is None:
@@ -598,6 +652,7 @@ class OfflinePipeline:
             await _invoke_subscribers(subscribers, item, stage)
 
     async def _drain(self, inbox: asyncio.Queue) -> None:
+        """Swallow a queue to /dev/null so an unused branch can't back-pressure the tee."""
         while True:
             item = await inbox.get()
             if item is None:
@@ -608,13 +663,18 @@ class OfflinePipeline:
         utt_q: asyncio.Queue,
         summary_q: asyncio.Queue,
     ) -> AsyncIterator[Utterance | SummarySnapshot]:
+        """Interleave Utterance + SummarySnapshot streams until both end."""
+
+        # One-shot queue read as a task so ``asyncio.wait`` can race both queues.
         async def reader(q: asyncio.Queue):
+            """Await and return the next item from ``q`` (one queue read)."""
             return await q.get()
 
         utt_task = asyncio.create_task(reader(utt_q))
         sum_task = asyncio.create_task(reader(summary_q))
         utt_done = False
         sum_done = False
+        # Run until both streams have signalled end via their None sentinel.
         while not (utt_done and sum_done):
             pending = {t for t, done in [(utt_task, utt_done), (sum_task, sum_done)] if not done}
             if not pending:
@@ -622,6 +682,8 @@ class OfflinePipeline:
             done, _ = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
             for d in done:
                 item = d.result()
+                # None retires the stream ; a real event is yielded then the
+                # read is re-armed to keep the interleave going.
                 if d is utt_task:
                     if item is None:
                         utt_done = True

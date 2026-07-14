@@ -5,6 +5,21 @@ This project adheres to [Semantic Versioning](https://semver.org).
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-07-14
+
+### Maintenance
+
+- Apply the project coding standards across the package and `tests/`:
+  Numpy-style docstrings on every function/class (including private and
+  nested helpers), full type annotations with `from __future__ import
+  annotations`, and comment density raised above the floor in every
+  module. No public API or behavior changes.
+- Route library logging through the os-helper logging surface
+  (`osh.info/warning/error`) and adopt os-helper path/file utilities
+  more widely; pin `os-helper>=1.5.0`.
+- Refresh the project logo asset.
+
+
 ## [0.4.0] - 2026-07-14
 
 ### Changed

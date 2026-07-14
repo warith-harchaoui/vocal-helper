@@ -164,6 +164,33 @@ class OnlineDiarStage:
         min_segment_ms: int = 500,
         device: str | None = None,
     ) -> None:
+        """Configure the online diarizer ; the embedder loads lazily.
+
+        Parameters
+        ----------
+        backend : "pyannote" | "nemo"
+            Embedding backend. Default ``"nemo"`` (TitaNet) for its sharper
+            cosine separation ; pass ``"pyannote"`` to opt out of the
+            heavier NeMo install.
+        join_threshold : float
+            Cosine-distance threshold below which a segment joins an
+            existing centroid. Default 0.30. Must be in ``(0, 2)``.
+        ema_alpha : float
+            Exponential-moving-average coefficient for centroid updates.
+            Default 0.1. Must be in ``(0, 1]``.
+        min_segment_ms : int
+            Minimum voiced-segment duration to attempt embedding.
+            Default 500 ms.
+        device : str, optional
+            Torch device for the pyannote embedder. ``None`` (default)
+            auto-picks CUDA > MPS > CPU. No effect on the NeMo backend.
+
+        Raises
+        ------
+        ValueError
+            If ``join_threshold`` is not in ``(0, 2)`` or ``ema_alpha`` is
+            not in ``(0, 1]``.
+        """
         if not 0.0 < join_threshold < 2.0:
             raise ValueError(f"join_threshold must be in (0, 2), got {join_threshold}")
         if not 0.0 < ema_alpha <= 1.0:
@@ -180,6 +207,16 @@ class OnlineDiarStage:
     # ----- backend ------------------------------------------------------
 
     def _ensure_embedder(self) -> None:
+        """Lazily instantiate and load the configured embedding backend.
+
+        Idempotent — returns immediately once the embedder exists, so it
+        is safe to call at the top of :meth:`run`.
+
+        Raises
+        ------
+        ValueError
+            If ``self.backend`` is neither ``"pyannote"`` nor ``"nemo"``.
+        """
         if self._embedder is not None:
             return
         if self.backend == "pyannote":
@@ -211,6 +248,23 @@ class OnlineDiarStage:
     # ----- core ---------------------------------------------------------
 
     def _label(self, seg: VoicedSegment) -> DiarizedSegment | None:
+        """Embed one voiced segment and assign it a speaker label.
+
+        Segments shorter than ``min_segment_ms`` — or that raise inside the
+        embedder — are labelled ``"S?"`` so callers can still ASR them
+        without a confident speaker id.
+
+        Parameters
+        ----------
+        seg : VoicedSegment
+            The voiced segment to label, carrying its PCM and timing.
+
+        Returns
+        -------
+        DiarizedSegment or None
+            The segment tagged with a speaker id (a real ``"S<n>"`` label,
+            or ``"S?"`` when embedding is skipped or fails).
+        """
         sr = seg["sample_rate"]
         dur_ms = (seg["t1"] - seg["t0"]) * 1000.0
         if dur_ms < self.min_segment_ms:
@@ -243,6 +297,26 @@ class OnlineDiarStage:
         )
 
     def _assign(self, emb: NDArray[np.float32], t: float) -> str:
+        """Nearest-centroid match on cosine distance, else mint a speaker.
+
+        L2-normalises ``emb``, then joins the closest existing centroid iff
+        its cosine distance is ``<= join_threshold`` — updating that
+        centroid by exponential moving average — otherwise spawns a new
+        speaker via :meth:`_spawn`.
+
+        Parameters
+        ----------
+        emb : NDArray[np.float32]
+            The segment embedding (normalised in place).
+        t : float
+            End time of the segment in seconds ; recorded as the matched
+            centroid's ``last_seen_t``.
+
+        Returns
+        -------
+        str
+            The speaker id (``"S<n>"``) the segment was assigned to.
+        """
         norm = float(np.linalg.norm(emb))
         if norm > 0:
             emb = emb / norm
@@ -265,6 +339,20 @@ class OnlineDiarStage:
         return self._spawn(emb, t)
 
     def _spawn(self, emb: NDArray[np.float32], t: float) -> str:
+        """Mint a new speaker centroid seeded from ``emb``.
+
+        Parameters
+        ----------
+        emb : NDArray[np.float32]
+            The (already normalised) embedding to seed the new centroid.
+        t : float
+            End time of the segment in seconds, stored as ``last_seen_t``.
+
+        Returns
+        -------
+        str
+            The freshly-allocated speaker id (``"S<n>"``).
+        """
         sid = f"S{self._next_id}"
         self._next_id += 1
         self._centroids.append(
@@ -287,10 +375,33 @@ class _PyannoteEmbedder:
     """Wraps ``pyannote.audio.Inference("pyannote/embedding")``."""
 
     def __init__(self, *, device: str | None = None) -> None:
+        """Store the requested device ; defer model loading to :meth:`load`.
+
+        Parameters
+        ----------
+        device : str, optional
+            Torch device for the embedder. ``None`` (default) auto-picks
+            CUDA > MPS > CPU at load time.
+        """
         self.device = device  # ``None`` → auto-pick at load time
         self._inference = None
 
     def load(self) -> None:
+        """Build the ``pyannote/embedding`` inference from the local bundle.
+
+        Loads the whole-segment ``pyannote/embedding`` checkpoint straight
+        from the self-hosted diarization-engines bundle (no HuggingFace
+        token, no network) and moves it to the chosen device, falling back
+        to CPU if the requested backend can't run the forward path.
+
+        Raises
+        ------
+        ImportError
+            If the optional ``pyannote`` extra is not installed.
+        RuntimeError
+            If no ``pyannote/embedding`` weight is present in the
+            diarization-engines bundle.
+        """
         try:
             import torch  # type: ignore
             from pyannote.audio import Inference, Model  # type: ignore
@@ -329,6 +440,25 @@ class _PyannoteEmbedder:
             self._inference = Inference(model, window="whole", device=torch.device("cpu"))
 
     def embed(self, pcm: NDArray[np.float32], sr: int) -> NDArray[np.float32]:
+        """Return a single ``pyannote/embedding`` vector for one segment.
+
+        Parameters
+        ----------
+        pcm : NDArray[np.float32]
+            Mono PCM samples for the segment.
+        sr : int
+            Sample rate of ``pcm``.
+
+        Returns
+        -------
+        NDArray[np.float32]
+            The flattened, whole-segment speaker embedding.
+
+        Raises
+        ------
+        ValueError
+            If ``pcm`` is not 1-D (mono).
+        """
         import torch  # type: ignore
 
         if pcm.ndim != 1:
@@ -342,9 +472,17 @@ class _TitaNetEmbedder:
     """Wraps NVIDIA TitaNet via NeMo for sharper cosine separation."""
 
     def __init__(self) -> None:
+        """Initialise with no model ; the checkpoint loads in :meth:`load`."""
         self._model = None
 
     def load(self) -> None:
+        """Fetch the pretrained ``titanet_large`` model into eval mode.
+
+        Raises
+        ------
+        ImportError
+            If the optional ``nemo`` extra is not installed.
+        """
         try:
             from nemo.collections.asr.models import EncDecSpeakerLabelModel  # type: ignore
         except ImportError as e:
@@ -355,6 +493,21 @@ class _TitaNetEmbedder:
         self._model = EncDecSpeakerLabelModel.from_pretrained("titanet_large").eval()
 
     def embed(self, pcm: NDArray[np.float32], sr: int) -> NDArray[np.float32]:
+        """Return a single TitaNet speaker embedding for one segment.
+
+        Parameters
+        ----------
+        pcm : NDArray[np.float32]
+            Mono PCM samples for the segment.
+        sr : int
+            Sample rate of ``pcm`` (unused by TitaNet's forward path, kept
+            for interface parity with :class:`_PyannoteEmbedder`).
+
+        Returns
+        -------
+        NDArray[np.float32]
+            The TitaNet speaker embedding vector.
+        """
         import torch  # type: ignore
 
         wave = torch.from_numpy(pcm).unsqueeze(0)
@@ -472,6 +625,26 @@ class OfflineDiarStage:
         stitch_threshold: float = 0.35,
         device: str | None = None,
     ) -> None:
+        """Configure the offline diarizer ; backends load lazily.
+
+        Parameters
+        ----------
+        backend : "pyannote" | "nemo"
+            Offline backend. Default ``"pyannote"``.
+        ideal_duration_s : float, optional
+            Whole-buffer ceiling : inputs longer than this are chunked +
+            stitched, shorter ones run as a single call. ``None`` (default)
+            picks the backend default — 3600 s for pyannote (a memory
+            backstop), 60 s for NeMo (forced by its Sortformer 90 s cap).
+        overlap_s : float
+            Overlap between adjacent chunks when chunking. Default 10 s.
+        stitch_threshold : float
+            Cosine-distance threshold for cross-chunk AHC stitching.
+            Default 0.35.
+        device : str, optional
+            Torch device for the pyannote pipeline + embedder. ``None``
+            (default) auto-picks CUDA > MPS > CPU. No effect on NeMo.
+        """
         self.backend = backend
         if ideal_duration_s is None:
             ideal_duration_s = (
@@ -487,6 +660,17 @@ class OfflineDiarStage:
     # ----- lifecycle ----------------------------------------------------
 
     def _ensure_backend(self) -> None:
+        """Lazily instantiate and load the diarizer plus its embedder.
+
+        Idempotent — returns immediately once the backend exists. Pairs a
+        whole-buffer diarizer with the matching embedder (used only for
+        cross-chunk stitching on long inputs).
+
+        Raises
+        ------
+        ValueError
+            If ``self.backend`` is neither ``"pyannote"`` nor ``"nemo"``.
+        """
         if self._backend_obj is not None:
             return
         if self.backend == "pyannote":
@@ -565,6 +749,33 @@ class OfflineDiarStage:
         pcm: NDArray[np.float32],
         sr: int,
     ) -> list[tuple[float, float, str]]:
+        """Chunk, diarize per chunk, then stitch speakers across chunks.
+
+        Splits the buffer into ``ideal_duration_s`` windows with
+        ``overlap_s`` shared content, diarizes each chunk, embeds each
+        chunk-local speaker on its concatenated audio, then clusters all
+        chunk-local embeddings via cosine AHC (``stitch_threshold``) to
+        recover globally-consistent speaker ids. Neighbouring same-speaker
+        spans that overlap from the chunk overlap region are merged.
+
+        Parameters
+        ----------
+        pcm : NDArray[np.float32]
+            The full mono PCM buffer.
+        sr : int
+            Sample rate of ``pcm``.
+
+        Returns
+        -------
+        list[tuple[float, float, str]]
+            ``[(t0, t1, speaker), …]`` in seconds, sorted by start time,
+            with globally-stitched ``"S<n>"`` speaker ids.
+
+        Raises
+        ------
+        ValueError
+            If ``overlap_s`` is not strictly less than ``ideal_duration_s``.
+        """
         ideal = int(self.ideal_duration_s * sr)
         overlap = int(self.overlap_s * sr)
         if overlap >= ideal:
@@ -733,6 +944,16 @@ class _PyannoteOfflineDiar:
     """
 
     def __init__(self, *, device: str | None = None) -> None:
+        """Store the requested device ; defer pipeline loading to :meth:`load`.
+
+        Parameters
+        ----------
+        device : str, optional
+            Torch device for the pipeline. ``None`` (default) auto-picks
+            CUDA > MPS > CPU at load time. The resolved device is recorded
+            on ``self._device`` so :meth:`diarize` can place inputs
+            correctly.
+        """
         self.device = device  # ``None`` → auto-pick at load time
         self._pipeline = None
         # Resolved at load time so ``diarize`` knows where to put the
@@ -740,6 +961,21 @@ class _PyannoteOfflineDiar:
         self._device: str = "cpu"
 
     def load(self) -> None:
+        """Build the ``speaker-diarization-3.1`` pipeline from the local bundle.
+
+        Loads the pipeline from the self-hosted diarization-engines
+        bundle's local ``config.yaml`` (HF-free, no token, no network) and
+        moves it to the chosen device, staying on CPU if the requested
+        backend can't run every internal op.
+
+        Raises
+        ------
+        ImportError
+            If the optional ``pyannote`` extra is not installed.
+        RuntimeError
+            If no diarization-engines bundle is configured, or the local
+            config fails to instantiate the pipeline.
+        """
         try:
             import torch  # type: ignore
             from pyannote.audio import Pipeline  # type: ignore
@@ -826,6 +1062,24 @@ class _PyannoteOfflineDiar:
         pcm: NDArray[np.float32],
         sr: int,
     ) -> list[tuple[float, float, str]]:
+        """Run the pyannote 3.1 pipeline on a whole buffer.
+
+        Places the input on the pipeline's device and unpacks the result,
+        tolerating both the legacy bare ``Annotation`` return and the newer
+        ``DiarizeOutput`` dataclass.
+
+        Parameters
+        ----------
+        pcm : NDArray[np.float32]
+            Mono PCM buffer to diarize.
+        sr : int
+            Sample rate of ``pcm``.
+
+        Returns
+        -------
+        list[tuple[float, float, str]]
+            ``[(t0, t1, speaker), …]`` in seconds, as emitted by pyannote.
+        """
         import torch  # type: ignore
 
         # Match the input device to where the pipeline lives so MPS /
@@ -860,6 +1114,7 @@ class _NemoSortformerDiar:
     """
 
     def __init__(self) -> None:
+        """Initialise with no model ; the checkpoint restores in :meth:`load`."""
         # Lazily populated in ``load`` — kept ``None`` so import is cheap.
         self._model: Any | None = None
 
@@ -905,6 +1160,25 @@ class _NemoSortformerDiar:
         pcm: NDArray[np.float32],
         sr: int,
     ) -> list[tuple[float, float, str]]:
+        """Run Sortformer on a whole buffer via a temp WAV, parse the RTTM.
+
+        Writes ``pcm`` to a per-call 16-bit temp WAV (keeping the
+        dependency surface small), diarizes it, then parses the RTTM-like
+        ``SPEAKER`` lines Sortformer returns into segment tuples.
+
+        Parameters
+        ----------
+        pcm : NDArray[np.float32]
+            Mono PCM buffer to diarize.
+        sr : int
+            Sample rate of ``pcm``.
+
+        Returns
+        -------
+        list[tuple[float, float, str]]
+            ``[(t0, t1, speaker), …]`` in seconds, parsed from Sortformer's
+            RTTM output.
+        """
         # Sortformer accepts a path or a tensor ; we use a per-call
         # temp WAV to keep the dependency surface small.
         import tempfile

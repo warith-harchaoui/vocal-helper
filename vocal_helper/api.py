@@ -98,10 +98,15 @@ def _spool(upload: UploadFile, dest_dir: Path, suffix_hint: str | None = None) -
     Path
         Path to the spooled file on disk.
     """
+    # Prefer the explicit hint, else the client filename's suffix, else WAV.
+    # The suffix matters : ffmpeg/audio-helper sniff container by extension.
     ext = suffix_hint or (Path(upload.filename or "").suffix or ".wav")
+    # Normalise a bare extension ("wav" → ".wav") so the join below is safe.
     if not ext.startswith("."):
         ext = "." + ext
     out = dest_dir / (f"upload{ext}")
+    # ``copyfileobj`` streams in fixed-size chunks — constant memory even for
+    # a multi-hundred-MB meeting recording, unlike ``read()`` + ``write()``.
     with out.open("wb") as fp:
         shutil.copyfileobj(upload.file, fp)
     return out
@@ -110,8 +115,11 @@ def _spool(upload: UploadFile, dest_dir: Path, suffix_hint: str | None = None) -
 def _cleanup(*paths: Path | str) -> None:
     """Best-effort temp cleanup — never let a tidy-up failure kill a response."""
     for p in paths:
+        # Swallow every error : cleanup runs in a ``finally`` / background
+        # task, so a failed unlink must never mask the real response or 500.
         try:
             path = Path(p)
+            # Directory vs file need different removal calls ; branch on it.
             if path.is_dir():
                 shutil.rmtree(path, ignore_errors=True)
             elif path.exists():
@@ -142,9 +150,13 @@ def _load_pcm_mono_16k(path: Path):
             status_code=400,
             detail=f"Cannot decode {path.suffix}: audio-helper is required.",
         ) from exc
+    # 16 kHz mono float32 is the contract every downstream stage (VAD /
+    # diarization / whisper) is trained on — enforce it here at ingest.
     try:
         pcm, sr = load_audio(str(path), target_sample_rate=16_000, to_mono=True, to_numpy=True)
     except Exception as exc:
+        # A decode failure is a client problem (bad / unsupported upload),
+        # so surface it as 400 rather than letting it bubble up as a 500.
         raise HTTPException(
             status_code=400,
             detail=f"Could not decode audio {path.name!r}: {exc}",
@@ -177,8 +189,12 @@ def transcribe(
     threads: int = Form(6),
 ) -> JSONResponse:
     """One-shot transcription of the uploaded audio — no VAD, no diarization."""
+    # Import inside the handler so a bare [api] install still serves /health
+    # even when the heavier ASR backend isn't wired up yet.
     from vocal_helper.asr import transcribe_pcm
 
+    # Spool → decode → transcribe, all rooted in one request-scoped tmpdir
+    # so the ``finally`` cleanup below can remove everything in one shot.
     tmp = _new_tmpdir()
     try:
         src = _spool(file, tmp)
@@ -224,12 +240,20 @@ def pipeline(
         # Model weights load from the self-hosted diarization-engines bundle
         # (settings.yaml ``engines.diarization_url``) — no HuggingFace token.
         diar_cfg: dict = {"backend": diar_backend}
+        # The LLM analyst stage is opt-in : only attach its config when the
+        # caller asked for it, otherwise leave it ``None`` (stage skipped).
         llm_cfg: dict | None = None
         if llm:
             llm_cfg = {"model": llm_model, "recent_window_s": llm_recent_window_s}
         cfg = OfflinePipelineConfig(diar=diar_cfg, asr=asr_cfg, llm=llm_cfg)
 
         def factory():
+            """Build a fresh PcmFrame source over the decoded buffer.
+
+            The pipeline takes a *callable* (not a live iterator) so it can
+            re-create the source per run ; we close over the decoded PCM.
+            """
+            # ``frame_ms=20`` matches the pipeline's expected framing.
             return from_numpy_array(
                 np.asarray(pcm, dtype=np.float32),
                 sample_rate=int(sr),
@@ -239,6 +263,7 @@ def pipeline(
         pipe = OfflinePipeline(source=factory, config=cfg)
 
         async def collect() -> list[dict]:
+            """Drain the pipeline's async event stream into a JSON-ready list."""
             events: list[dict] = []
             async for ev in pipe.run():
                 # Strip raw PCM (float32 arrays don't JSON-serialise) — the
@@ -246,6 +271,8 @@ def pipeline(
                 events.append({k: v for k, v in ev.items() if k != "pcm"})
             return events
 
+        # The pipeline is async but this handler is sync — bridge with a
+        # one-shot event loop that runs to completion before we respond.
         events = asyncio.run(collect())
     finally:
         _cleanup(tmp)
