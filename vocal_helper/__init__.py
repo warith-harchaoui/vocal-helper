@@ -79,6 +79,7 @@ from vocal_helper.lid import (
     cross_check_regions,
     detect_language,
     detect_language_regions,
+    detect_language_regions_fast,
     detect_language_speechbrain,
     language_posterior_curve,
 )
@@ -146,6 +147,7 @@ __all__ = [
     "cross_check_regions",
     "detect_language",
     "detect_language_regions",
+    "detect_language_regions_fast",
     "detect_language_speechbrain",
     "language_posterior_curve",
     "GemmaAnalystStage",
