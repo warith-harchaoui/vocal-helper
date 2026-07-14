@@ -54,7 +54,6 @@ import numpy as np
 import pytest
 
 import vocal_helper as vh
-from vocal_helper._settings import resolve_hf_token
 
 # ---------------------------------------------------------------------------
 # Test parameters — knobs in one place.
@@ -92,28 +91,6 @@ SR = 16_000
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-
-def _activate_hf_token() -> None:
-    """Re-export ``$HF_TOKEN`` past the autouse conftest isolation."""
-    import os
-
-    from vocal_helper import _settings as s
-
-    real_path = None
-    for p in (
-        Path.cwd() / "settings.yaml",
-        Path(s.__file__).resolve().parent.parent / "settings.yaml",
-    ):
-        if p.is_file():
-            real_path = p
-            break
-    token = os.environ.get("HF_TOKEN") or (
-        real_path
-        and s._parse_minimal_yaml(real_path.read_text()).get("secrets", {}).get("hf_token")
-    )
-    if token and token not in ("hf_XXXX", "hf_yourtoken"):
-        os.environ["HF_TOKEN"] = token
 
 
 def _parse_vtt_text(vtt_path: Path, max_seconds: float | None = None) -> str:
@@ -182,18 +159,6 @@ def yh():
 def ph():
     """``podcast_helper`` for the audio stream ; skip if absent."""
     return pytest.importorskip("podcast_helper")
-
-
-@pytest.fixture(scope="module")
-def hf_token() -> str:
-    _activate_hf_token()
-    token = resolve_hf_token()
-    if not token:
-        pytest.skip(
-            "no HF_TOKEN / settings.yaml secrets.hf_token configured — "
-            "pyannote download requires auth."
-        )
-    return token
 
 
 async def _drain_with_timeout(url: str, max_s: float, timeout_s: float) -> tuple[np.ndarray, int]:
@@ -308,7 +273,6 @@ def test_youtube_captions_fetchable(yt_subtitles: Path) -> None:
 @pytest.mark.integration
 def test_streaming_pipeline_yields_utterance(
     smoke_pcm: tuple[np.ndarray, int],
-    hf_token: str,
 ) -> None:
     """Live :class:`vh.Pipeline` surfaces at least one non-empty utterance.
 
@@ -321,7 +285,7 @@ def test_streaming_pipeline_yields_utterance(
     pipeline = vh.Pipeline(
         source=lambda: vh.sources.from_numpy_array(pcm, sample_rate=sample_rate),
         config=vh.PipelineConfig(
-            diar={"backend": "pyannote", "hf_token": hf_token},
+            diar={"backend": "pyannote"},
             asr={"language": "auto"},
         ),
     )
@@ -346,7 +310,6 @@ def test_streaming_pipeline_yields_utterance(
 def test_offline_pipeline_vs_youtube_captions(
     clip_pcm: tuple[np.ndarray, int],
     yt_subtitles: Path,
-    hf_token: str,
 ) -> None:
     """Compare :class:`vh.OfflinePipeline` transcript with YouTube captions.
 
@@ -363,7 +326,7 @@ def test_offline_pipeline_vs_youtube_captions(
     pipeline = vh.OfflinePipeline(
         source=lambda: vh.sources.from_numpy_array(pcm, sample_rate=sample_rate),
         config=vh.OfflinePipelineConfig(
-            diar={"backend": "pyannote", "hf_token": hf_token},
+            diar={"backend": "pyannote"},
             asr={"language": "auto"},
         ),
     )

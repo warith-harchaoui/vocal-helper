@@ -40,7 +40,6 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 
-from vocal_helper._settings import resolve_hf_token
 from vocal_helper.pipeline import (
     OfflinePipeline,
     OfflinePipelineConfig,
@@ -81,12 +80,9 @@ def _build_pipeline_config(args: argparse.Namespace) -> PipelineConfig:
         "threads": args.threads,
         "initial_prompt": getattr(args, "initial_prompt", "") or "",
     }
-    # Diar dict — pyannote or NeMo backend, optional HF token.
+    # Diar dict — pyannote or NeMo backend. Model weights load from the
+    # self-hosted diarization-engines bundle (settings.yaml), no HF token.
     diar_cfg: dict = {"backend": args.diar_backend}
-    # Resolution order for the HF token: explicit flag > $HF_TOKEN > settings.yaml.
-    token = resolve_hf_token(args.hf_token)
-    if token:
-        diar_cfg["hf_token"] = token
     if args.join_threshold is not None:
         diar_cfg["join_threshold"] = args.join_threshold
     # LLM stage is opt-in — omitting --llm leaves it disabled.
@@ -255,12 +251,6 @@ def _add_common_flags(sp: argparse.ArgumentParser) -> None:
         "Default 'nemo' (TitaNet) — +76%% separability margin over "
         "'pyannote' on AMI (2026-06-30 sweep). Switch to 'pyannote' "
         "to skip the ~5 GB NeMo install.",
-    )
-    sp.add_argument(
-        "--hf-token",
-        default=None,
-        help="HuggingFace token for pyannote model fetch. "
-        "Falls back to $HF_TOKEN then settings.yaml (secrets.hf_token).",
     )
     sp.add_argument(
         "--join-threshold",

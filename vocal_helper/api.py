@@ -204,7 +204,6 @@ def pipeline(
     whisper_model: str = Form("large-v3-turbo-q5_0"),
     threads: int = Form(6),
     diar_backend: str = Form("pyannote", description="pyannote | nemo"),
-    hf_token: str | None = Form(None, description="HuggingFace token for pyannote."),
     llm: bool = Form(False, description="Enable the Gemma analyst stage."),
     llm_model: str = Form("gemma4:e4b"),
     llm_recent_window_s: float = Form(60.0),
@@ -214,7 +213,6 @@ def pipeline(
     # pyannote / nemo extras) still boots the server for /health probes.
     import numpy as np
 
-    from vocal_helper._settings import resolve_hf_token
     from vocal_helper.pipeline import OfflinePipeline, OfflinePipelineConfig
     from vocal_helper.sources import from_numpy_array
 
@@ -223,10 +221,9 @@ def pipeline(
         src = _spool(file, tmp)
         pcm, sr = _load_pcm_mono_16k(src)
         asr_cfg: dict = {"model": whisper_model, "language": language, "threads": threads}
+        # Model weights load from the self-hosted diarization-engines bundle
+        # (settings.yaml ``engines.diarization_url``) — no HuggingFace token.
         diar_cfg: dict = {"backend": diar_backend}
-        token = resolve_hf_token(hf_token)
-        if token:
-            diar_cfg["hf_token"] = token
         llm_cfg: dict | None = None
         if llm:
             llm_cfg = {"model": llm_model, "recent_window_s": llm_recent_window_s}

@@ -16,33 +16,25 @@ working directory). The schema is intentionally tiny :
     engines:
       diarization_url: https://…/diarization-engines.zip
 
-    # Optional / legacy — HF is no longer needed ; kept only as a fallback
-    # for the (non-default) path that pulls models from the HF hub.
-    secrets:
-      hf_token: hf_XXXX
-
 Public entry points
 -------------------
 
 * :func:`settings_path` — return the resolved file path, or ``None``.
 * :func:`load_settings` — parse it into a two-level ``dict``.
-* :func:`resolve_hf_token` — implement the documented HF-token
-  resolution order so every call site (CLI, library classes,
-  examples) behaves identically.
+* :func:`resolve_diarization_engines_url` — implement the documented
+  source-resolution order for the self-hosted model bundle so every call
+  site (CLI, library classes, examples) behaves identically.
 
-Resolution order for ``hf_token`` (highest priority first)
-----------------------------------------------------------
+Resolution order for the engines bundle (highest priority first)
+----------------------------------------------------------------
 
-1. The explicit value passed by the caller — CLI flag ``--hf-token``
-   or ``hf_token=`` kwarg on :class:`vocal_helper.OnlineDiarStage` /
-   :class:`vocal_helper.OfflineDiarStage`.
-2. The ``HF_TOKEN`` environment variable (legacy path documented in
-   the README until 0.1.0).
-3. ``secrets.hf_token`` from ``settings.yaml``.
+1. The explicit value passed by the caller.
+2. The ``VH_DIARIZATION_ENGINES`` environment variable (URL or local dir).
+3. ``engines.diarization_url`` from ``settings.yaml``.
 
-A missing file or missing key returns ``None`` ; downstream code is
-responsible for raising a clear error if a token is actually required
-(pyannote model fetch path).
+A missing file or missing key returns ``None`` ; the diar backends then
+fall back to their built-in default URL. **No HuggingFace token is used
+anywhere** — the bundle carries every weight the project needs.
 
 YAML support
 ------------
@@ -66,15 +58,8 @@ from pathlib import Path
 __all__ = [
     "load_settings",
     "resolve_diarization_engines_url",
-    "resolve_hf_token",
     "settings_path",
 ]
-
-
-# The placeholder shipped in ``settings.yaml.example``. Treated as
-# "no token set" so a freshly-copied example file doesn't accidentally
-# look like a real credential.
-_PLACEHOLDER_TOKENS = frozenset({"hf_XXXX", "hf_yourtoken", ""})
 
 
 def _strip_comment(value: str) -> str:
@@ -165,7 +150,7 @@ def load_settings() -> dict[str, dict[str, str]]:
     """Read ``settings.yaml`` and return its parsed mapping.
 
     Returns an empty ``dict`` when the file is missing or unreadable,
-    so callers can chain ``.get("secrets", {}).get("hf_token")``
+    so callers can chain ``.get("engines", {}).get("diarization_url")``
     without guarding for ``None``.
     """
     p = settings_path()
@@ -175,32 +160,6 @@ def load_settings() -> dict[str, dict[str, str]]:
         return _parse_minimal_yaml(p.read_text(encoding="utf-8"))
     except OSError:
         return {}
-
-
-def resolve_hf_token(explicit: str | None = None) -> str | None:
-    """Return the HuggingFace token from the documented resolution order.
-
-    Parameters
-    ----------
-    explicit : str, optional
-        A token supplied directly by the caller (CLI flag or
-        ``hf_token=`` kwarg). Takes precedence over everything else.
-
-    Returns
-    -------
-    str or None
-        The token string, or ``None`` if no source provided a
-        non-placeholder value.
-    """
-    if explicit:
-        return explicit
-    env = os.environ.get("HF_TOKEN")
-    if env and env not in _PLACEHOLDER_TOKENS:
-        return env
-    token = load_settings().get("secrets", {}).get("hf_token")
-    if token and token not in _PLACEHOLDER_TOKENS:
-        return token
-    return None
 
 
 # Placeholder shipped in ``settings.yaml.example`` — treated as "unset".

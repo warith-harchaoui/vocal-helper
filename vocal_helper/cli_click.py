@@ -44,7 +44,6 @@ except ImportError as exc:  # pragma: no cover
         "The click CLI requires the [cli] extra. Install with: pip install 'vocal-helper[cli]'"
     ) from exc
 
-from vocal_helper._settings import resolve_hf_token
 from vocal_helper.pipeline import (
     OfflinePipeline,
     OfflinePipelineConfig,
@@ -66,7 +65,6 @@ def _pipeline_config(
     threads: int,
     initial_prompt: str,
     diar_backend: str,
-    hf_token: str | None,
     join_threshold: float | None,
     llm: bool,
     llm_model: str,
@@ -82,10 +80,9 @@ def _pipeline_config(
         "threads": threads,
         "initial_prompt": initial_prompt or "",
     }
+    # Model weights load from the self-hosted diarization-engines bundle
+    # (settings.yaml ``engines.diarization_url``) — no HuggingFace token.
     diar_cfg: dict = {"backend": diar_backend}
-    token = resolve_hf_token(hf_token)
-    if token:
-        diar_cfg["hf_token"] = token
     if join_threshold is not None:
         diar_cfg["join_threshold"] = join_threshold
     llm_cfg: dict | None = None
@@ -180,11 +177,6 @@ def _common_options(func):
         help="Cosine-distance join threshold for online diarizer (default 0.30).",
     )(func)
     func = click.option(
-        "--hf-token",
-        default=None,
-        help="HuggingFace token. Falls back to $HF_TOKEN then settings.yaml.",
-    )(func)
-    func = click.option(
         "--diar-backend",
         type=click.Choice(["pyannote", "nemo"]),
         default="nemo",
@@ -245,7 +237,6 @@ def mic(
     threads: int,
     initial_prompt: str,
     diar_backend: str,
-    hf_token: str | None,
     join_threshold: float | None,
     llm: bool,
     llm_model: str,
@@ -265,7 +256,6 @@ def mic(
         threads=threads,
         initial_prompt=initial_prompt,
         diar_backend=diar_backend,
-        hf_token=hf_token,
         join_threshold=join_threshold,
         llm=llm,
         llm_model=llm_model,
@@ -308,7 +298,6 @@ def file(
     threads: int,
     initial_prompt: str,
     diar_backend: str,
-    hf_token: str | None,
     join_threshold: float | None,
     llm: bool,
     llm_model: str,
@@ -330,7 +319,6 @@ def file(
         threads=threads,
         initial_prompt=initial_prompt,
         diar_backend=diar_backend,
-        hf_token=hf_token,
         join_threshold=join_threshold,
         llm=llm,
         llm_model=llm_model,
@@ -367,7 +355,6 @@ def url(
     threads: int,
     initial_prompt: str,
     diar_backend: str,
-    hf_token: str | None,
     join_threshold: float | None,
     llm: bool,
     llm_model: str,
@@ -387,7 +374,6 @@ def url(
         threads=threads,
         initial_prompt=initial_prompt,
         diar_backend=diar_backend,
-        hf_token=hf_token,
         join_threshold=join_threshold,
         llm=llm,
         llm_model=llm_model,

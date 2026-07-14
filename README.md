@@ -130,9 +130,24 @@ cp settings.yaml.example settings.yaml
 # settings.yaml is git-ignored.
 ```
 
-The bundle URL is downloaded once and cached under
-`~/.cache/vocal-helper`; you can also set `$VH_DIARIZATION_ENGINES` to a
-local directory holding the extracted bundle. TitaNet (the default
+#### What the URL is
+
+`https://deraison.ai/diarization-engines.zip` is a **self-hosted ZIP**
+(~800 MB) that mirrors every gated/hub-hosted model the pipeline needs, so
+the project never has to authenticate against HuggingFace. It contains:
+
+| Folder | Weights | Used by |
+|---|---|---|
+| `pyannote-3.1/` | segmentation-3.0 + wespeaker `.bin` + a local `config.yaml` | offline diarization |
+| `nemo-sortformer/` | `diar_sortformer_4spk-v1.nemo` | offline diarization (NeMo) |
+| `pyannote-embedding/` | embedding `.bin` | online diarization |
+| `speechbrain-voxlingua107/` | ECAPA VoxLingua107 snapshot | language-ID cross-check |
+| `manifest.json` | sha256 + sizes | integrity check on download |
+
+On first use it is downloaded once, verified against `manifest.json`, and
+cached under `~/.cache/vocal-helper`; later runs load straight from the
+cache. Set `$VH_DIARIZATION_ENGINES` to a local directory (or your own
+mirror URL) for air-gapped / self-hosted deploys. TitaNet (the default
 online-diar embedder) loads from NVIDIA NGC, also without HuggingFace.
 
 ### Live microphone → terminal

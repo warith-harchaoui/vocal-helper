@@ -72,7 +72,6 @@ from typing import Any, Literal
 import numpy as np
 from numpy.typing import NDArray
 
-from vocal_helper._settings import resolve_hf_token
 from vocal_helper.types import DiarizedSegment, VoicedSegment
 
 BackendName = Literal["pyannote", "nemo"]
@@ -135,14 +134,15 @@ class OnlineDiarStage:
         Minimum voiced-segment duration to attempt embedding.
         Default 500 ms (pyannote/embedding's convolutional kernels
         choke on shorter inputs).
-    hf_token : str, optional
-        HuggingFace token, forwarded to the pyannote backend when
-        the model isn't already cached. When ``None``, the value is
-        resolved via :func:`vocal_helper._settings.resolve_hf_token`
-        — ``$HF_TOKEN`` then ``secrets.hf_token`` in ``settings.yaml``.
     device : "cpu" | "cuda" | "mps", optional
         Torch device for the pyannote embedder. ``None`` (default)
         auto-picks CUDA > MPS > CPU. Has no effect on the NeMo backend.
+
+    Notes
+    -----
+    Model weights load from the self-hosted diarization-engines bundle
+    (see :func:`resolve_diarization_engines`) — no HuggingFace token is
+    used or accepted.
     """
 
     def __init__(
@@ -162,7 +162,6 @@ class OnlineDiarStage:
         join_threshold: float = 0.30,
         ema_alpha: float = 0.1,
         min_segment_ms: int = 500,
-        hf_token: str | None = None,
         device: str | None = None,
     ) -> None:
         if not 0.0 < join_threshold < 2.0:
@@ -173,10 +172,6 @@ class OnlineDiarStage:
         self.join_threshold = join_threshold
         self.ema_alpha = ema_alpha
         self.min_segment_ms = min_segment_ms
-        # Resolve the token eagerly so the cached value reflects the
-        # state at construction time — calls into pyannote later cannot
-        # be affected by a mid-run env / settings.yaml mutation.
-        self.hf_token = resolve_hf_token(hf_token)
         self.device = device
         self._embedder = None
         self._centroids: list[_Centroid] = []
@@ -188,10 +183,7 @@ class OnlineDiarStage:
         if self._embedder is not None:
             return
         if self.backend == "pyannote":
-            self._embedder = _PyannoteEmbedder(
-                hf_token=self.hf_token,
-                device=self.device,
-            )
+            self._embedder = _PyannoteEmbedder(device=self.device)
         elif self.backend == "nemo":
             self._embedder = _TitaNetEmbedder()
         else:
@@ -294,8 +286,7 @@ class OnlineDiarStage:
 class _PyannoteEmbedder:
     """Wraps ``pyannote.audio.Inference("pyannote/embedding")``."""
 
-    def __init__(self, *, hf_token: str | None = None, device: str | None = None) -> None:
-        self.hf_token = hf_token
+    def __init__(self, *, device: str | None = None) -> None:
         self.device = device  # ``None`` → auto-pick at load time
         self._inference = None
 
@@ -459,16 +450,17 @@ class OfflineDiarStage:
     stitch_threshold : float
         Cosine-distance threshold for cross-chunk AHC stitching.
         Default 0.35.
-    hf_token : str, optional
-        HuggingFace token, forwarded to pyannote. When ``None``, the
-        value is resolved via
-        :func:`vocal_helper._settings.resolve_hf_token` — ``$HF_TOKEN``
-        then ``secrets.hf_token`` in ``settings.yaml``.
     device : "cpu" | "cuda" | "mps", optional
         Torch device for the pyannote pipeline + embedder. ``None``
         (default) auto-picks CUDA > MPS > CPU. On Apple Silicon CPU
         is ~ 10× slower than MPS, so the auto-pick matters in practice.
         Has no effect on the NeMo backend.
+
+    Notes
+    -----
+    Model weights load from the self-hosted diarization-engines bundle
+    (see :func:`resolve_diarization_engines`) — no HuggingFace token is
+    used or accepted.
     """
 
     def __init__(
@@ -478,7 +470,6 @@ class OfflineDiarStage:
         ideal_duration_s: float | None = None,
         overlap_s: float = 10.0,
         stitch_threshold: float = 0.35,
-        hf_token: str | None = None,
         device: str | None = None,
     ) -> None:
         self.backend = backend
@@ -489,7 +480,6 @@ class OfflineDiarStage:
         self.ideal_duration_s = ideal_duration_s
         self.overlap_s = overlap_s
         self.stitch_threshold = stitch_threshold
-        self.hf_token = resolve_hf_token(hf_token)
         self.device = device
         self._backend_obj: Any | None = None
         self._embedder: Any | None = None
@@ -500,14 +490,8 @@ class OfflineDiarStage:
         if self._backend_obj is not None:
             return
         if self.backend == "pyannote":
-            self._backend_obj = _PyannoteOfflineDiar(
-                hf_token=self.hf_token,
-                device=self.device,
-            )
-            self._embedder = _PyannoteEmbedder(
-                hf_token=self.hf_token,
-                device=self.device,
-            )
+            self._backend_obj = _PyannoteOfflineDiar(device=self.device)
+            self._embedder = _PyannoteEmbedder(device=self.device)
         elif self.backend == "nemo":
             self._backend_obj = _NemoSortformerDiar()
             self._embedder = _TitaNetEmbedder()
@@ -748,8 +732,7 @@ class _PyannoteOfflineDiar:
     configured.
     """
 
-    def __init__(self, *, hf_token: str | None = None, device: str | None = None) -> None:
-        self.hf_token = hf_token
+    def __init__(self, *, device: str | None = None) -> None:
         self.device = device  # ``None`` → auto-pick at load time
         self._pipeline = None
         # Resolved at load time so ``diarize`` knows where to put the

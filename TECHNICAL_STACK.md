@@ -404,12 +404,12 @@ RUN CMAKE_ARGS="-DGGML_CUDA=on" pip install \
 RUN pip install \
     'vocal-helper[pyannote,llm,stream] @ git+https://github.com/warith-harchaoui/vocal-helper.git@main'
 
-# Pre-warm HF cache at build time (optional, adds ~ 200 MB to the image)
-ARG HF_TOKEN
-RUN --mount=type=secret,id=hf_token \
-    HF_TOKEN="$(cat /run/secrets/hf_token)" \
-    python -c "from pyannote.audio import Pipeline; \
-      Pipeline.from_pretrained('pyannote/speaker-diarization-3.1', token='$HF_TOKEN')"
+# Pre-warm the diarization-engines bundle at build time (optional; caches
+# the weights into the image so first run is instant). No HuggingFace, no
+# secret — just the self-hosted bundle URL.
+ARG VH_DIARIZATION_ENGINES=https://deraison.ai/diarization-engines.zip
+RUN VH_DIARIZATION_ENGINES="$VH_DIARIZATION_ENGINES" \
+    python -c "from vocal_helper.diar import resolve_diarization_engines as r; assert r()"
 
 ENTRYPOINT ["vocal-helper"]
 CMD ["--help"]
@@ -497,16 +497,13 @@ For metrics, wrap each stage's `run()` with a Prometheus histogram
 timing the wall-clock per utterance. Alert if diar or ASR RTF
 degrades > 2× baseline.
 
-### 4. Secrets rotation
+### 4. Configuration
 
-`settings.yaml` is git-ignored. Ship it via :
-
-- systemd credentials (`LoadCredential=`) on modern Debian/Ubuntu.
-- Docker Compose `secrets:` block.
-- Kubernetes `Secret` + volume mount.
-
-Rotate the HF token every 6 months ; regenerate on the HF account and
-`systemctl restart vocal-helper@*`.
+`settings.yaml` holds only the diarization-engines bundle URL — no
+secrets, no HuggingFace token — so it can be shipped in the clear (git
+config, a ConfigMap, or baked into the image). There is nothing to
+rotate. Point it at your own mirror of `diarization-engines.zip` for
+air-gapped deploys.
 
 ### 5. YouTube rate-limits
 
@@ -558,16 +555,15 @@ sudo mkdir -p /data/ollama-models && sudo chown ollama:ollama /data/ollama-model
 sudo systemctl enable --now ollama
 ollama pull gemma4:e4b
 
-# 9. Secrets
+# 9. Configuration (no HuggingFace token — just the bundle URL)
 sudo install -d -m 0700 -o vocalhelper /data/vocal-helper
 sudo -u vocalhelper tee /data/vocal-helper/settings.yaml >/dev/null <<'YAML'
-secrets:
-  hf_token: hf_XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+engines:
+  diarization_url: https://deraison.ai/diarization-engines.zip
 YAML
 sudo chmod 0600 /data/vocal-helper/settings.yaml
 
 # 10. Verify
-export HF_HUB_CACHE=/data/hf-cache
 export VOCAL_HELPER_SETTINGS=/data/vocal-helper/settings.yaml
 python -c "
 import torch, vocal_helper as vh, music_helper as mh

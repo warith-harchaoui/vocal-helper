@@ -149,7 +149,7 @@ class Pipeline:
     ...     pipeline = vh.Pipeline(
     ...         source=lambda: vh.sources.from_microphone(),
     ...         config=vh.PipelineConfig(
-    ...             diar={"backend": "pyannote", "hf_token": "hf_..."},
+    ...             diar={"backend": "pyannote"},
     ...             asr={"model": "large-v3-turbo-q5_0"},
     ...             llm={"model": "gemma4:e4b"},
     ...         ),

@@ -138,23 +138,6 @@ def test_online_diar_rejects_bad_ema_alpha() -> None:
         OnlineDiarStage(ema_alpha=1.5)
 
 
-def test_online_diar_accepts_explicit_hf_token() -> None:
-    """A literal token must round-trip ; resolve_hf_token shouldn't override."""
-    from vocal_helper.diar import OnlineDiarStage
-
-    stage = OnlineDiarStage(hf_token="hf_FROM_KWARG")
-    assert stage.hf_token == "hf_FROM_KWARG"
-
-
-def test_online_diar_falls_back_to_env_token(monkeypatch: pytest.MonkeyPatch) -> None:
-    """No kwarg → ``$HF_TOKEN`` wins (autouse conftest unset it for us)."""
-    from vocal_helper.diar import OnlineDiarStage
-
-    monkeypatch.setenv("HF_TOKEN", "hf_FROM_ENV")
-    stage = OnlineDiarStage()
-    assert stage.hf_token == "hf_FROM_ENV"
-
-
 # ---------------------------------------------------------------------------
 # Pipeline shutdown — no source means no events, but ``run`` should still
 # complete cleanly when the source is exhausted. We *don't* load real

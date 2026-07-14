@@ -28,13 +28,5 @@
 #   3. The library's built-in default.
 engines:
   diarization_url: https://deraison.ai/diarization-engines.zip
-
-# OPTIONAL / LEGACY — a HuggingFace token is **no longer needed**: the
-# bundle above removes every HF dependency. This key is kept only for the
-# fallback path where no bundle is configured and the models are pulled
-# from the HF hub instead. Leave it as the placeholder to stay HF-free.
-# How to get one (only if you deliberately want the HF fallback): create a
-# token at https://huggingface.co/settings/tokens and accept the pyannote
-# model licences with the same account. Real tokens start with ``hf_``.
-secrets:
-  hf_token: hf_XXXX
+# That is the entire configuration. There is no HuggingFace token — the
+# bundle carries every model weight the project needs.

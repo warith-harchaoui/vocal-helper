@@ -2,14 +2,13 @@
 
 Construction-only — we never call ``asyncio.run(_amain(...))`` because
 that would require a real source and load the heavy stages. The goal
-is to assert that argparse, the config builder and the HF-token
-resolution path do the right thing.
+is to assert that argparse and the config builder do the right thing
+(no HuggingFace token is involved anywhere).
 """
 
 from __future__ import annotations
 
 import argparse
-from pathlib import Path
 
 import pytest
 
@@ -23,7 +22,6 @@ def _ns(**overrides: object) -> argparse.Namespace:
         "language": "auto",
         "threads": 6,
         "diar_backend": "pyannote",
-        "hf_token": None,
         "join_threshold": None,
         "llm": False,
         "llm_model": "gemma4:e4b",
@@ -70,36 +68,15 @@ def test_build_config_llm_block_without_host() -> None:
 
 
 # ---------------------------------------------------------------------------
-# _build_config — HF token resolution order
+# _build_config — no HuggingFace token anywhere (bundle-only)
 # ---------------------------------------------------------------------------
 
 
-def test_build_config_explicit_flag_wins(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("HF_TOKEN", "hf_FROM_ENV")
-    cfg = cli._build_config(_ns(hf_token="hf_FROM_CLI"))
-    assert cfg.diar["hf_token"] == "hf_FROM_CLI"
-
-
-def test_build_config_falls_back_to_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("HF_TOKEN", "hf_FROM_ENV")
-    cfg = cli._build_config(_ns())
-    assert cfg.diar["hf_token"] == "hf_FROM_ENV"
-
-
-def test_build_config_falls_back_to_settings_yaml(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    settings = tmp_path / "settings.yaml"
-    settings.write_text("secrets:\n  hf_token: hf_FROM_FILE\n", encoding="utf-8")
-    monkeypatch.setenv("VOCAL_HELPER_SETTINGS", str(settings))
-    cfg = cli._build_config(_ns())
-    assert cfg.diar["hf_token"] == "hf_FROM_FILE"
-
-
-def test_build_config_omits_hf_token_when_unset() -> None:
-    """No source provides a token → the diar dict has no ``hf_token`` key
-    so :class:`OnlineDiarStage` keeps its own default (``None``)."""
+def test_build_config_has_no_hf_token(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The diar config never carries an ``hf_token`` — weights come from the
+    self-hosted diarization-engines bundle, so HF is not involved."""
+    # Even with an ambient HF_TOKEN set, it must not leak into the config.
+    monkeypatch.setenv("HF_TOKEN", "hf_SHOULD_BE_IGNORED")
     cfg = cli._build_config(_ns())
     assert "hf_token" not in cfg.diar
 
@@ -121,7 +98,6 @@ def test_cli_parser_mic_minimal() -> None:
     assert args.command == "mic"
     # Default backend is nemo (2026-06-30 embedding sweep), not pyannote.
     assert args.diar_backend == "nemo"
-    assert args.hf_token is None
 
 
 def test_cli_parser_file_with_overrides() -> None:
@@ -131,8 +107,6 @@ def test_cli_parser_file_with_overrides() -> None:
             "/tmp/in.wav",
             "--language",
             "fr",
-            "--hf-token",
-            "hf_xyz",
             "--llm",
             "--no-real-time",
         ]
@@ -140,7 +114,6 @@ def test_cli_parser_file_with_overrides() -> None:
     assert args.command == "file"
     assert args.path == "/tmp/in.wav"
     assert args.language == "fr"
-    assert args.hf_token == "hf_xyz"
     assert args.llm is True
     assert args.no_real_time is True
 
