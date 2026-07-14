@@ -1,25 +1,40 @@
 # ---------------------------------------------------------------------------
 # vocal-helper — local settings
 #
-# Copy this file to ``settings.yaml`` (which is git-ignored) and fill in
-# real values. The vocal-helper library reads it on import via
-# ``vocal_helper._settings.resolve_hf_token`` so the CLI, the example
-# scripts and any library caller behave identically.
-#
-# Resolution order for ``hf_token`` (highest priority first) :
-#
-#   1. Explicit ``--hf-token`` CLI flag or ``hf_token=`` kwarg.
-#   2. ``HF_TOKEN`` environment variable.
-#   3. ``secrets.hf_token`` below.
+# Copy this file to ``settings.yaml`` (which is git-ignored) and keep the
+# ``engines.diarization_url`` below. The vocal-helper library reads it on
+# import via ``vocal_helper._settings`` so the CLI, the example scripts and
+# any library caller behave identically.
 #
 # The parser is hand-rolled (no PyYAML dependency) and only understands
 # this flat two-level schema — keep new keys at the same indentation.
 # ---------------------------------------------------------------------------
 
+# REQUIRED — the self-hosted "diarization-engines" bundle. This single ZIP
+# carries EVERY model weight the project needs (offline pyannote 3.1, NeMo
+# Sortformer, the online pyannote/embedding embedder, and SpeechBrain
+# VoxLingua107), so **no HuggingFace account or token is required** — the
+# whole stack runs offline once the bundle is cached locally.
+#
+# How it is used: the URL is downloaded once, extracted and cached under
+# ``~/.cache/vocal-helper``; later runs load straight from the cache.
+# You may instead point this at a local directory holding the extracted
+# bundle. A valid value looks like a ``https://…/diarization-engines.zip``
+# URL or an absolute directory path.
+#
+# Resolution order (highest priority first):
+#   1. ``$VH_DIARIZATION_ENGINES`` environment variable.
+#   2. ``engines.diarization_url`` below.
+#   3. The library's built-in default.
+engines:
+  diarization_url: https://deraison.ai/diarization-engines.zip
+
+# OPTIONAL / LEGACY — a HuggingFace token is **no longer needed**: the
+# bundle above removes every HF dependency. This key is kept only for the
+# fallback path where no bundle is configured and the models are pulled
+# from the HF hub instead. Leave it as the placeholder to stay HF-free.
+# How to get one (only if you deliberately want the HF fallback): create a
+# token at https://huggingface.co/settings/tokens and accept the pyannote
+# model licences with the same account. Real tokens start with ``hf_``.
 secrets:
-  # HuggingFace access token used to download the gated pyannote models
-  # (``pyannote/embedding`` for the online diarizer, plus
-  # ``pyannote/speaker-diarization-3.1`` for the offline path). Create
-  # one at https://huggingface.co/settings/tokens and accept the model
-  # licences on the relevant model pages with the same account.
   hf_token: hf_XXXX

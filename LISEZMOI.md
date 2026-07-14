@@ -45,7 +45,7 @@ L'arête pointillée indique que l'analyste LLM est optionnel
 ```mermaid
 flowchart LR
     S([Source<br/><i>buffer PCM complet</i>]):::source
-      --> D[Diar offline<br/><i>pyannote 3.1<br/>+ chunk-and-stitch 300 s</i>]:::diar
+      --> D[Diar offline<br/><i>pyannote 3.1<br/>buffer entier</i>]:::diar
       --> A[STT<br/><i>whisper.cpp turbo</i>]:::asr
       -.-> L[Analyste LLM<br/><i>gemma3:4b · résumé glissant</i>]:::llm
 

@@ -129,11 +129,6 @@ except Exception:  # pragma: no cover — optional
     run_parallel_async = None  # type: ignore[assignment]
     run_parallel_sync = None  # type: ignore[assignment]
 
-try:
-    from vocal_helper.tts import PiperTTS  # type: ignore[assignment]
-except Exception:  # pragma: no cover — optional
-    PiperTTS = None  # type: ignore[assignment]
-
 __all__ = [
     "sources",
     "Pipeline",
@@ -154,7 +149,6 @@ __all__ = [
     "detect_language_speechbrain",
     "language_posterior_curve",
     "GemmaAnalystStage",
-    "PiperTTS",
     # LiveKit-inspired EOT eval + Pipecat-inspired parallel primitive
     "EOTPair",
     "eot_score",
@@ -172,4 +166,4 @@ __all__ = [
 
 __author__ = "Warith Harchaoui, Ph.D."
 __email__ = "warithmetics@deraison.ai"
-__version__ = "0.3.7"
+__version__ = "0.4.0"

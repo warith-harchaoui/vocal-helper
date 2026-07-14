@@ -444,8 +444,24 @@ def _ensure_classifier():
             "vocal_helper.lid independent verification needs SpeechBrain + torchaudio. "
             "Install with `pip install vocal-helper[lid]`."
         ) from e
+    # Prefer the self-hosted HF-free bundle : point SpeechBrain's ``source``
+    # at the local snapshot directory so nothing is fetched from HuggingFace.
+    # Imported locally to avoid pulling the heavy diar module unless lid runs.
+    from vocal_helper.diar import resolve_diarization_engines
+
+    engines = resolve_diarization_engines()
+    local_sb = engines / "speechbrain-voxlingua107" if engines is not None else None
+    # Bundle-only : point SpeechBrain at the local snapshot directory. A valid
+    # snapshot carries the pipeline hyperparams file at its root. No HF fallback.
+    if local_sb is None or not (local_sb / "hyperparams.yaml").exists():
+        raise RuntimeError(
+            "No SpeechBrain VoxLingua107 snapshot in the diarization-engines "
+            "bundle. Set `engines.diarization_url` in settings.yaml (or "
+            "$VH_DIARIZATION_ENGINES). No HuggingFace token is needed."
+        )
+
     _classifier = EncoderClassifier.from_hparams(
-        source=VOXLINGUA_MODEL,
+        source=str(local_sb),  # local dir → zero HuggingFace
         savedir=str(_VOXLINGUA_CACHE),
     )
     return _classifier

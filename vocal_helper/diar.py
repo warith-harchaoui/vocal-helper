@@ -14,12 +14,12 @@ for batch / file-based inputs.
 - :class:`OfflineDiarStage` — receives the **full PCM buffer** and
   hands it to the canonical offline backend
   (``pyannote/speaker-diarization-3.1`` by default, NeMo Sortformer
-  as alternative). For inputs longer than ``ideal_duration_s`` (300 s
-  for pyannote, 60 s for NeMo — values codified in the pdbms 2026-06-29
-  ideal-duration sweep), the stage chunks with overlap, runs the
-  backend per chunk and stitches via cosine AHC. This is the current
-  best **offline** answer per pdbms §10.5 (AMI dev-slice median
-  DER 0.116, inside Bredin 2023's band).
+  as alternative). Runs whole-buffer by default : the 2026-07-14
+  offline map-reduce study found whole-buffer strictly best for DER,
+  so pyannote only chunks past ``ideal_duration_s`` = 3600 s (a memory
+  backstop), while NeMo keeps 60 s (Sortformer 90 s cap). When chunking
+  does kick in, the stage overlaps chunks and stitches via cosine AHC
+  (pdbms §10.5, AMI dev-slice median DER 0.116, inside Bredin 2023's band).
 
 Online algorithm — minimal cosine-AHC online clusterer
 ------------------------------------------------------
@@ -66,6 +66,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Literal
 
 import numpy as np
@@ -307,10 +308,20 @@ class _PyannoteEmbedder:
                 "OnlineDiarStage(backend='pyannote') requires the pyannote extra. "
                 "Install with `pip install vocal-helper[pyannote]`."
             ) from e
-        model = Model.from_pretrained(
-            "pyannote/embedding",
-            use_auth_token=self.hf_token,
+        # Bundle-only : pyannote ``Model`` loads the local ``.bin`` checkpoint
+        # directly, so no token and no network. There is no HF fallback.
+        engines = resolve_diarization_engines()
+        local_bin = (
+            engines / "pyannote-embedding" / "pytorch_model.bin" if engines is not None else None
         )
+        if local_bin is None or not local_bin.exists():
+            raise RuntimeError(
+                "No pyannote/embedding weight in the diarization-engines bundle. "
+                "Set `engines.diarization_url` in settings.yaml (or "
+                "$VH_DIARIZATION_ENGINES). No HuggingFace token is needed."
+            )
+        # Local checkpoint path — zero HuggingFace.
+        model = Model.from_pretrained(str(local_bin))
         # Whole-segment embedding ; pyannote's Inference handles the
         # 160 ms minimum padding internally. ``device=`` makes Inference
         # move the model and incoming tensors to the right backend ;
@@ -367,11 +378,20 @@ class _TitaNetEmbedder:
 # ===========================================================================
 
 
-# Ideal duration constants — codified in the pdbms 2026-06-29
-# ideal-duration sweep (``doc/studies/diar-study.md`` §10.6). For
-# audio longer than this, the offline stage chunks + stitches ; for
-# anything shorter it runs the backend as a single call.
-IDEAL_DURATION_S_PYANNOTE = 300.0
+# Ideal duration constants. For audio longer than this, the offline
+# stage chunks + stitches ; for anything shorter it runs the backend as
+# a single whole-buffer call.
+#
+# pyannote 3.1 handles long audio natively and the 2026-07-14 offline
+# map-reduce study (``doc/studies/offline-mapreduce-study.md``) showed
+# whole-buffer is strictly best for DER — chunk-and-stitch only *costs*
+# quality (median DER 0.143 whole vs 0.170 at 300 s, cliffs below). So
+# the pyannote default is set to run whole-buffer for any realistic
+# meeting / podcast / lecture (≤ 1 h) and only falls back to chunking
+# past that, purely as a memory backstop on extreme-length inputs.
+IDEAL_DURATION_S_PYANNOTE = 3600.0
+# NeMo Sortformer must chunk regardless : it degrades past its ~90 s
+# training cap, so whole-buffer is not an option for that backend.
 IDEAL_DURATION_S_NEMO = 60.0
 
 
@@ -412,24 +432,28 @@ class OfflineDiarStage:
     critical AMI-style work, use ``pdbms.diar.offline_chunked.ChunkedOfflineDiarizer``
     directly.
 
-    Chunking is a memory ceiling, not a quality lever — do not lower it.
-    The pdbms offline map-reduce study (2026-07-14, full stack VAD + ASR
-    + diar on 3 AMI scenario meetings) found DER strictly *monotone* in
-    chunk size: whole-buffer is best, ``ideal_duration_s=300`` costs only
-    ~0.03 DER (safe side of the knee), but 120 s / 60 s are cliffs
-    (median DER 0.31 / 0.50 — speaker fragmentation outruns the stitch).
-    ASR also destabilises when chunked (a long-window whisper loop drove
-    one meeting to WER 1.17). 300 s is retained because it bounds
-    pyannote memory on long inputs while staying past the knee ; raise it
-    toward whole-buffer only when memory allows and the input is short.
+    Chunking is a memory ceiling, not a quality lever. The 2026-07-14
+    offline map-reduce study (full stack VAD + ASR + diar on AMI,
+    ``doc/studies/offline-mapreduce-study.md``) found DER strictly
+    *monotone* in chunk size — whole-buffer is best (median DER 0.143 vs
+    0.170 at 300 s, and cliffs to 0.31 / 0.50 at 120 s / 60 s as speaker
+    fragmentation outruns the stitch) — and ASR *destabilises* when
+    chunked (a long-window whisper loop drove one meeting to WER 1.17).
+    So the **pyannote** default now runs whole-buffer for any realistic
+    input (``ideal_duration_s`` = 3600 s) and only chunks past ~1 h as a
+    memory backstop. **NeMo** is the exception: its Sortformer 90 s
+    training cap forces chunking at ``ideal_duration_s`` = 60 s.
 
     Parameters
     ----------
     backend : "pyannote" | "nemo"
         Backend to use. Default ``"pyannote"``.
     ideal_duration_s : float, optional
-        Chunk length for the long-form path. Default depends on the
-        backend (300 s for pyannote, 60 s for NeMo).
+        Whole-buffer ceiling : inputs longer than this are chunked +
+        stitched, shorter ones run as a single call. Default depends on
+        the backend — 3600 s for pyannote (effectively whole-buffer for
+        any realistic meeting; chunking is a memory backstop only), 60 s
+        for NeMo (forced by its Sortformer 90 s cap).
     overlap_s : float
         Overlap between adjacent chunks. Default 10 s.
     stitch_threshold : float
@@ -657,12 +681,72 @@ class OfflineDiarStage:
 
 
 # ---------------------------------------------------------------------------
+# HF-free diarization engines — self-hosted weights, no HuggingFace at runtime.
+# ---------------------------------------------------------------------------
+
+# Self-hosted bundle of ALL model weights the project needs — the offline
+# pyannote 3.1 pipeline, NeMo Sortformer, the online ``pyannote/embedding``
+# embedder and SpeechBrain VoxLingua107. When present, every backend loads
+# from it with zero HuggingFace access (no token, ``HF_HUB_OFFLINE=1`` safe).
+# The canonical source is ``engines.diarization_url`` in ``settings.yaml`` ;
+# this constant is only the last-resort default when nothing is configured.
+DEFAULT_DIARIZATION_ENGINES_URL: str | None = "https://deraison.ai/diarization-engines.zip"
+
+
+def resolve_diarization_engines() -> Path | None:
+    """Locate the HF-free diarization-engines bundle, or ``None``.
+
+    Source order: the explicit ``$VH_DIARIZATION_ENGINES`` env var, then
+    ``engines.diarization_url`` in ``settings.yaml`` (the canonical
+    config), then :data:`DEFAULT_DIARIZATION_ENGINES_URL`. A local dir is
+    used as-is ; a URL to ``diarization-engines.zip`` is downloaded once
+    and cached under ``$VH_CACHE_DIR`` (default ``~/.cache/vocal-helper``).
+    Returns the directory that contains ``manifest.json``.
+    """
+    import os
+
+    from vocal_helper._settings import resolve_diarization_engines_url
+
+    # settings.yaml / env resolution first, then the built-in default.
+    src = resolve_diarization_engines_url() or DEFAULT_DIARIZATION_ENGINES_URL
+    if not src:
+        return None
+
+    if not src.startswith(("http://", "https://")):
+        p = Path(src).expanduser()
+        return p if (p / "manifest.json").exists() else (p if p.is_dir() else None)
+
+    cache = Path(os.environ.get("VH_CACHE_DIR", Path.home() / ".cache" / "vocal-helper"))
+    dest = cache / "diarization-engines"
+    hits = list(dest.rglob("manifest.json")) if dest.exists() else []
+    if hits:
+        return hits[0].parent
+
+    import tempfile
+    import urllib.request
+    import zipfile
+
+    dest.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile(suffix=".zip", delete=False) as tmp:
+        urllib.request.urlretrieve(src, tmp.name)
+        with zipfile.ZipFile(tmp.name) as z:
+            z.extractall(dest)
+    hits = list(dest.rglob("manifest.json"))
+    return hits[0].parent if hits else None
+
+
+# ---------------------------------------------------------------------------
 # Offline backend wrappers — minimal, lazy.
 # ---------------------------------------------------------------------------
 
 
 class _PyannoteOfflineDiar:
-    """Wraps ``pyannote.audio.Pipeline('pyannote/speaker-diarization-3.1')``."""
+    """Wraps ``pyannote.audio.Pipeline('pyannote/speaker-diarization-3.1')``.
+
+    Prefers the self-hosted :func:`resolve_diarization_engines` bundle
+    (HF-free) ; falls back to the HuggingFace hub only when no bundle is
+    configured.
+    """
 
     def __init__(self, *, hf_token: str | None = None, device: str | None = None) -> None:
         self.hf_token = hf_token
@@ -681,24 +765,26 @@ class _PyannoteOfflineDiar:
                 "OfflineDiarStage(backend='pyannote') requires the pyannote extra. "
                 "Install with `pip install vocal-helper[pyannote]`."
             ) from e
-        # pyannote.audio renamed the auth kwarg between major versions
-        # — try the new name first, fall back.
-        try:
-            self._pipeline = Pipeline.from_pretrained(
-                "pyannote/speaker-diarization-3.1",
-                token=self.hf_token,
-            )
-        except TypeError:
-            self._pipeline = Pipeline.from_pretrained(
-                "pyannote/speaker-diarization-3.1",
-                use_auth_token=self.hf_token,
-            )
-        if self._pipeline is None:
+        # Bundle-only : the self-hosted bundle carries a local ``config.yaml``
+        # whose paths point at local ``.bin`` weights, so the pipeline never
+        # touches HuggingFace. There is no HF fallback — a missing bundle is a
+        # configuration error, not a reason to reach out to the hub.
+        engines = resolve_diarization_engines()
+        local_cfg = (
+            engines / "pyannote-3.1" / "pyannote_diarization_config.yaml"
+            if engines is not None
+            else None
+        )
+        if local_cfg is None or not local_cfg.exists():
             raise RuntimeError(
-                "Failed to load pyannote/speaker-diarization-3.1 — visit the "
-                "HF model page and accept the terms with the same account "
-                "owning HF_TOKEN."
+                "No diarization-engines bundle found. Set `engines.diarization_url` "
+                "in settings.yaml (or $VH_DIARIZATION_ENGINES) to the self-hosted "
+                "diarization-engines bundle. No HuggingFace token is needed."
             )
+        self._pipeline = self._load_local_pipeline(Pipeline, local_cfg)
+        # A corrupt / incompatible local config would return None.
+        if self._pipeline is None:
+            raise RuntimeError("Failed to load the pyannote pipeline from the local bundle config.")
         # Move the pipeline to the right device. On Apple Silicon
         # CPU → MPS gives roughly 10× speed-up. Not all internal ops
         # support MPS yet ; on failure we keep the pipeline on CPU
@@ -713,6 +799,44 @@ class _PyannoteOfflineDiar:
                 self._device = "cpu"
         else:
             self._device = "cpu"
+
+    def _load_local_pipeline(self, pipeline_cls: Any, config_path: Path) -> Any:
+        """Load the pyannote pipeline from the local HF-free bundle.
+
+        Parameters
+        ----------
+        pipeline_cls : Any
+            The imported ``pyannote.audio.Pipeline`` class.
+        config_path : Path
+            Path to ``pyannote_diarization_config.yaml`` inside the
+            bundle. Its ``embedding`` / ``segmentation`` entries are bare
+            filenames resolved *relative to the config's own directory*.
+
+        Returns
+        -------
+        Any
+            The instantiated ``SpeakerDiarization`` pipeline.
+
+        Notes
+        -----
+        pyannote resolves the weight paths against the process working
+        directory, so we ``chdir`` into the config's directory for the
+        duration of the call and restore the previous cwd afterwards.
+        No token and no network are involved.
+        """
+        import os
+
+        # Remember the caller's cwd so we can restore it no matter what.
+        previous_cwd = os.getcwd()
+        try:
+            # The config references its weights by bare filename, so the
+            # bundle directory must be the working directory at load time.
+            os.chdir(config_path.parent)
+            return pipeline_cls.from_pretrained(config_path.name)
+        finally:
+            # Always restore — a leaked cwd would corrupt every later
+            # relative path in the host process.
+            os.chdir(previous_cwd)
 
     def diarize(
         self,
@@ -739,12 +863,31 @@ class _PyannoteOfflineDiar:
 
 
 class _NemoSortformerDiar:
-    """Wraps NVIDIA ``nvidia/diar_sortformer_v1`` for batch use."""
+    """Wraps NVIDIA Sortformer (``diar_sortformer_4spk-v1``) for batch use.
+
+    Prefers the self-hosted HF-free bundle's ``.nemo`` checkpoint
+    (:func:`resolve_diarization_engines`) ; only falls back to the
+    HuggingFace hub when no bundle is configured.
+
+    Notes
+    -----
+    The upstream repo id is ``nvidia/diar_sortformer_4spk-v1`` — earlier
+    code used ``nvidia/diar_sortformer_v1``, which 404s on HF. The bundle
+    path sidesteps HF (and the id) entirely via ``restore_from``.
+    """
 
     def __init__(self) -> None:
-        self._model = None
+        # Lazily populated in ``load`` — kept ``None`` so import is cheap.
+        self._model: Any | None = None
 
     def load(self) -> None:
+        """Load the Sortformer model, preferring the local bundle.
+
+        Raises
+        ------
+        ImportError
+            If the optional ``nemo`` extra is not installed.
+        """
         try:
             from nemo.collections.asr.models import SortformerEncLabelModel  # type: ignore
         except ImportError as e:
@@ -752,7 +895,27 @@ class _NemoSortformerDiar:
                 "OfflineDiarStage(backend='nemo') requires the nemo extra. "
                 "Install with `pip install vocal-helper[nemo]`."
             ) from e
-        self._model = SortformerEncLabelModel.from_pretrained("nvidia/diar_sortformer_v1").eval()
+
+        # Bundle-only : the ``.nemo`` checkpoint ships in the self-hosted
+        # bundle and is restored locally — zero HuggingFace, no fallback.
+        engines = resolve_diarization_engines()
+        local_ckpt = None
+        if engines is not None:
+            # The builder ships exactly one ``.nemo`` under nemo-sortformer/.
+            nemo_dir = engines / "nemo-sortformer"
+            candidates = sorted(nemo_dir.glob("*.nemo")) if nemo_dir.exists() else []
+            local_ckpt = candidates[0] if candidates else None
+
+        if local_ckpt is None:
+            raise RuntimeError(
+                "No NeMo Sortformer checkpoint in the diarization-engines bundle. "
+                "Set `engines.diarization_url` in settings.yaml (or "
+                "$VH_DIARIZATION_ENGINES). No HuggingFace token is needed."
+            )
+        # Restore from the local file — no token, no network.
+        self._model = SortformerEncLabelModel.restore_from(
+            str(local_ckpt), map_location="cpu"
+        ).eval()
 
     def diarize(
         self,

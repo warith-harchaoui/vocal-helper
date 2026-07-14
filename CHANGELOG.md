@@ -5,19 +5,50 @@ This project adheres to [Semantic Versioning](https://semver.org).
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-07-14
+
 ### Changed
 
-- **Offline diarization chunking validated as a memory ceiling, not a quality
-  lever.** The pdbms offline map-reduce study (2026-07-14 — full stack VAD +
-  ASR + diar on 3 AMI scenario meetings, scored by VAD F1 / WER / DER-JER
-  against AMI ground truth) confirms `OfflineDiarStage`'s defaults sit on the
-  safe side of the diarization knee: DER is strictly monotone in chunk size
-  (whole-buffer best; `ideal_duration_s=300` costs only ~0.03 DER; 120 s / 60 s
-  are cliffs at median DER 0.31 / 0.50), VAD is chunk-invariant, and ASR
-  *destabilises* when chunked (one meeting hit WER 1.17 on a long-window
-  whisper loop). Verdict: offline map-reduce is not beneficial for quality —
-  keep chunks as large as memory allows and **do not lower `ideal_duration_s`**.
-  Rationale codified in the `OfflineDiarStage` docstring; no default changed.
+- **Offline diarization now runs whole-buffer by default.** The pdbms offline
+  map-reduce study (2026-07-14 — full stack VAD + ASR + diar on AMI, scored by
+  VAD F1 / WER / DER-JER against AMI ground truth) found DER strictly monotone
+  in chunk size: whole-buffer is best (median DER **0.143** vs 0.170 at 300 s,
+  and cliffs to 0.31 / 0.50 at 120 s / 60 s as speaker fragmentation outruns
+  the stitch); VAD is chunk-invariant; and ASR *destabilises* when chunked (one
+  meeting hit WER 1.17 on a long-window whisper loop). Accordingly
+  `IDEAL_DURATION_S_PYANNOTE` is raised **300 → 3600 s**: any realistic input
+  (≤ 1 h) now diarizes as a single whole-buffer call, and chunk-and-stitch
+  survives only as a memory backstop past ~1 h. **NeMo is unchanged at 60 s**
+  (its Sortformer 90 s cap forces chunking). Override per call with
+  `OfflinePipelineConfig(diar={"ideal_duration_s": …})`.
+
+- **No HuggingFace needed at runtime.** All model weights that used to be
+  pulled from the HF hub now load from a self-hosted, HF-free bundle
+  (`diarization-engines.zip`) — resolved via `resolve_diarization_engines()`
+  from `$VH_DIARIZATION_ENGINES` (a local dir or URL) or the built-in default,
+  cached locally and verified against a manifest. Covers the offline pyannote
+  3.1 pipeline (local `config.yaml` + `.bin` weights), NeMo Sortformer (local
+  `.nemo` via `restore_from` — also fixes the wrong `diar_sortformer_v1` id →
+  `diar_sortformer_4spk-v1`), the online `pyannote/embedding` embedder, and the
+  SpeechBrain VoxLingua107 language-ID cross-check. TitaNet already loads from
+  NGC (no HF). Set `$HF_HUB_OFFLINE=1` and the full stack runs with no token,
+  no HF network access. HF remains only as an automatic fallback when no bundle
+  is configured.
+
+### Added
+
+- **Offline quality regression test (DeepEval).** `tests/test_offline_regression.py`
+  runs the offline pyannote + whisper.cpp stack on a small hosted AMI subset
+  (CC BY 4.0) and asserts DER / WER thresholds via custom DeepEval
+  `BaseMetric`s. Marked `integration` (skipped unless models are present).
+
+### Removed
+
+- **`vocal_helper.tts` (PiperTTS) dropped.** Text-to-speech is out of scope for
+  a diarization + transcription library and is covered far better by the
+  dedicated `speaker-helper` / `speak` projects. Removes the `PiperTTS` export,
+  the `[tts]` extra (`piper-tts`), and the `rhasspy/piper-voices` HF download.
+  **Breaking:** import `PiperTTS` from those projects instead.
 
 ## [0.3.7] - 2026-07-13
 

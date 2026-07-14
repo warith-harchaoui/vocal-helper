@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "vocal-helper"
-version = "0.3.7"
+version = "0.4.0"
 description = "Vocal Helper — async producer/consumer pipeline turning a live PCM stream into diarized, transcribed utterances and (optionally) a rolling LLM summary. Stages: VAD (Silero) → online speaker diarization (Hungarian-style cosine clustering on backend embeddings) → STT (pywhispercpp turbo) → optional analyst (Gemma 3 4b via Ollama)."
 readme = "README.md"
 requires-python = ">=3.10,<3.14"
@@ -95,11 +95,6 @@ api = [
 mcp = [
     "fastapi-mcp>=0.3",
 ]
-# Local neural TTS via Piper — CPU-only, ONNX, voices auto-downloaded
-# from rhasspy/piper-voices on Hugging Face. See vocal_helper.tts.
-tts = [
-    "piper-tts>=1.2",
-]
 # Independent language-ID cross-check (SpeechBrain VoxLingua107) used by
 # vocal_helper.lid.cross_check_regions — a second audio classifier that
 # shares nothing with whisper but the signal.
@@ -111,10 +106,10 @@ lid = [
 # 2026-06-30 study made TitaNet the default online-diar embedding
 # (76 % wider separability margin vs pyannote/embedding). Skip it
 # explicitly if the ~ 5 GB NeMo install footprint is prohibitive :
-#   pip install 'vocal-helper[cli,api,mcp,mic,stream,pyannote,llm,tts]'
+#   pip install 'vocal-helper[cli,api,mcp,mic,stream,pyannote,llm]'
 # then pass ``backend="pyannote"`` to ``OnlineDiarStage``.
 all = [
-    "vocal-helper[cli,api,mcp,mic,stream,pyannote,nemo,llm,tts,lid]",
+    "vocal-helper[cli,api,mcp,mic,stream,pyannote,nemo,llm,lid]",
 ]
 dev = [
     "pytest>=8",
@@ -158,12 +153,10 @@ source = ["vocal_helper"]
 branch = true
 omit = [
     # Optional-import modules that need real backend installs to hit :
-    # torch (eot_bench), piper-tts (tts), asyncio-heavy demo
-    # (parallel_pipelines). Excluded from the CI floor until they get
-    # dedicated integration tests.
+    # torch (eot_bench), asyncio-heavy demo (parallel_pipelines).
+    # Excluded from the CI floor until they get dedicated integration tests.
     "vocal_helper/eot.py",
     "vocal_helper/eot_bench.py",
-    "vocal_helper/tts.py",
     "vocal_helper/parallel_pipelines.py",
     # Auto-generated / trivial re-exports.
     "vocal_helper/__init__.py",

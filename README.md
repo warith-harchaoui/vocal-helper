@@ -17,7 +17,7 @@
 Vocal Helper is an **async producer/consumer pipeline** turning audio into diarized, transcribed utterances — and (optionally) a rolling LLM summary of the conversation. Two paths ship :
 
 - **Online** (`vh.Pipeline`) — live PCM stream → live transcript + live summary. Each stage runs at its own cadence, decoupled by bounded queues. The STT stage warms up on start so the first caption doesn't stall on whisper's cold inference.
-- **Offline** (`vh.OfflinePipeline`) — full audio buffer → highest-quality diarization (pyannote 3.1 with the 300 s chunk-and-stitch path for long meetings) → **full-throttle batched transcript** (consecutive segments concatenated into ≤ 24 s whisper calls — ~6.5× lower RTF at better WER per the 2026-07-09 sweep) → summary. Opt back into per-segment ASR with `OfflinePipelineConfig(asr={"batch": False})`.
+- **Offline** (`vh.OfflinePipeline`) — full audio buffer → highest-quality diarization (pyannote 3.1 runs the whole meeting in one call — the 2026-07-14 offline map-reduce study found whole-buffer strictly best for DER; chunk-and-stitch survives only as a memory backstop past ~1 h) → **full-throttle batched transcript** (consecutive segments concatenated into ≤ 24 s whisper calls — ~6.5× lower RTF at better WER per the 2026-07-09 sweep) → summary. Opt back into per-segment ASR with `OfflinePipelineConfig(asr={"batch": False})`.
 
 ## Pipelines
 
@@ -49,7 +49,7 @@ The dashed edge marks the analyst as optional (`llm=None` disables it).
 ```mermaid
 flowchart LR
     S([Source<br/><i>full PCM buffer</i>]):::source
-      --> D[Offline Diar<br/><i>pyannote 3.1<br/>+ 300 s chunk-and-stitch</i>]:::diar
+      --> D[Offline Diar<br/><i>pyannote 3.1<br/>whole-buffer</i>]:::diar
       --> A[STT<br/><i>whisper.cpp turbo</i>]:::asr
       -.-> L[LLM analyst<br/><i>gemma3:4b · rolling summary</i>]:::llm
 
@@ -66,7 +66,7 @@ and does its own segmentation.
 |---|---|---|
 | **VAD** *(online only)* | Silero v5 ONNX (CPU) | 32 ms window, `activity_threshold=0.5`, default `min_silence_ms=300`. |
 | **Online diarization** | `nvidia/titanet_large` (NeMo, default) or `pyannote/embedding` | Per-segment embedding + cosine-distance running-mean clustering, `join_threshold=0.30`. Default backend switched to NeMo by the 2026-06-30 embedding sweep (`studies/diar_embedding_backend.py`): TitaNet has **+76 % separability margin** (inter − intra median cosine = 0.354 vs pyannote 0.201) on AMI dev-slice, at 7× per-call latency (45 ms vs 6 ms — still negligible per voiced segment). Pass `backend='pyannote'` to skip the ~ 5 GB NeMo install. |
-| **Offline diarization** | `pyannote/speaker-diarization-3.1` (default) or `nvidia/diar_sortformer_v1` (NeMo) | Full-buffer call. Long inputs (> `ideal_duration_s` : **300 s** for pyannote, **60 s** for NeMo) are auto-chunked with 10 s overlap and stitched by cosine AHC at `stitch_threshold=0.35`. Constants codified in pdbms §10.6 (Bredin 2023 band, AMI dev-slice median DER 0.135). |
+| **Offline diarization** | `pyannote/speaker-diarization-3.1` (default) or `nvidia/diar_sortformer_v1` (NeMo) | Whole-buffer call. Inputs longer than `ideal_duration_s` (**3600 s** for pyannote — effectively whole-buffer, chunking is a memory backstop only; **60 s** for NeMo, forced by its Sortformer 90 s cap) are auto-chunked with 10 s overlap and stitched by cosine AHC at `stitch_threshold=0.35`. The 2026-07-14 offline map-reduce study found whole-buffer strictly best for DER (0.143 vs 0.170 at 300 s). |
 | **STT** | [`pywhispercpp`](https://github.com/abdeladim-s/pywhispercpp) turbo | `large-v3-turbo-q5_0` by default. Word timestamps on. Runs in a thread pool so the event loop never stalls. **Strongly recommended: supply `initial_prompt` (domain bias)** — cuts WER 15-25 pp and saves up to 39 % RTF per the 2026-06-30 sweep (`studies/whisper_prompt_lang_lock.py`). |
 | **LLM analyst** *(optional)* | Ollama-served Gemma 3 4b (`gemma3:4b`) | Rolling summary of everything **older than 60 s**. The recent 60 s window is kept verbatim. Summary refreshes every **60 s of evicted content** (`flush_every_s=60`). Default model `gemma3:4b` selected by the 2026-06-30 7-model Pareto sweep (`studies/llm_model_size_sweep.py`): it dominates `gemma4:e4b-mlx` on BOTH RTF (0.099 vs 0.313, **3× faster**) AND cos_sim (0.466 vs 0.420). Pareto front also exposes `gemma4:12b-mlx` (RTF 2.45, cos_sim 0.496) for offline-batch quality runs, and `qwen2.5:3b` (RTF 0.043) for tight RTF budgets. |
 
@@ -112,32 +112,33 @@ ollama pull gemma3:4b   # default (or gemma4:12b-mlx for max quality, qwen2.5:3b
 ollama serve   # usually launched at install time
 ```
 
-### HuggingFace token
+### Model weights — no HuggingFace needed
 
-The pyannote backend pulls gated models from the Hub. `vocal-helper`
-resolves the token in this order (first non-empty wins):
+All model weights ship in a single self-hosted **diarization-engines
+bundle** (offline pyannote 3.1, NeMo Sortformer, the online
+`pyannote/embedding` embedder, SpeechBrain VoxLingua107). Point
+`vocal-helper` at it once and the whole stack runs **HuggingFace-free** —
+no token, no gated downloads, `HF_HUB_OFFLINE=1` safe.
 
-1. `--hf-token hf_…` on the CLI (or `hf_token=` kwarg on
-   `OnlineDiarStage` / `OfflineDiarStage`).
-2. The `HF_TOKEN` environment variable.
-3. `secrets.hf_token` from a local `settings.yaml`.
-
-To use the file path, copy the shipped template once and fill it in:
+Configure it in `settings.yaml` (the only config the project needs):
 
 ```bash
 cp settings.yaml.example settings.yaml
-# then edit `secrets.hf_token` — settings.yaml is git-ignored
+# settings.yaml already contains:
+#   engines:
+#     diarization_url: https://deraison.ai/diarization-engines.zip
+# settings.yaml is git-ignored.
 ```
 
-The placeholder value `hf_XXXX` is treated as unset, so an unedited
-copy never masquerades as real credentials.
+The bundle URL is downloaded once and cached under
+`~/.cache/vocal-helper`; you can also set `$VH_DIARIZATION_ENGINES` to a
+local directory holding the extracted bundle. TitaNet (the default
+online-diar embedder) loads from NVIDIA NGC, also without HuggingFace.
 
 ### Live microphone → terminal
 
 ```bash
-# The default nemo/TitaNet backend needs no token. Only export this
-# when you pass --diar-backend pyannote (gated Hub download).
-export HF_TOKEN=hf_yourtoken
+# No token, no HuggingFace — weights come from the diarization-engines bundle.
 vocal-helper mic --llm
 ```
 

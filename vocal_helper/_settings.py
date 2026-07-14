@@ -4,17 +4,20 @@ vocal_helper._settings
 
 Local configuration loader for ``settings.yaml``.
 
-The library reads optional credentials from a ``settings.yaml`` file
+The library reads its configuration from a ``settings.yaml`` file
 checked in *only* as ``settings.yaml.example`` — the real file is
 git-ignored and lives next to the package root (or the current
-working directory). The schema is intentionally tiny ; today only a
-``secrets:`` mapping is parsed :
+working directory). The schema is intentionally tiny :
 
 .. code-block:: yaml
 
-    # ------------------------------------------------------------------
-    # Secrets — values are env-var references, never literals.
-    # ------------------------------------------------------------------
+    # The self-hosted model bundle — the ONLY config the project needs.
+    # It removes every HuggingFace dependency (no token required).
+    engines:
+      diarization_url: https://…/diarization-engines.zip
+
+    # Optional / legacy — HF is no longer needed ; kept only as a fallback
+    # for the (non-default) path that pulls models from the HF hub.
     secrets:
       hf_token: hf_XXXX
 
@@ -60,7 +63,12 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-__all__ = ["load_settings", "resolve_hf_token", "settings_path"]
+__all__ = [
+    "load_settings",
+    "resolve_diarization_engines_url",
+    "resolve_hf_token",
+    "settings_path",
+]
 
 
 # The placeholder shipped in ``settings.yaml.example``. Treated as
@@ -192,4 +200,50 @@ def resolve_hf_token(explicit: str | None = None) -> str | None:
     token = load_settings().get("secrets", {}).get("hf_token")
     if token and token not in _PLACEHOLDER_TOKENS:
         return token
+    return None
+
+
+# Placeholder shipped in ``settings.yaml.example`` — treated as "unset".
+_PLACEHOLDER_ENGINES = frozenset({"", "https://example.com/diarization-engines.zip"})
+
+
+def resolve_diarization_engines_url(explicit: str | None = None) -> str | None:
+    """Return the diarization-engines bundle source (URL or local dir).
+
+    The bundle carries every model weight the project needs — the offline
+    pyannote pipeline, NeMo Sortformer, the online ``pyannote/embedding``
+    embedder and SpeechBrain VoxLingua107 — so nothing is fetched from
+    HuggingFace. This is the *only* configuration the library requires.
+
+    Parameters
+    ----------
+    explicit : str, optional
+        A source supplied directly by the caller. Takes precedence.
+
+    Returns
+    -------
+    str or None
+        A URL to ``diarization-engines.zip`` or a local bundle directory,
+        or ``None`` when no source is configured (callers then use their
+        own built-in default).
+
+    Notes
+    -----
+    Resolution order (highest priority first):
+
+    1. ``explicit`` argument.
+    2. ``$VH_DIARIZATION_ENGINES`` environment variable (URL or local dir).
+    3. ``engines.diarization_url`` in ``settings.yaml``.
+    """
+    # (1) Caller-supplied value always wins.
+    if explicit:
+        return explicit
+    # (2) Environment override — used by tests to point at a local bundle.
+    env = os.environ.get("VH_DIARIZATION_ENGINES")
+    if env:
+        return env
+    # (3) The documented settings.yaml key — the canonical config source.
+    url = load_settings().get("engines", {}).get("diarization_url")
+    if url and url not in _PLACEHOLDER_ENGINES:
+        return url
     return None
