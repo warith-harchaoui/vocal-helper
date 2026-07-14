@@ -196,18 +196,26 @@ def language_posterior_curve(
     half = window_s / 2.0
     centers: list[float] = []
     rows: list[NDArray[np.float64]] = []
+    # Slide a window centred on each hop-spaced time ``t`` and read whisper's
+    # language head there. Overlapping windows (hop < window) oversample the
+    # curve so the later smoothing + argmax lands boundaries within a hop.
     t = 0.0
     while t < max(dur, hop_s):
+        # Clamp the window to the signal — edge windows are simply shorter.
         a = max(0.0, t - half)
         b = min(dur, t + half)
         seg = pcm[int(a * sample_rate) : int(b * sample_rate)].astype(np.float32)
         if seg.shape[0] >= sample_rate:  # need ≥ 1 s to identify
             (_top, _p), all_probs = stage._model.auto_detect_language(seg)  # type: ignore[attr-defined]
+            # Project onto the supported set and renormalise to a proper
+            # distribution — the argmax later must compare like-for-like.
             row = np.array([float(all_probs.get(code, 0.0)) for code in langs])
             s = row.sum()
+            # Zero-mass window (nothing supported ranked) → uniform prior.
             rows.append(row / s if s > 0 else np.ones(len(langs)) / len(langs))
             centers.append(min(t, dur))
         t += hop_s
+    # No usable window at all (audio < 1 s) → one uniform frame, still valid.
     if not rows:  # audio shorter than 1 s
         return np.array([0.0]), langs, np.ones((1, len(langs))) / len(langs)
     return np.array(centers), langs, np.vstack(rows)

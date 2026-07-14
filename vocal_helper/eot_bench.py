@@ -58,6 +58,8 @@ from __future__ import annotations
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 
+# LiveKit's canonical reporting bands — 300 / 600 / 1200 ms — kept as the
+# module default so every study scores against the same latency budgets.
 DEFAULT_LATENCY_BANDS_MS: tuple[int, ...] = (300, 600, 1200)
 
 

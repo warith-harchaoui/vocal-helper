@@ -333,10 +333,14 @@ async def from_numpy_array(
     real_time: bool = False,
 ) -> AsyncIterator[PcmFrame]:
     """Yield PCM frames from an in-memory mono float32 buffer."""
+    # Fail loud on shape : a stereo/2-D array would silently mis-frame and
+    # corrupt every downstream stage, so reject it up front.
     if pcm.ndim != 1:
         raise ValueError(f"from_numpy_array expects mono PCM, got shape {pcm.shape}")
+    # Coerce dtype without copying when already float32 — cheap contract fix.
     if pcm.dtype != np.float32:
         pcm = pcm.astype(np.float32, copy=False)
+    # Same cursor-based chunker as from_wav_file (kept parallel on purpose).
     frame_samples = sample_rate * frame_ms // 1000
     n = pcm.shape[0]
     start = time.monotonic()
@@ -344,14 +348,18 @@ async def from_numpy_array(
     while cursor < n:
         block = pcm[cursor : cursor + frame_samples]
         if block.shape[0] < frame_samples:
+            # Zero-pad the final short frame so consumers get uniform lengths.
             pad = np.zeros(frame_samples - block.shape[0], dtype=np.float32)
             block = np.concatenate([block, pad], axis=0)
         yield PcmFrame(
+            # Sample-offset timestamp — deterministic regardless of pacing.
             t0=cursor / float(sample_rate),
             sample_rate=sample_rate,
             pcm=block,
         )
         cursor += frame_samples
+        # ``real_time`` defaults False here (tests want burst speed) ; when set,
+        # pace to playout so a synthetic stream mimics live cadence.
         if real_time:
             target = start + (cursor / float(sample_rate))
             sleep_s = target - time.monotonic()

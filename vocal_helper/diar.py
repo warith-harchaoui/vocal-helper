@@ -440,6 +440,25 @@ class _PyannoteEmbedder:
             self._inference = Inference(model, window="whole", device=torch.device("cpu"))
 
     def embed(self, pcm: NDArray[np.float32], sr: int) -> NDArray[np.float32]:
+        """Return a single ``pyannote/embedding`` vector for one segment.
+
+        Parameters
+        ----------
+        pcm : NDArray[np.float32]
+            Mono PCM samples for the segment.
+        sr : int
+            Sample rate of ``pcm``.
+
+        Returns
+        -------
+        NDArray[np.float32]
+            The flattened, whole-segment speaker embedding.
+
+        Raises
+        ------
+        ValueError
+            If ``pcm`` is not 1-D (mono).
+        """
         import torch  # type: ignore
 
         if pcm.ndim != 1:
@@ -453,9 +472,17 @@ class _TitaNetEmbedder:
     """Wraps NVIDIA TitaNet via NeMo for sharper cosine separation."""
 
     def __init__(self) -> None:
+        """Initialise with no model ; the checkpoint loads in :meth:`load`."""
         self._model = None
 
     def load(self) -> None:
+        """Fetch the pretrained ``titanet_large`` model into eval mode.
+
+        Raises
+        ------
+        ImportError
+            If the optional ``nemo`` extra is not installed.
+        """
         try:
             from nemo.collections.asr.models import EncDecSpeakerLabelModel  # type: ignore
         except ImportError as e:
