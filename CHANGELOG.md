@@ -7,6 +7,17 @@ This project adheres to [Semantic Versioning](https://semver.org).
 
 ## [0.4.2] - 2026-07-14
 
+### Added
+
+- `lid.detect_language_regions_fast` — a single-pass fast path for spoken-language
+  segmentation. It runs one cheap whole-file `detect_language`; when that clears a
+  confidence gate (`DEFAULT_FAST_CONF_GATE`, 0.5) on a routable language the file is
+  treated as monolingual and returned as a single region, otherwise it falls back to
+  the accurate posterior-curve `detect_language_regions` scan. On monolingual
+  recordings this cuts per-file language identification from ~73 s to ~1 s with
+  identical region output, while low-confidence (code-switched / noisy) files still
+  get the full scan. Exported from the package root; covered by pure, model-free tests.
+
 ### Documentation
 
 - Finalize suite wording: describe capabilities in plain language

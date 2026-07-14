@@ -11,8 +11,11 @@ correctness of the multi-language partitioning actually lives.
 from __future__ import annotations
 
 import numpy as np
+import pytest
 
+import vocal_helper.lid as lid
 from vocal_helper.lid import (
+    DEFAULT_FAST_CONF_GATE,
     DEFAULT_MIN_REGION_S,
     DEFAULT_SUPPORTED_LANGS,
     DEFAULT_WINDOW_S,
@@ -20,6 +23,7 @@ from vocal_helper.lid import (
     _absorb_short_regions,
     _coalesce,
     _snap_boundaries_to_silence,
+    detect_language_regions_fast,
 )
 
 
@@ -162,3 +166,52 @@ def test_absorb_cascades_until_all_clear() -> None:
     ]
     absorbed = _absorb_short_regions(regions, min_region_s=10.0)
     assert _spans(absorbed) == [("en", 0.0, 90.0)]
+
+
+# ----- detect_language_regions_fast (single-pass fast path) -----------------
+#
+# The whisper-backed detection is monkeypatched, so these exercise the routing
+# logic — confident → one region, uncertain → fall back to the posterior scan —
+# without loading a model.
+
+
+def test_fast_confident_returns_single_region(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A confident, routable detection short-circuits to one whole-file region."""
+    monkeypatch.setattr(lid, "detect_language", lambda pcm, **kw: ("en", 0.99))
+    # The posterior scan must NOT run on the fast path — make it explode if it does.
+    monkeypatch.setattr(
+        lid,
+        "detect_language_regions",
+        lambda *a, **k: (_ for _ in ()).throw(AssertionError("fallback should not run")),
+    )
+    pcm = np.zeros(16_000 * 5, dtype=np.float32)  # 5 s
+    out = detect_language_regions_fast(pcm, 16_000)
+    assert [(r.lang, r.t0, r.t1) for r in out] == [("en", 0.0, 5.0)]
+
+
+def test_fast_lowconf_falls_back(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Below the confidence gate, the robust multi-window scan runs instead."""
+    sentinel = [LangRegion("fr", 0.0, 3.0), LangRegion("es", 3.0, 6.0)]
+    monkeypatch.setattr(lid, "detect_language", lambda pcm, **kw: ("en", 0.2))
+    monkeypatch.setattr(lid, "detect_language_regions", lambda *a, **k: sentinel)
+    pcm = np.zeros(16_000 * 6, dtype=np.float32)
+    out = detect_language_regions_fast(pcm, 16_000, conf_gate=DEFAULT_FAST_CONF_GATE)
+    assert out is sentinel
+
+
+def test_fast_unsupported_language_falls_back(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A confident but un-routable language still defers to the full scan."""
+    sentinel = [LangRegion("en", 0.0, 4.0)]
+    monkeypatch.setattr(lid, "detect_language", lambda pcm, **kw: ("zz", 0.99))
+    monkeypatch.setattr(lid, "detect_language_regions", lambda *a, **k: sentinel)
+    pcm = np.zeros(16_000 * 4, dtype=np.float32)
+    out = detect_language_regions_fast(pcm, 16_000, supported=("en", "fr"))
+    assert out is sentinel
+
+
+def test_fast_empty_input_single_zero_length_region() -> None:
+    """Empty audio yields one zero-length region (matches the slow path's contract)."""
+    out = detect_language_regions_fast(np.zeros(0, dtype=np.float32), 16_000)
+    assert len(out) == 1
+    assert out[0].t0 == out[0].t1 == 0.0
+    assert out[0].lang == DEFAULT_SUPPORTED_LANGS[0]
