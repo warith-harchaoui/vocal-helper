@@ -92,19 +92,24 @@ def test_negative_tolerance_rejected() -> None:
 def test_parallel_sync_runs_branches_concurrently() -> None:
     """``run_parallel_sync`` runs branches in threads and keeps input order."""
 
+    # Each branch sleeps 200 ms. Serial execution would take 3 × 200 ms = 600 ms;
+    # concurrent execution takes ~200 ms plus thread-pool overhead. The sleep is
+    # deliberately long enough that the concurrency gap dwarfs scheduler jitter,
+    # so the timing assertion below is robust on loaded CI runners (a shorter
+    # sleep made concurrent-plus-overhead approach the serial time and flaked).
     def slow_add(x):
-        """Branch : sleep 50 ms then return ``x + 1``."""
-        time.sleep(0.05)
+        """Branch : sleep 200 ms then return ``x + 1``."""
+        time.sleep(0.2)
         return x + 1
 
     def slow_mul(x):
-        """Branch : sleep 50 ms then return ``x * 2``."""
-        time.sleep(0.05)
+        """Branch : sleep 200 ms then return ``x * 2``."""
+        time.sleep(0.2)
         return x * 2
 
     def slow_pow(x):
-        """Branch : sleep 50 ms then return ``x ** 2``."""
-        time.sleep(0.05)
+        """Branch : sleep 200 ms then return ``x ** 2``."""
+        time.sleep(0.2)
         return x**2
 
     t0 = time.perf_counter()
@@ -118,9 +123,10 @@ def test_parallel_sync_runs_branches_concurrently() -> None:
     assert results["add"][0] == 11
     assert results["mul"][0] == 20
     assert results["pow"][0] == 100
-    # Timing : concurrent execution completes well under the sum of
-    # the 3 × 50 ms sleeps.
-    assert elapsed < 0.12
+    # Timing : concurrent execution completes far under the 600 ms serial sum
+    # (~200 ms + overhead). The 450 ms bound proves the branches overlap while
+    # leaving generous headroom for CI jitter.
+    assert elapsed < 0.45
     # Ordering : dict preserves input order.
     assert list(results.keys()) == ["add", "mul", "pow"]
 
