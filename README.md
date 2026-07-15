@@ -19,7 +19,7 @@ Vocal Helper is an **async producer/consumer pipeline** turning audio into diari
 - **Online** (`voh.Pipeline`) — live PCM stream → live transcript + live summary. Each stage runs at its own cadence, decoupled by bounded queues. The STT stage warms up on start so the first caption doesn't stall on whisper's cold inference.
 - **Offline** (`voh.OfflinePipeline`) — full audio buffer → highest-quality diarization (pyannote 3.1 runs the whole meeting in one call — the 2026-07-14 offline map-reduce study found whole-buffer strictly best for DER; chunk-and-stitch survives only as a memory backstop past ~1 h) → **full-throttle batched transcript** (consecutive segments concatenated into ≤ 24 s whisper calls — ~6.5× lower RTF at better WER per the 2026-07-09 sweep) → summary. Opt back into per-segment ASR with `OfflinePipelineConfig(asr={"batch": False})`.
 
-# Documentation
+## Documentation
 
 [💻 Documentation](https://harchaoui.org/warith/ai-helpers/docs/vocal-helper-doc/)
 
@@ -76,7 +76,7 @@ and does its own segmentation.
 | **STT** | [`pywhispercpp`](https://github.com/abdeladim-s/pywhispercpp) turbo | `large-v3-turbo-q5_0` by default. Word timestamps on. Runs in a thread pool so the event loop never stalls. **Strongly recommended: supply `initial_prompt` (domain bias)** — cuts WER 15-25 pp and saves up to 39 % RTF per the 2026-06-30 sweep (`studies/whisper_prompt_lang_lock.py`). |
 | **LLM analyst** *(optional)* | Ollama-served Gemma 3 4b (`gemma3:4b`) | Rolling summary of everything **older than 60 s**. The recent 60 s window is kept verbatim. Summary refreshes every **60 s of evicted content** (`flush_every_s=60`). Default model `gemma3:4b` selected by the 2026-06-30 7-model Pareto sweep (`studies/llm_model_size_sweep.py`): it dominates `gemma4:e4b-mlx` on BOTH RTF (0.099 vs 0.313, **3× faster**) AND cos_sim (0.466 vs 0.420). Pareto front also exposes `gemma4:12b-mlx` (RTF 2.45, cos_sim 0.496) for offline-batch quality runs, and `qwen2.5:3b` (RTF 0.043) for tight RTF budgets. |
 
-## Quickstart
+## Installation
 
 > **More recipes?** See [`EXAMPLES.md`](https://github.com/warith-harchaoui/vocal-helper/blob/main/EXAMPLES.md)
 > for a self-contained, copy-runnable cookbook of the common workflows
@@ -89,19 +89,24 @@ and does its own segmentation.
 > covering the whole AI Helpers suite (os-helper, audio-helper,
 > podcast-helper, youtube-helper, vocal-helper, music-helper).
 
-### Install
-
 **Prerequisites** — **Python 3.10–3.13** and **git**, **ffmpeg**, **PortAudio**, cross-platform:
 
 - 🍎 **macOS** ([Homebrew](https://brew.sh)): `brew install python git ffmpeg portaudio`
 - 🐧 **Ubuntu/Debian**: `sudo apt update && sudo apt install -y python3 python3-pip git ffmpeg portaudio19-dev`
 - 🪟 **Windows** (PowerShell): `winget install Python.Python.3.12 Git.Git Gyan.FFmpeg` (PortAudio ships inside the Python wheels)
 
-Then install the package:
+We recommend using Python environments. Check this link if you're unfamiliar with setting one up: [🥸 Tech tips](https://harchaoui.org/warith/4ml/#install).
 
+### From PyPI (recommended)
 
 ```bash
 pip install 'vocal-helper[all]'
+```
+
+### From source (no PyPI)
+
+```bash
+pip install 'vocal-helper[all] @ git+https://github.com/warith-harchaoui/vocal-helper.git@v0.4.3'
 ```
 
 The `[all]` extra brings the mic source, both diarization backends (NeMo — the default — and pyannote), and Ollama. Pick à la carte if you don't need everything :
@@ -342,3 +347,7 @@ Special thanks to
 [Bachir Zerroug](https://www.linkedin.com/in/bachirzerroug)
 and
 [Edmond Jacoupeau](https://www.crunchbase.com/person/edmond-jacoupeau).
+
+## License
+
+This project is licensed under the BSD-3-Clause License — see the [LICENSE](LICENSE) file for details.

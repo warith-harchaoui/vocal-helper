@@ -14,7 +14,7 @@
 
 Vocal Helper est un **pipeline producteur/consommateur asynchrone** qui transforme un flux audio PCM en direct en énoncés diarizés et transcrits — et, en option, en résumé glissant produit par un LLM.
 
-# Documentation
+## Documentation
 
 [💻 Documentation](https://harchaoui.org/warith/ai-helpers/docs/vocal-helper-doc/)
 
@@ -71,7 +71,7 @@ complet et fait sa propre segmentation.
 | **STT** | [`pywhispercpp`](https://github.com/abdeladim-s/pywhispercpp) turbo | `large-v3-turbo-q5_0` par défaut, timestamps mots activés. Exécution en thread pool pour ne jamais bloquer la boucle async. |
 | **Analyste LLM** *(optionnel)* | Gemma 4 e4b servi par Ollama (`gemma4:e4b`) | Résumé glissant de tout ce qui est **plus vieux que 60 s**. La fenêtre récente de 60 s reste verbatim. La variante `-mlx` est auto-sélectionnée par Ollama sur Apple-Silicon. |
 
-## Démarrage rapide
+## Installation
 
 > **Déploiement sur un serveur GPU ?** Voir [TECHNICAL_STACK.md](TECHNICAL_STACK.md)
 > pour la recette complète : CUDA + PyTorch, whisper.cpp compilé avec
@@ -81,19 +81,24 @@ complet et fait sa propre segmentation.
 > AI Helpers (os-helper, audio-helper, podcast-helper, youtube-helper,
 > vocal-helper, music-helper).
 
-### Installation
-
 **Prérequis** — **Python 3.10–3.13** et **git**, **ffmpeg**, **PortAudio**, multiplateforme :
 
 - 🍎 **macOS** ([Homebrew](https://brew.sh)) : `brew install python git ffmpeg portaudio`
 - 🐧 **Ubuntu/Debian** : `sudo apt update && sudo apt install -y python3 python3-pip git ffmpeg portaudio19-dev`
 - 🪟 **Windows** (PowerShell) : `winget install Python.Python.3.12 Git.Git Gyan.FFmpeg` (PortAudio est inclus dans les wheels Python)
 
-Puis installer le paquet :
+Nous recommandons d'utiliser des environnements Python. Consultez ce lien si vous ne savez pas en configurer un : [🥸 Tech tips](https://harchaoui.org/warith/4ml/#install).
 
+### Depuis PyPI (recommandé)
 
 ```bash
 pip install 'vocal-helper[all]'
+```
+
+### Depuis les sources (sans PyPI)
+
+```bash
+pip install 'vocal-helper[all] @ git+https://github.com/warith-harchaoui/vocal-helper.git@v0.4.3'
 ```
 
 L'extra `[all]` installe la source micro, pyannote et Ollama. À la carte si tout n'est pas nécessaire :
@@ -277,3 +282,7 @@ Un grand merci à
 [Bachir Zerroug](https://www.linkedin.com/in/bachirzerroug)
 et
 [Edmond Jacoupeau](https://www.crunchbase.com/person/edmond-jacoupeau).
+
+## Licence
+
+Ce projet est distribué sous licence BSD-3-Clause — voir le fichier [LICENSE](LICENSE) pour les détails.
