@@ -25,24 +25,33 @@ Reliability — which path to use
 -------------------------------
 The **offline** path is the reliable one and should be preferred for any
 batch / file input. A 2026-07-16 DER sweep (``studies/diar_der_paths.py``,
-pyannote.metrics, collar 0.25) measured all three paths against ground truth:
+pyannote.metrics, collar 0.25) measured every path against ground truth:
 
-======================  ==========  ================  ================
-corpus                  offline     online (no ref)   online + refine
-======================  ==========  ================  ================
-AMI (real meetings)     **0.122**   0.497             0.351
-bagarre (26% overlap)   **0.338**   0.586             0.592
-======================  ==========  ================  ================
+========================  ==================  =====================  =====================
+corpus                    offline pyannote    offline nemo (Sortf)   online (no ref / ref)
+========================  ==================  =====================  =====================
+AMI (20-40 min meetings)  **0.122**           0.242                  0.497 / 0.351
+bagarre (~30 s, <=4 spk)  0.338               **0.177**              0.586 / 0.592
+========================  ==================  =====================  =====================
 
 Takeaways: (1) offline pyannote is literature-grade (Bredin 2023 ~ 0.188
-uncollared) ; (2) the ``refine_on_close`` pass roughly *halves* the online DER
-on long meetings that over-segment (ES2011a 0.588 -> 0.296) and never hurts ;
-(3) even so, the online path stays ~ 3x the offline DER — it is a latency-bound
-streaming approximation that cannot model overlapped speech. So the CLI
-``file --no-real-time`` auto-selects offline when the bundle is present, and
-downstream integrators embedding diarization in a larger pipeline should use
-:class:`OfflineDiarStage` / :class:`~vocal_helper.OfflinePipeline` for batch
-audio and reserve :class:`OnlineDiarStage` for genuinely live streams.
+uncollared) and wins on long meetings, running whole-buffer with global
+clustering and no speaker-count cap. (2) offline **NeMo Sortformer**
+(``diar_sortformer_4spk-v1``) is end-to-end and overlap-aware and nearly
+*halves* the DER on short ``<=4``-speaker clips — but it is capped at 4
+speakers and ~90 s per window, so it degrades once it must chunk long audio.
+(3) The **online** streaming path (nemo TitaNet embeddings) stays ~3x the
+offline DER — a latency-bound approximation that cannot model overlapped
+speech ; ``refine_on_close`` roughly halves its DER on meetings that
+over-segment (ES2011a 0.588 -> 0.296) and never hurts.
+
+Default policy: **pyannote** is the offline default — robust across any length
+and speaker count, best on the long inputs that dominate ``file`` use. Pick
+``--offline --diar-backend nemo`` for short ``<=4``-speaker workloads where
+Sortformer wins. The CLI ``file --no-real-time`` auto-selects offline pyannote
+when the bundle is present ; reserve :class:`OnlineDiarStage` for live streams.
+Downstream integrators embedding diarization in a larger pipeline should use
+:class:`OfflineDiarStage` / :class:`~vocal_helper.OfflinePipeline` for batch.
 
 Online algorithm — minimal cosine-AHC online clusterer
 ------------------------------------------------------
@@ -649,6 +658,54 @@ def _unit_mean(vectors: list[NDArray[np.float32]]) -> NDArray[np.float32]:
     if norm > 0:
         mean = mean / norm
     return mean.astype(np.float32, copy=False)
+
+
+def _parse_sortformer_segments(lines: Any) -> list[tuple[float, float, str]]:
+    """Parse NeMo Sortformer's per-segment output into ``(t0, t1, speaker)``.
+
+    Handles both formats the model can emit so the offline NeMo backend works
+    across nemo-toolkit versions:
+
+    - **Compact** ``"<start> <end> <speaker>"`` (e.g. ``"1.920 3.040 speaker_0"``)
+      — what ``diar_sortformer_4spk-v1`` returns under nemo-toolkit 2.x. The
+      previous parser only understood legacy RTTM and silently dropped every
+      one of these lines, so the backend returned no speakers at all.
+    - **Legacy RTTM** ``"SPEAKER <file> <chan> <start> <dur> <NA> <NA> <spk> …"``.
+
+    Non-string / malformed / zero-length entries are skipped.
+
+    Parameters
+    ----------
+    lines : Iterable
+        The per-utterance prediction list Sortformer returns (``preds[0]``).
+
+    Returns
+    -------
+    list[tuple[float, float, str]]
+        ``[(t0, t1, speaker), …]`` in seconds.
+    """
+    out: list[tuple[float, float, str]] = []
+    for line in lines:
+        if not isinstance(line, str):
+            continue
+        parts = line.split()
+        # Compact form: start, end, speaker.
+        if len(parts) == 3:
+            try:
+                t0, t1 = float(parts[0]), float(parts[1])
+            except ValueError:
+                continue
+            if t1 > t0:
+                out.append((t0, t1, str(parts[2])))
+            continue
+        # Legacy RTTM: SPEAKER <file> <chan> <start> <dur> <NA> <NA> <spk> …
+        if len(parts) >= 8 and parts[0] == "SPEAKER":
+            try:
+                t0, dur = float(parts[3]), float(parts[4])
+            except ValueError:
+                continue
+            out.append((t0, t0 + dur, str(parts[7])))
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -1445,11 +1502,13 @@ class _NemoSortformerDiar:
         pcm: NDArray[np.float32],
         sr: int,
     ) -> list[tuple[float, float, str]]:
-        """Run Sortformer on a whole buffer via a temp WAV, parse the RTTM.
+        """Run Sortformer on a whole buffer via a temp WAV, parse its segments.
 
         Writes ``pcm`` to a per-call 16-bit temp WAV (keeping the
-        dependency surface small), diarizes it, then parses the RTTM-like
-        ``SPEAKER`` lines Sortformer returns into segment tuples.
+        dependency surface small), diarizes it, then parses the per-segment
+        strings Sortformer returns — the compact ``"<start> <end> <speaker>"``
+        form emitted by nemo-toolkit 2.x (and legacy RTTM lines) — into
+        ``(t0, t1, speaker)`` tuples.
 
         Parameters
         ----------
@@ -1474,16 +1533,4 @@ class _NemoSortformerDiar:
             pcm16 = (np.clip(pcm, -1.0, 1.0) * 32767.0).astype(np.int16)
             _wav.write(tmp.name, sr, pcm16)
             preds = self._model.diarize(audio=tmp.name, batch_size=1)
-        # ``preds`` is a list of RTTM-like strings ; parse them.
-        out: list[tuple[float, float, str]] = []
-        for line in preds[0]:
-            if not isinstance(line, str):
-                continue
-            parts = line.split()
-            if len(parts) < 8 or parts[0] != "SPEAKER":
-                continue
-            t0 = float(parts[3])
-            dur = float(parts[4])
-            spk = parts[7]
-            out.append((t0, t0 + dur, str(spk)))
-        return out
+        return _parse_sortformer_segments(preds[0])

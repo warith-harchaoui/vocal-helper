@@ -7,23 +7,29 @@ diarization paths the package ships against ground-truth RTTM and scores them
 with ``pyannote.metrics`` (collar 0.25, the AMI convention):
 
     offline_pyannote  -> OfflineDiarStage(backend="pyannote")   whole-buffer
+    offline_nemo      -> OfflineDiarStage(backend="nemo")       Sortformer
     online_baseline   -> VAD -> OnlineDiarStage(nemo)           no refine
     online_refine     -> VAD -> OnlineDiarStage(nemo) + refine_on_close
 
 Result (2026-07-16, this machine; ``studies`` are excluded from lint/CI):
 
-    corpus                 offline   online_baseline   online_refine
-    ---------------------  --------  ----------------  --------------
-    AMI (2 real meetings)   0.122        0.497             0.351
-    bagarre (40 clips)      0.338        0.586             0.592
+    corpus                 offline_pyannote  offline_nemo  online_base  online_ref
+    ---------------------  ----------------  ------------  -----------  ----------
+    AMI (2 real meetings)      0.122            0.242          0.497        0.351
+    bagarre (40 clips)         0.338            0.177          0.586        0.592
 
-Reading it: offline pyannote is literature-grade (Bredin 2023 ~0.188
-uncollared); ``refine_on_close`` roughly halves the online DER on meetings
-that over-segment (ES2011a 0.588 -> 0.296) and never hurts; but the online
-path is still ~3x the offline DER because it cannot model overlapped speech.
-Hence ``vocal-helper file --no-real-time`` auto-selects offline when the
-bundle is present, and batch integrators should use OfflineDiarStage /
-OfflinePipeline. See ``vocal_helper/diar.py`` module docstring.
+Reading it — a length crossover on the offline backends: pyannote is
+literature-grade (Bredin 2023 ~0.188 uncollared) and wins on long meetings
+(whole-buffer, no speaker cap); NeMo Sortformer (``diar_sortformer_4spk-v1``,
+end-to-end + overlap-aware but 4-speaker / ~90 s capped) nearly halves the DER
+on short <=4-speaker clips yet degrades once it must chunk long audio. So
+pyannote stays the offline default and Sortformer is the pick for short
+<=4-speaker workloads. ``refine_on_close`` roughly halves the *online* DER on
+meetings that over-segment (ES2011a 0.588 -> 0.296) and never hurts, but the
+online path is still ~3x the offline DER. Hence ``vocal-helper file
+--no-real-time`` auto-selects offline pyannote when the bundle is present, and
+batch integrators should use OfflineDiarStage / OfflinePipeline. See
+``vocal_helper/diar.py`` module docstring.
 
 Data (off-repo, from the pdbms benchmark):
     bagarre : <bench>/data/bagarre/mix_*.wav + mix_*.rttm   (synthetic 3-spk)
@@ -162,6 +168,8 @@ def main() -> None:
 
     offline = OfflineDiarStage(backend="pyannote")
     offline._ensure_backend()
+    offline_nemo = OfflineDiarStage(backend="nemo")
+    offline_nemo._ensure_backend()
     warm_online = OnlineDiarStage(backend="nemo")
     warm_online._ensure_embedder()
     warm_vad = SileroVADStage()
@@ -170,6 +178,7 @@ def main() -> None:
 
     ders: dict[str, list[float]] = {
         "offline_pyannote": [],
+        "offline_nemo": [],
         "online_baseline": [],
         "online_refine": [],
     }
@@ -179,6 +188,7 @@ def main() -> None:
             pcm = load_pcm(wav)
             ref = ref_from_rttm(rttm)
             hyp_off = ann_from_segs(offline.diarize(pcm, SR))
+            hyp_off_nemo = ann_from_segs(offline_nemo.diarize(pcm, SR))
             voiced = asyncio.run(_vad_segments(pcm, warm_vad))
             stage = OnlineDiarStage(backend="nemo", refine_on_close=True)
             stage._embedder = shared_emb
@@ -195,6 +205,7 @@ def main() -> None:
             )
             for key, hyp in [
                 ("offline_pyannote", hyp_off),
+                ("offline_nemo", hyp_off_nemo),
                 ("online_baseline", hyp_base),
                 ("online_refine", hyp_ref),
             ]:
