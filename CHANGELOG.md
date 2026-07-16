@@ -5,6 +5,37 @@ This project adheres to [Semantic Versioning](https://semver.org).
 
 ## [Unreleased]
 
+## [0.4.6] - 2026-07-16
+
+### Fixed
+
+- **Offline NeMo Sortformer backend returned no speakers at all.**
+  `OfflineDiarStage(backend="nemo")` parsed the model output as legacy RTTM
+  (`SPEAKER …` lines, ≥8 fields), but nemo-toolkit 2.x emits the compact
+  `"<start> <end> <speaker>"` form — so every line was dropped and the backend
+  produced an empty diarization (DER 1.0 on every input). The parser now
+  handles both formats (extracted to `_parse_sortformer_segments`, unit-tested
+  in `tests/test_sortformer_parse.py`). The offline nemo path now works.
+
+### Documentation
+
+- **Offline backend crossover, measured (DER, collar 0.25).** With Sortformer
+  fixed, a head-to-head on ground truth shows a length-dependent crossover:
+
+  | corpus | offline pyannote | offline nemo (Sortformer) |
+  |---|---|---|
+  | AMI (20–40 min meetings) | **0.122** | 0.242 |
+  | bagarre (~30 s, ≤4 spk, 26% overlap) | 0.338 | **0.177** |
+
+  NeMo Sortformer (`diar_sortformer_4spk-v1`, end-to-end + overlap-aware, but
+  4-speaker / ~90 s capped) nearly *halves* the DER on short ≤4-speaker clips,
+  while pyannote 3.1 (whole-buffer, no speaker cap) wins on long meetings. So
+  **pyannote stays the offline default** (robust across length + speaker count,
+  best on the long inputs that dominate batch `file` use) and `--offline
+  --diar-backend nemo` is the pick for short ≤4-speaker workloads. Documented
+  in the `vocal_helper.diar` module docstring; `studies/diar_der_paths.py`
+  reproduces the full sweep.
+
 ## [0.4.5] - 2026-07-16
 
 ### Changed
