@@ -21,6 +21,29 @@ for batch / file-based inputs.
   does kick in, the stage overlaps chunks and stitches via cosine AHC
   (pdbms §10.5, AMI dev-slice median DER 0.116, inside Bredin 2023's band).
 
+Reliability — which path to use
+-------------------------------
+The **offline** path is the reliable one and should be preferred for any
+batch / file input. A 2026-07-16 DER sweep (``studies/diar_der_paths.py``,
+pyannote.metrics, collar 0.25) measured all three paths against ground truth:
+
+======================  ==========  ================  ================
+corpus                  offline     online (no ref)   online + refine
+======================  ==========  ================  ================
+AMI (real meetings)     **0.122**   0.497             0.351
+bagarre (26% overlap)   **0.338**   0.586             0.592
+======================  ==========  ================  ================
+
+Takeaways: (1) offline pyannote is literature-grade (Bredin 2023 ~ 0.188
+uncollared) ; (2) the ``refine_on_close`` pass roughly *halves* the online DER
+on long meetings that over-segment (ES2011a 0.588 -> 0.296) and never hurts ;
+(3) even so, the online path stays ~ 3x the offline DER — it is a latency-bound
+streaming approximation that cannot model overlapped speech. So the CLI
+``file --no-real-time`` auto-selects offline when the bundle is present, and
+downstream integrators embedding diarization in a larger pipeline should use
+:class:`OfflineDiarStage` / :class:`~vocal_helper.OfflinePipeline` for batch
+audio and reserve :class:`OnlineDiarStage` for genuinely live streams.
+
 Online algorithm — minimal cosine-AHC online clusterer
 ------------------------------------------------------
 

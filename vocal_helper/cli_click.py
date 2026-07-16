@@ -297,17 +297,27 @@ def mic(
     "--no-real-time",
     is_flag=True,
     default=False,
-    help="Process as fast as possible (skip real-time pacing). For batch files "
-    "this also enables the online diarizer's global re-clustering pass (merge "
-    "near-duplicate speakers + prune outlier micro-speakers), removing the label "
-    "explosion the greedy streaming clusterer produces on long multi-speaker "
-    "audio. Use --offline for the pyannote whole-buffer path instead.",
+    help="Batch mode: process as fast as possible (skip real-time pacing). By "
+    "default auto-selects the offline pyannote diarizer when its bundle is "
+    "present — the most reliable path (DER ~0.12 on AMI vs ~0.50 online, "
+    "2026-07-16 sweep) — else falls back to the online diarizer with the global "
+    "re-clustering repair pass. Pass --online to force the streaming diarizer.",
 )
 @click.option(
     "--offline",
     is_flag=True,
     default=False,
-    help="Use OfflinePipeline for highest-quality diarization on long inputs.",
+    help="Force the OfflinePipeline (pyannote 3.1 whole-buffer, global "
+    "clustering) — most reliable on meetings/podcasts/lectures. Honours "
+    "--diar-backend. Already the default for --no-real-time when the bundle is "
+    "available.",
+)
+@click.option(
+    "--online",
+    is_flag=True,
+    default=False,
+    help="Force the online streaming diarizer for a batch file run instead of "
+    "auto-selecting offline (lighter, lower latency, higher DER).",
 )
 def file(
     whisper_model: str,
@@ -326,8 +336,10 @@ def file(
     path: str,
     no_real_time: bool,
     offline: bool,
+    online: bool,
 ) -> None:
     """Replay a 16 kHz mono WAV through the pipeline."""
+    from vocal_helper.cli_argparse import _choose_file_diar
     from vocal_helper.sources import from_wav_file
 
     cfg = _pipeline_config(
@@ -351,19 +363,21 @@ def file(
         # as they decode, which is what you want when timing throughput on a file.
         return from_wav_file(Path(path), real_time=not no_real_time)
 
-    # ``--offline`` swaps in the full-buffer diarizer (best quality on long inputs) ;
-    # otherwise we run the streaming pipeline that diarizes segment-by-segment.
-    if offline:
+    # Shared reliability default (see cli_argparse._choose_file_diar): batch runs
+    # prefer the offline pyannote diarizer when its bundle is present, else the
+    # online diarizer with the global re-clustering repair pass.
+    use_offline, diar_cfg, note = _choose_file_diar(
+        cfg.diar, explicit_offline=offline, batch=no_real_time, force_online=online
+    )
+    if note:
+        sys.stderr.write(note + "\n")
+    if use_offline:
         pipeline = OfflinePipeline(
             source=factory,
-            config=OfflinePipelineConfig(diar=cfg.diar, asr=cfg.asr, llm=cfg.llm),
+            config=OfflinePipelineConfig(diar=diar_cfg, asr=cfg.asr, llm=cfg.llm),
         )
     else:
-        # Batch file (``--no-real-time``, streaming pipeline) turns on the online
-        # diarizer's global re-clustering pass so long multi-speaker audio doesn't
-        # explode into hundreds of spurious speakers (see DIARIZATION-TROUBLES.md).
-        if no_real_time:
-            cfg.diar["refine_on_close"] = True
+        cfg.diar = diar_cfg
         pipeline = Pipeline(source=factory, config=cfg)
     asyncio.run(_drain(pipeline, jsonl))
 

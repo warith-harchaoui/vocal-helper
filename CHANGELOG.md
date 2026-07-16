@@ -5,6 +5,35 @@ This project adheres to [Semantic Versioning](https://semver.org).
 
 ## [Unreleased]
 
+## [0.4.5] - 2026-07-16
+
+### Changed
+
+- **Batch file diarization now defaults to the reliable offline path.** A
+  real-DER sweep against ground truth (`studies/diar_der_paths.py`,
+  pyannote.metrics, collar 0.25) settled which diarizer to trust:
+
+  | corpus | offline pyannote | online (no refine) | online + refine |
+  |---|---|---|---|
+  | AMI (real meetings) | **0.122** | 0.497 | 0.351 |
+  | bagarre (26% overlap) | **0.338** | 0.586 | 0.592 |
+
+  Offline pyannote is literature-grade (Bredin 2023 ≈ 0.188 uncollared) and
+  ~3× lower DER than the online streaming diarizer, which cannot model
+  overlapped speech. So `vocal-helper file --no-real-time` now **auto-selects
+  the offline pyannote diarizer when its bundle is present**, falling back to
+  the online diarizer + `refine_on_close` repair pass when it is not (with a
+  one-line stderr note either way). New `--online` flag forces the streaming
+  diarizer; explicit `--offline` is unchanged and still honours
+  `--diar-backend`. Live `mic` / `url` are untouched. Downstream integrators
+  embedding diarization in a larger pipeline should use `OfflineDiarStage` /
+  `OfflinePipeline` for batch audio — see the `vocal_helper.diar` docstring.
+  The DER sweep also independently confirms the v0.4.4 `refine_on_close` fix:
+  it roughly halves the online DER on meetings that over-segment (ES2011a
+  0.588 → 0.296) and never hurts. Both CLIs (argparse + click) share one
+  `_choose_file_diar` policy so the default cannot drift; covered by
+  `tests/test_cli_diar_default.py`.
+
 ## [0.4.4] - 2026-07-16
 
 ### Fixed
