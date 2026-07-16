@@ -42,3 +42,6 @@ settings.yaml
 nomoreclaude.sh
 .secrets/
 .pypirc
+
+# Local-only bug report / working notes (not shipped)
+DIARIZATION-TROUBLES.md

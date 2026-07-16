@@ -168,4 +168,4 @@ __all__ = [
 
 __author__ = "Warith Harchaoui, Ph.D."
 __email__ = "warithmetics@deraison.ai"
-__version__ = "0.4.3"
+__version__ = "0.4.4"

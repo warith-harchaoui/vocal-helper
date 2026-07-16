@@ -163,6 +163,10 @@ class OnlineDiarStage:
         ema_alpha: float = 0.1,
         min_segment_ms: int = 500,
         device: str | None = None,
+        max_speakers: int | None = None,
+        refine_on_close: bool = False,
+        min_cluster_size: int = 2,
+        merge_threshold: float | None = None,
     ) -> None:
         """Configure the online diarizer ; the embedder loads lazily.
 
@@ -184,22 +188,61 @@ class OnlineDiarStage:
         device : str, optional
             Torch device for the pyannote embedder. ``None`` (default)
             auto-picks CUDA > MPS > CPU. No effect on the NeMo backend.
+        max_speakers : int, optional
+            Hard cap on the number of *online* speakers. Once this many
+            centroids exist, an embedding that would otherwise mint a new
+            speaker is forced into its nearest existing centroid instead.
+            ``None`` (default) leaves the online path unbounded — the same
+            behaviour as before this parameter existed. A cap is a blunt
+            guard against runaway cluster proliferation on true live
+            streams ; for batch input prefer ``refine_on_close``.
+        refine_on_close : bool
+            Batch-mode repair. When ``True``, the stage buffers every
+            diarized segment (plus its embedding) and, once the stream
+            closes, runs a global re-clustering pass — merging
+            near-duplicate centroids (cosine distance ≤ ``merge_threshold``)
+            and pruning micro-clusters smaller than ``min_cluster_size``
+            into their nearest survivor — before emitting the whole batch
+            with corrected, compact ``"S<n>"`` labels. This fixes the
+            online clusterer's over-segmentation on long multi-speaker
+            audio (see ``DIARIZATION-TROUBLES.md``) at the cost of holding
+            the labelled segments until end-of-stream, so it is only for
+            batch use where latency is already sacrificed. Default
+            ``False`` (pure streaming, emit as you go).
+        min_cluster_size : int
+            Minimum number of segments a cluster must accumulate to survive
+            the ``refine_on_close`` prune. Clusters below this are folded
+            into their nearest surviving centroid. Default 2 (drop
+            singletons). No effect unless ``refine_on_close`` is set.
+        merge_threshold : float, optional
+            Cosine-distance threshold for merging near-duplicate centroids
+            during the ``refine_on_close`` pass. ``None`` (default) reuses
+            ``join_threshold``. No effect unless ``refine_on_close`` is set.
 
         Raises
         ------
         ValueError
-            If ``join_threshold`` is not in ``(0, 2)`` or ``ema_alpha`` is
-            not in ``(0, 1]``.
+            If ``join_threshold`` is not in ``(0, 2)``, ``ema_alpha`` is not
+            in ``(0, 1]``, ``max_speakers`` is set below 1, or
+            ``min_cluster_size`` is below 1.
         """
         if not 0.0 < join_threshold < 2.0:
             raise ValueError(f"join_threshold must be in (0, 2), got {join_threshold}")
         if not 0.0 < ema_alpha <= 1.0:
             raise ValueError(f"ema_alpha must be in (0, 1], got {ema_alpha}")
+        if max_speakers is not None and max_speakers < 1:
+            raise ValueError(f"max_speakers must be >= 1 or None, got {max_speakers}")
+        if min_cluster_size < 1:
+            raise ValueError(f"min_cluster_size must be >= 1, got {min_cluster_size}")
         self.backend = backend
         self.join_threshold = join_threshold
         self.ema_alpha = ema_alpha
         self.min_segment_ms = min_segment_ms
         self.device = device
+        self.max_speakers = max_speakers
+        self.refine_on_close = refine_on_close
+        self.min_cluster_size = min_cluster_size
+        self.merge_threshold = merge_threshold if merge_threshold is not None else join_threshold
         self._embedder = None
         self._centroids: list[_Centroid] = []
         self._next_id = 0
@@ -234,8 +277,18 @@ class OnlineDiarStage:
         inbox: asyncio.Queue,
         outbox: asyncio.Queue,
     ) -> None:
-        """Consume :class:`VoicedSegment` from ``inbox``, push :class:`DiarizedSegment`."""
+        """Consume :class:`VoicedSegment` from ``inbox``, push :class:`DiarizedSegment`.
+
+        In streaming mode (``refine_on_close=False``) each segment is
+        labelled and emitted as it arrives. In batch mode
+        (``refine_on_close=True``) segments are buffered, globally
+        re-clustered when the stream closes, then emitted with corrected
+        labels — see :meth:`_run_refine`.
+        """
         self._ensure_embedder()
+        if self.refine_on_close:
+            await self._run_refine(inbox, outbox)
+            return
         while True:
             item = await inbox.get()
             if item is None:
@@ -244,6 +297,37 @@ class OnlineDiarStage:
             seg = self._label(item)
             if seg is not None:
                 await outbox.put(seg)
+
+    async def _run_refine(
+        self,
+        inbox: asyncio.Queue,
+        outbox: asyncio.Queue,
+    ) -> None:
+        """Batch path : buffer every segment, re-cluster globally on close.
+
+        Runs the same greedy online assignment as the streaming path (so
+        provisional labels and centroids build up identically), but holds
+        each :class:`DiarizedSegment` and its embedding back instead of
+        emitting. Once the upstream sends its ``None`` sentinel, a single
+        global pass (:meth:`_refine_labels`) merges near-duplicate
+        centroids and prunes micro-clusters ; the buffered segments are
+        then emitted in arrival order with their corrected labels.
+        """
+        buffered: list[DiarizedSegment] = []
+        embeddings: list[NDArray[np.float32] | None] = []
+        while True:
+            item = await inbox.get()
+            if item is None:
+                break
+            seg, emb = self._label_capture(item)
+            if seg is not None:
+                buffered.append(seg)
+                embeddings.append(emb)
+        final_labels = self._refine_labels(buffered, embeddings)
+        for seg, label in zip(buffered, final_labels, strict=True):
+            seg["speaker"] = label
+            await outbox.put(seg)
+        await outbox.put(None)
 
     # ----- core ---------------------------------------------------------
 
@@ -326,7 +410,12 @@ class OnlineDiarStage:
         sims = np.array([float(emb @ c.vector) for c in self._centroids])
         dists = 1.0 - sims
         best = int(np.argmin(dists))
-        if dists[best] <= self.join_threshold:
+        # Join the nearest centroid when it is close enough — or when the
+        # ``max_speakers`` cap is reached, in which case an out-of-threshold
+        # embedding is forced into its nearest existing speaker rather than
+        # minting an unbounded new one.
+        capped = self.max_speakers is not None and len(self._centroids) >= self.max_speakers
+        if dists[best] <= self.join_threshold or capped:
             c = self._centroids[best]
             new_vec = (1.0 - self.ema_alpha) * c.vector + self.ema_alpha * emb
             n = float(np.linalg.norm(new_vec))
@@ -364,6 +453,179 @@ class OnlineDiarStage:
             )
         )
         return sid
+
+    # ----- batch refinement (refine_on_close) --------------------------
+
+    def _label_capture(
+        self, seg: VoicedSegment
+    ) -> tuple[DiarizedSegment | None, NDArray[np.float32] | None]:
+        """Label one segment *and* return its unit-norm embedding.
+
+        Mirrors :meth:`_label` — same short-segment / embedder-failure
+        fallbacks to ``"S?"`` — but additionally hands back the normalised
+        embedding (or ``None`` when the segment was not embedded) so the
+        batch path can re-cluster on the raw per-segment vectors rather than
+        the drifting online centroids.
+
+        Returns
+        -------
+        tuple[DiarizedSegment or None, NDArray or None]
+            The provisionally-labelled segment and its embedding, or an
+            ``"S?"`` segment with ``None`` when embedding was skipped/failed.
+        """
+        sr = seg["sample_rate"]
+        dur_ms = (seg["t1"] - seg["t0"]) * 1000.0
+        unknown = DiarizedSegment(
+            t0=seg["t0"], t1=seg["t1"], sample_rate=sr, speaker="S?", pcm=seg["pcm"]
+        )
+        if dur_ms < self.min_segment_ms:
+            return unknown, None
+        try:
+            emb = self._embedder.embed(seg["pcm"], sr)
+        except Exception:  # noqa: BLE001 — embedder failure shouldn't kill the stream
+            return unknown, None
+        vec = np.asarray(emb, dtype=np.float32).reshape(-1)
+        norm = float(np.linalg.norm(vec))
+        if norm > 0:
+            vec = vec / norm
+        speaker_id = self._assign(emb, t=seg["t1"])
+        labelled = DiarizedSegment(
+            t0=seg["t0"], t1=seg["t1"], sample_rate=sr, speaker=speaker_id, pcm=seg["pcm"]
+        )
+        return labelled, vec.astype(np.float32, copy=False)
+
+    def _refine_labels(
+        self,
+        segs: list[DiarizedSegment],
+        embeddings: list[NDArray[np.float32] | None],
+    ) -> list[str]:
+        """Global re-clustering + singleton prune over the buffered batch.
+
+        Repairs the online clusterer's over-segmentation once the whole
+        stream is available. Working from the per-provisional-speaker
+        centroids (mean of that speaker's segment embeddings) :
+
+        1. **Merge** provisional speakers whose centroids sit within
+           ``merge_threshold`` cosine distance (single-linkage union-find) —
+           this folds the duplicates that slow EMA centroid drift spawns for
+           a speaker already modelled.
+        2. **Prune** merged clusters smaller than ``min_cluster_size`` by
+           reassigning each of their segments to the nearest *surviving*
+           cluster centroid — this absorbs the outlier micro-speakers
+           (overlap, laughter, jingle, backchannels) into a real speaker.
+        3. **Relabel** survivors to compact ``"S0", "S1", …"`` ids ordered by
+           first appearance.
+
+        Segments that were never embedded keep their ``"S?"`` label.
+
+        Parameters
+        ----------
+        segs : list[DiarizedSegment]
+            The buffered segments, in arrival order.
+        embeddings : list[NDArray or None]
+            Unit-norm embedding per segment (``None`` for ``"S?"`` segments),
+            index-aligned with ``segs``.
+
+        Returns
+        -------
+        list[str]
+            Final speaker id per segment, index-aligned with ``segs``.
+        """
+        # Group segment indices by their provisional online label, keeping
+        # only embedded segments — "S?" segments pass through untouched.
+        by_label: dict[str, list[int]] = {}
+        for i, (seg, emb) in enumerate(zip(segs, embeddings, strict=True)):
+            if emb is None:
+                continue
+            by_label.setdefault(seg["speaker"], []).append(i)
+        if not by_label:
+            return [seg["speaker"] for seg in segs]
+
+        labels = list(by_label.keys())
+        # Per-provisional centroid = unit-norm mean of its segment embeddings.
+        centroids = np.stack(
+            [_unit_mean([embeddings[i] for i in by_label[lab]]) for lab in labels], axis=0
+        )
+
+        # 1. Merge near-duplicate centroids via single-linkage union-find.
+        parent = list(range(len(labels)))
+
+        def find(x: int) -> int:
+            while parent[x] != x:
+                parent[x] = parent[parent[x]]
+                x = parent[x]
+            return x
+
+        def union(a: int, b: int) -> None:
+            ra, rb = find(a), find(b)
+            if ra != rb:
+                parent[max(ra, rb)] = min(ra, rb)
+
+        if len(labels) > 1:
+            sim = centroids @ centroids.T
+            dist = 1.0 - sim
+            for a in range(len(labels)):
+                for b in range(a + 1, len(labels)):
+                    if dist[a, b] <= self.merge_threshold:
+                        union(a, b)
+
+        # Collect merged groups: root -> segment indices + recomputed centroid.
+        group_members: dict[int, list[int]] = {}
+        for li, lab in enumerate(labels):
+            group_members.setdefault(find(li), []).extend(by_label[lab])
+        group_roots = list(group_members.keys())
+        group_centroid = {
+            root: _unit_mean([embeddings[i] for i in members])
+            for root, members in group_members.items()
+        }
+
+        # 2. Prune: a group survives iff it has >= min_cluster_size segments.
+        survivors = [r for r in group_roots if len(group_members[r]) >= self.min_cluster_size]
+        # Degenerate guard — if the prune would erase everything (every
+        # cluster tiny), keep them all rather than emit nothing meaningful.
+        if not survivors:
+            survivors = group_roots
+
+        # 3. Assign each segment a final group root: survivors keep theirs,
+        # pruned groups route each segment to the nearest survivor centroid.
+        survivor_mat = np.stack([group_centroid[r] for r in survivors], axis=0)
+        final_root: dict[int, int] = {}
+        for root, members in group_members.items():
+            if root in survivors:
+                for i in members:
+                    final_root[i] = root
+            else:
+                for i in members:
+                    emb = embeddings[i]
+                    nearest = int(np.argmax(survivor_mat @ emb))
+                    final_root[i] = survivors[nearest]
+
+        # Compact, first-appearance-ordered relabelling of the survivors.
+        compact: dict[int, str] = {}
+        out: list[str] = []
+        for i, seg in enumerate(segs):
+            if i not in final_root:
+                out.append(seg["speaker"])  # untouched "S?"
+                continue
+            root = final_root[i]
+            if root not in compact:
+                compact[root] = f"S{len(compact)}"
+            out.append(compact[root])
+        return out
+
+
+def _unit_mean(vectors: list[NDArray[np.float32]]) -> NDArray[np.float32]:
+    """Return the L2-normalised mean of a list of vectors.
+
+    Falls back to the raw mean when it is degenerate (zero norm), which
+    only happens if the inputs cancel exactly — unit-norm embeddings make
+    that vanishingly unlikely, but the guard keeps the result finite.
+    """
+    mean = np.mean(np.stack(vectors, axis=0), axis=0)
+    norm = float(np.linalg.norm(mean))
+    if norm > 0:
+        mean = mean / norm
+    return mean.astype(np.float32, copy=False)
 
 
 # ---------------------------------------------------------------------------
