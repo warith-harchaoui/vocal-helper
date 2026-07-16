@@ -85,16 +85,6 @@ def _build_pipeline_config(args: argparse.Namespace) -> PipelineConfig:
     diar_cfg: dict = {"backend": args.diar_backend}
     if args.join_threshold is not None:
         diar_cfg["join_threshold"] = args.join_threshold
-    # Batch repair : when a file is processed as fast as possible
-    # (``--no-real-time``) through the streaming pipeline — i.e. *not* the
-    # ``--offline`` OfflineDiarStage — turn on the online diarizer's global
-    # re-clustering pass. It merges near-duplicate centroids and prunes the
-    # outlier micro-speakers that the greedy single-pass clusterer otherwise
-    # mints on long multi-speaker audio (see DIARIZATION-TROUBLES.md). Live
-    # streaming (mic/url, or file with real-time pacing) keeps emitting as it
-    # goes, so it is left untouched.
-    if getattr(args, "no_real_time", False) and not getattr(args, "offline", False):
-        diar_cfg["refine_on_close"] = True
     # LLM stage is opt-in — omitting --llm leaves it disabled.
     llm_cfg: dict | None = None
     if args.llm:
@@ -142,20 +132,107 @@ def _print_event(ev: dict, jsonl: bool) -> None:
 # ---------------------------------------------------------------------------
 
 
+def _offline_pyannote_available() -> bool:
+    """True when the reliable offline pyannote path can run without a download.
+
+    Cheap, side-effect-free pre-flight (no model load): the ``pyannote`` extra
+    must import and the self-hosted diarization-engines bundle must already
+    carry the ``pyannote-3.1`` config locally. Used to decide whether a batch
+    file run can auto-upgrade to the offline diarizer.
+    """
+    try:
+        import pyannote.audio  # type: ignore # noqa: F401
+    except Exception:  # noqa: BLE001 — any import failure means "not available"
+        return False
+    try:
+        from vocal_helper.diar import resolve_diarization_engines
+
+        engines = resolve_diarization_engines()
+    except Exception:  # noqa: BLE001
+        return False
+    return (
+        engines is not None
+        and (engines / "pyannote-3.1" / "pyannote_diarization_config.yaml").exists()
+    )
+
+
+def _choose_file_diar(
+    base_diar: dict,
+    *,
+    explicit_offline: bool,
+    batch: bool,
+    force_online: bool,
+) -> tuple[bool, dict, str | None]:
+    """Pick online-vs-offline for a batch file run (namespace-agnostic).
+
+    Shared by the argparse and click CLIs so the reliability default can't
+    drift between them. The default is backed by the 2026-07-16 DER sweep on
+    AMI + bagarre — offline pyannote DER 0.12 / 0.34 vs online 0.50 / 0.59, so
+    a batch file with the pyannote bundle present runs the literature-grade
+    offline whole-buffer diarizer. Precedence:
+
+    - explicit ``--offline`` → offline, honouring the caller's backend.
+    - batch, not ``--online``, pyannote available → offline pyannote (auto).
+    - otherwise → online streaming diarizer, with ``refine_on_close`` enabled
+      for batch so long multi-speaker audio doesn't over-segment.
+
+    Returns ``(use_offline, diar_cfg, note)`` where ``note`` is a one-line
+    stderr message to surface (or ``None``).
+    """
+    if explicit_offline:
+        return True, dict(base_diar), None
+    if batch and not force_online and _offline_pyannote_available():
+        # Auto-upgrade to the validated-best backend regardless of the online
+        # embedder choice ; ``--online`` opts back out.
+        note = (
+            "vocal-helper: batch file → offline pyannote diarizer (most reliable; "
+            "DER ~0.12 on AMI). Pass --online for the streaming diarizer, or "
+            "--offline --diar-backend to choose the offline backend."
+        )
+        return True, {"backend": "pyannote"}, note
+    if batch:
+        note = (
+            None
+            if force_online
+            else (
+                "vocal-helper: offline pyannote bundle not found — using the online "
+                "diarizer with the refine pass. For best reliability configure the "
+                "diarization-engines bundle (settings.yaml) and re-run."
+            )
+        )
+        return False, {**base_diar, "refine_on_close": True}, note
+    return False, dict(base_diar), None
+
+
 async def _run_pipeline(args: argparse.Namespace, source_factory) -> None:
     """Instantiate the right pipeline (online / offline) and drain events."""
     config = _build_pipeline_config(args)
-    if getattr(args, "offline", False):
+    # Only the ``file`` subcommand carries the batch/offline levers ; mic/url
+    # are inherently live and always take the streaming path.
+    if hasattr(args, "no_real_time") or getattr(args, "offline", False):
+        use_offline, diar_cfg, note = _choose_file_diar(
+            config.diar,
+            explicit_offline=getattr(args, "offline", False),
+            batch=getattr(args, "no_real_time", False),
+            force_online=getattr(args, "online", False),
+        )
+        if note:
+            sys.stderr.write(note + "\n")
+    else:
+        use_offline, diar_cfg = False, config.diar
+
+    if use_offline:
         # Offline pipeline skips the VAD and gives the diar backend the whole buffer.
         # We re-project the shared config onto the offline shape (no ``vad`` /
         # ``eot`` block) so the two pipelines stay driven by one CLI namespace.
         offline_cfg = OfflinePipelineConfig(
-            diar=config.diar,
+            diar=diar_cfg,
             asr=config.asr,
             llm=config.llm,
         )
         pipeline = OfflinePipeline(source=source_factory, config=offline_cfg)
     else:
+        config.diar = diar_cfg
         pipeline = Pipeline(source=source_factory, config=config)
     # Drain the async event stream synchronously — one line per event as it lands.
     async for ev in pipeline.run():
@@ -342,19 +419,26 @@ def _add_file(sub: argparse._SubParsersAction) -> None:
     p.add_argument(
         "--no-real-time",
         action="store_true",
-        help="Process as fast as possible (skip real-time pacing). For batch "
-        "files this also enables the online diarizer's global re-clustering "
-        "pass (merge near-duplicate speakers + prune outlier micro-speakers), "
-        "which removes the label explosion the greedy streaming clusterer "
-        "produces on long multi-speaker audio. Use --offline for the "
-        "pyannote whole-buffer path instead.",
+        help="Batch mode: process as fast as possible (skip real-time pacing). "
+        "By default this auto-selects the offline pyannote diarizer when its "
+        "bundle is present — the most reliable path (DER ~0.12 on AMI vs ~0.50 "
+        "for the online diarizer, 2026-07-16 sweep). If the bundle is absent it "
+        "falls back to the online diarizer with the global re-clustering repair "
+        "pass. Pass --online to force the streaming diarizer.",
     )
     p.add_argument(
         "--offline",
         action="store_true",
-        help="Use the OfflinePipeline (pyannote 3.1 full-buffer + "
-        "auto chunk+stitch past 300 s) — highest quality on "
-        "meetings, podcasts, lectures.",
+        help="Force the OfflinePipeline (pyannote 3.1 whole-buffer, global "
+        "clustering) — the most reliable path on meetings, podcasts, lectures. "
+        "Honours --diar-backend. This is already the default for --no-real-time "
+        "when the bundle is available.",
+    )
+    p.add_argument(
+        "--online",
+        action="store_true",
+        help="Force the online streaming diarizer for a batch file run instead "
+        "of auto-selecting offline (lighter, lower latency, but higher DER).",
     )
     p.set_defaults(func=_handle_file)
 
