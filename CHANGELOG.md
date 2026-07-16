@@ -5,6 +5,27 @@ This project adheres to [Semantic Versioning](https://semver.org).
 
 ## [Unreleased]
 
+## [0.4.4] - 2026-07-16
+
+### Fixed
+
+- **Online diarizer over-segmentation on long batch files.** The greedy
+  single-pass online clusterer (`OnlineDiarStage`) mints a permanent new
+  speaker whenever an embedding is farther than `join_threshold` from every
+  existing centroid, with no cap and no merge — so on long multi-speaker
+  audio, outlier embeddings (overlap, laughter, jingle, backchannels, slow
+  centroid drift) each spawn a throwaway singleton, producing hundreds of
+  spurious speaker labels for a handful of real speakers. `OnlineDiarStage`
+  now supports a `refine_on_close` batch pass that, once the stream ends,
+  globally re-clusters the collected per-segment embeddings — merging
+  near-duplicate centroids (`merge_threshold`) and pruning micro-clusters
+  smaller than `min_cluster_size` into their nearest surviving speaker —
+  then emits the batch with corrected, compact `S<n>` labels. `vocal-helper
+  file --no-real-time` (both the argparse and click CLIs) enables this
+  automatically; live streaming is unchanged. An optional online
+  `max_speakers` cap is also available. Covered by new model-free
+  regression tests (`tests/test_diar_refine.py`).
+
 ## [0.4.3] - 2026-07-15
 
 ### Documentation

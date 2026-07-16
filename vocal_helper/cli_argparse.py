@@ -85,6 +85,16 @@ def _build_pipeline_config(args: argparse.Namespace) -> PipelineConfig:
     diar_cfg: dict = {"backend": args.diar_backend}
     if args.join_threshold is not None:
         diar_cfg["join_threshold"] = args.join_threshold
+    # Batch repair : when a file is processed as fast as possible
+    # (``--no-real-time``) through the streaming pipeline — i.e. *not* the
+    # ``--offline`` OfflineDiarStage — turn on the online diarizer's global
+    # re-clustering pass. It merges near-duplicate centroids and prunes the
+    # outlier micro-speakers that the greedy single-pass clusterer otherwise
+    # mints on long multi-speaker audio (see DIARIZATION-TROUBLES.md). Live
+    # streaming (mic/url, or file with real-time pacing) keeps emitting as it
+    # goes, so it is left untouched.
+    if getattr(args, "no_real_time", False) and not getattr(args, "offline", False):
+        diar_cfg["refine_on_close"] = True
     # LLM stage is opt-in — omitting --llm leaves it disabled.
     llm_cfg: dict | None = None
     if args.llm:
@@ -332,7 +342,12 @@ def _add_file(sub: argparse._SubParsersAction) -> None:
     p.add_argument(
         "--no-real-time",
         action="store_true",
-        help="Process as fast as possible (skip real-time pacing).",
+        help="Process as fast as possible (skip real-time pacing). For batch "
+        "files this also enables the online diarizer's global re-clustering "
+        "pass (merge near-duplicate speakers + prune outlier micro-speakers), "
+        "which removes the label explosion the greedy streaming clusterer "
+        "produces on long multi-speaker audio. Use --offline for the "
+        "pyannote whole-buffer path instead.",
     )
     p.add_argument(
         "--offline",

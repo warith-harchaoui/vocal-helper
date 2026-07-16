@@ -297,7 +297,11 @@ def mic(
     "--no-real-time",
     is_flag=True,
     default=False,
-    help="Process as fast as possible (skip real-time pacing).",
+    help="Process as fast as possible (skip real-time pacing). For batch files "
+    "this also enables the online diarizer's global re-clustering pass (merge "
+    "near-duplicate speakers + prune outlier micro-speakers), removing the label "
+    "explosion the greedy streaming clusterer produces on long multi-speaker "
+    "audio. Use --offline for the pyannote whole-buffer path instead.",
 )
 @click.option(
     "--offline",
@@ -355,6 +359,11 @@ def file(
             config=OfflinePipelineConfig(diar=cfg.diar, asr=cfg.asr, llm=cfg.llm),
         )
     else:
+        # Batch file (``--no-real-time``, streaming pipeline) turns on the online
+        # diarizer's global re-clustering pass so long multi-speaker audio doesn't
+        # explode into hundreds of spurious speakers (see DIARIZATION-TROUBLES.md).
+        if no_real_time:
+            cfg.diar["refine_on_close"] = True
         pipeline = Pipeline(source=factory, config=cfg)
     asyncio.run(_drain(pipeline, jsonl))
 
