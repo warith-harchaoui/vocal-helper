@@ -5,6 +5,13 @@ This project adheres to [Semantic Versioning](https://semver.org).
 
 ## [Unreleased]
 
+## [0.4.7] - 2026-07-18
+
+### Documentation
+
+- Complete type annotations and Numpy-style docstrings for CLI/api/pipeline
+  closures and the language-id helper per CODING.md.
+
 ## [0.4.6] - 2026-07-16
 
 ### Fixed

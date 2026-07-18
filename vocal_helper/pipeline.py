@@ -402,8 +402,20 @@ class Pipeline:
 
         # One-shot ``get`` wrapped as a task so ``asyncio.wait`` can race the
         # two queues and yield whichever event lands first.
-        async def reader(q: asyncio.Queue):
-            """Await and return the next item from ``q`` (one queue read)."""
+        async def reader(q: asyncio.Queue) -> Utterance | SummarySnapshot | None:
+            """Await and return the next item from ``q`` (one queue read).
+
+            Parameters
+            ----------
+            q : asyncio.Queue
+                The utterance or summary queue to read a single item from.
+
+            Returns
+            -------
+            Utterance or SummarySnapshot or None
+                The next queued event, or ``None`` when the stream's
+                end-of-stream sentinel is reached.
+            """
             return await q.get()
 
         utt_task = asyncio.create_task(reader(utt_q))
@@ -666,8 +678,20 @@ class OfflinePipeline:
         """Interleave Utterance + SummarySnapshot streams until both end."""
 
         # One-shot queue read as a task so ``asyncio.wait`` can race both queues.
-        async def reader(q: asyncio.Queue):
-            """Await and return the next item from ``q`` (one queue read)."""
+        async def reader(q: asyncio.Queue) -> Utterance | SummarySnapshot | None:
+            """Await and return the next item from ``q`` (one queue read).
+
+            Parameters
+            ----------
+            q : asyncio.Queue
+                The utterance or summary queue to read a single item from.
+
+            Returns
+            -------
+            Utterance or SummarySnapshot or None
+                The next queued event, or ``None`` when the stream's
+                end-of-stream sentinel is reached.
+            """
             return await q.get()
 
         utt_task = asyncio.create_task(reader(utt_q))

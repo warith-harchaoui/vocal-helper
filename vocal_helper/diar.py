@@ -583,12 +583,42 @@ class OnlineDiarStage:
         parent = list(range(len(labels)))
 
         def find(x: int) -> int:
+            """Return the union-find root of ``x`` with path compression.
+
+            Parameters
+            ----------
+            x : int
+                Index into ``parent`` whose set representative is wanted.
+
+            Returns
+            -------
+            int
+                The representative (root) index of the set containing ``x``.
+            """
+            # Walk up to the root, halving the path on the way so future
+            # lookups on the same chain get shallower (path compression).
             while parent[x] != x:
                 parent[x] = parent[parent[x]]
                 x = parent[x]
             return x
 
         def union(a: int, b: int) -> None:
+            """Merge the sets containing ``a`` and ``b`` in place.
+
+            Parameters
+            ----------
+            a : int
+                First index to merge.
+            b : int
+                Second index to merge.
+
+            Returns
+            -------
+            None
+                ``parent`` is mutated in place; nothing is returned.
+            """
+            # Resolve both roots, then attach the higher-indexed root to the
+            # lower one so labels stay deterministic across runs.
             ra, rb = find(a), find(b)
             if ra != rb:
                 parent[max(ra, rb)] = min(ra, rb)

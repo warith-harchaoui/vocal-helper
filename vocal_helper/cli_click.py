@@ -35,6 +35,7 @@ from __future__ import annotations
 import asyncio
 import json
 import sys
+from collections.abc import AsyncIterator, Callable
 from pathlib import Path
 
 try:
@@ -50,6 +51,7 @@ from vocal_helper.pipeline import (
     Pipeline,
     PipelineConfig,
 )
+from vocal_helper.types import PcmFrame
 
 # ---------------------------------------------------------------------------
 # Shared config translation — mirrors the argparse twin's ``_build_pipeline_config``.
@@ -129,8 +131,24 @@ def _print_event(ev: dict, jsonl: bool) -> None:
     sys.stdout.flush()
 
 
-async def _drain(pipeline, jsonl: bool) -> None:
-    """Consume every event emitted by ``pipeline.run()``."""
+async def _drain(pipeline: Pipeline | OfflinePipeline, jsonl: bool) -> None:
+    """Consume every event emitted by ``pipeline.run()``.
+
+    Parameters
+    ----------
+    pipeline : Pipeline or OfflinePipeline
+        A started orchestrator whose ``run()`` coroutine yields event dicts.
+    jsonl : bool
+        When ``True`` each event is printed as a single JSON line ; otherwise
+        it is rendered in the human-readable format.
+
+    Returns
+    -------
+    None
+        Events are written to stdout as a side effect ; nothing is returned.
+    """
+    # Pull events as they land and hand each straight to the printer — the
+    # pipeline back-pressures us, so this loop paces the whole CLI.
     async for ev in pipeline.run():
         _print_event(ev, jsonl)
 
@@ -142,8 +160,20 @@ async def _drain(pipeline, jsonl: bool) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _common_options(func):
-    """Decorator adding the shared VAD / diar / ASR / LLM levers."""
+def _common_options(func: Callable[..., object]) -> Callable[..., object]:
+    """Decorator adding the shared VAD / diar / ASR / LLM levers.
+
+    Parameters
+    ----------
+    func : Callable[..., object]
+        The click command callback to wrap with the shared option stack.
+
+    Returns
+    -------
+    Callable[..., object]
+        The same callback with every shared ``click.option`` applied, so it
+        can be composed on top of a subcommand's own signature.
+    """
     # Order matters for --help output; we mirror the argparse twin.
     func = click.option(
         "--jsonl", is_flag=True, default=False, help="Emit one JSON event per line."
@@ -275,7 +305,7 @@ def mic(
         eot_model=eot_model,
     )
 
-    def factory():
+    def factory() -> AsyncIterator[PcmFrame]:
         """Open a fresh 16 kHz / 20 ms microphone stream on each pipeline start."""
         # 16 kHz mono is whisper.cpp's native rate ; 20 ms is the Silero VAD stride,
         # so the source hands the pipeline frames it can consume without resampling.
@@ -357,7 +387,7 @@ def file(
         eot_model=eot_model,
     )
 
-    def factory():
+    def factory() -> AsyncIterator[PcmFrame]:
         """Open the WAV source ; ``--no-real-time`` skips wall-clock pacing for batch runs."""
         # Real-time pacing simulates a live feed ; disabling it fires frames as fast
         # as they decode, which is what you want when timing throughput on a file.
@@ -424,7 +454,7 @@ def url(
         eot_model=eot_model,
     )
 
-    def factory():
+    def factory() -> AsyncIterator[PcmFrame]:
         """Open a streaming source for the given URL (yt-dlp resolves the media)."""
         return _from_url(url)
 

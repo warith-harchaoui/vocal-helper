@@ -48,11 +48,18 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import numpy as np
 from numpy.typing import NDArray
 
 from vocal_helper.asr import DEFAULT_MODEL, DEFAULT_THREADS, WhisperStage
+
+# SpeechBrain is an optional heavy dependency (the ``[lid]`` extra) imported
+# lazily in the request path. Pull its classifier type only for type-checkers
+# so annotations resolve without importing torch/torchaudio at module load.
+if TYPE_CHECKING:
+    from speechbrain.inference.classifiers import EncoderClassifier
 
 DEFAULT_SR = 16_000
 
@@ -532,12 +539,25 @@ _VOXLINGUA_CACHE = Path.home() / ".cache" / "vocal-helper" / "voxlingua107-ecapa
 _classifier = None  # lazily loaded EncoderClassifier singleton
 
 
-def _ensure_classifier():
+def _ensure_classifier() -> EncoderClassifier:
     """Lazily load (and cache) the SpeechBrain VoxLingua107 ECAPA classifier.
 
     Returns the process-wide singleton, building it from the local self-hosted
     snapshot on first call. Raises if SpeechBrain is missing or no bundle is
     configured — the independent verification is strictly opt-in.
+
+    Returns
+    -------
+    EncoderClassifier
+        The process-wide SpeechBrain VoxLingua107 ECAPA classifier singleton.
+
+    Raises
+    ------
+    ImportError
+        If the ``[lid]`` extra (SpeechBrain + torchaudio) is not installed.
+    RuntimeError
+        If no local VoxLingua107 snapshot is found in the diarization-engines
+        bundle (no HuggingFace fallback is attempted).
     """
     global _classifier
     # Singleton — the model is multi-hundred-MB ; load it at most once per process.

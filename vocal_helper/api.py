@@ -47,6 +47,19 @@ import asyncio
 import shutil
 import tempfile
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+# ``numpy`` is imported lazily inside the request path (it is a heavy import
+# and the meta / health endpoints never touch it). Under ``TYPE_CHECKING``
+# we still pull the array types so annotations resolve for type-checkers
+# without paying the import cost at runtime.
+if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
+
+    import numpy as np
+    from numpy.typing import NDArray
+
+    from vocal_helper.types import PcmFrame
 
 try:
     from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, UploadFile
@@ -133,13 +146,31 @@ def _new_tmpdir() -> Path:
     return Path(tempfile.mkdtemp(prefix="vocal-helper-"))
 
 
-def _load_pcm_mono_16k(path: Path):
+def _load_pcm_mono_16k(path: Path) -> tuple[NDArray[np.float32], int]:
     """
     Load an audio file as a mono float32 numpy array at 16 kHz.
 
     Decoding goes through ``audio_helper.load_audio`` (ffmpeg-backed), so
     every upstream codec / container works — mp3, m4a/AAC, ogg, flac, opus,
     and the audio track of video files — never libsndfile / soundfile.
+
+    Parameters
+    ----------
+    path : Path
+        Filesystem path to the uploaded audio (any ffmpeg-decodable codec /
+        container).
+
+    Returns
+    -------
+    tuple[NDArray[np.float32], int]
+        The mono float32 waveform of shape ``(n_samples,)`` and its sample
+        rate (always ``16000``).
+
+    Raises
+    ------
+    HTTPException
+        With status 400 when ``audio-helper`` is missing or the file cannot
+        be decoded (treated as a bad client upload).
     """
     import numpy as np
 
@@ -247,7 +278,7 @@ def pipeline(
             llm_cfg = {"model": llm_model, "recent_window_s": llm_recent_window_s}
         cfg = OfflinePipelineConfig(diar=diar_cfg, asr=asr_cfg, llm=llm_cfg)
 
-        def factory():
+        def factory() -> AsyncIterator[PcmFrame]:
             """Build a fresh PcmFrame source over the decoded buffer.
 
             The pipeline takes a *callable* (not a live iterator) so it can

@@ -37,7 +37,7 @@ import argparse
 import asyncio
 import json
 import sys
-from collections.abc import Sequence
+from collections.abc import AsyncIterator, Sequence
 from pathlib import Path
 
 from vocal_helper.pipeline import (
@@ -45,7 +45,9 @@ from vocal_helper.pipeline import (
     OfflinePipelineConfig,
     Pipeline,
     PipelineConfig,
+    SourceFactory,
 )
+from vocal_helper.types import PcmFrame
 
 # ---------------------------------------------------------------------------
 # Config builder — shared by every subcommand that spins up a pipeline.
@@ -204,7 +206,7 @@ def _choose_file_diar(
     return False, dict(base_diar), None
 
 
-async def _run_pipeline(args: argparse.Namespace, source_factory) -> None:
+async def _run_pipeline(args: argparse.Namespace, source_factory: SourceFactory) -> None:
     """Instantiate the right pipeline (online / offline) and drain events."""
     config = _build_pipeline_config(args)
     # Only the ``file`` subcommand carries the batch/offline levers ; mic/url
@@ -244,7 +246,7 @@ def _handle_mic(args: argparse.Namespace) -> int:
     # Import lazily so users without the [mic] extra can still use file/url.
     from vocal_helper.sources import from_microphone
 
-    def factory():
+    def factory() -> AsyncIterator[PcmFrame]:
         """Open a fresh 16 kHz / 20 ms microphone stream on each pipeline start."""
         # 16 kHz mono matches whisper.cpp's native rate ; 20 ms frames are the
         # Silero VAD stride, so no downstream resampling / reframing is needed.
@@ -265,7 +267,7 @@ def _handle_file(args: argparse.Namespace) -> int:
 
     path = Path(args.path)
 
-    def factory():
+    def factory() -> AsyncIterator[PcmFrame]:
         """Open the WAV source ; honour ``--no-real-time`` to skip wall-clock pacing."""
         # Real-time pacing mimics a live feed (useful for demos / latency numbers) ;
         # ``--no-real-time`` fires frames as fast as they decode for batch throughput.
@@ -280,7 +282,7 @@ def _handle_url(args: argparse.Namespace) -> int:
     # URL streaming needs podcast_helper (the [stream] extra).
     from vocal_helper.sources import from_url
 
-    def factory():
+    def factory() -> AsyncIterator[PcmFrame]:
         """Open a streaming source for the given URL (yt-dlp resolves the media)."""
         return from_url(args.url)
 
