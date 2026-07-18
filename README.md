@@ -106,7 +106,7 @@ pip install 'vocal-helper[all]'
 ### From source (no PyPI)
 
 ```bash
-pip install 'vocal-helper[all] @ git+https://github.com/warith-harchaoui/vocal-helper.git@v0.4.3'
+pip install 'vocal-helper[all] @ git+https://github.com/warith-harchaoui/vocal-helper.git@v0.4.7'
 ```
 
 The `[all]` extra brings the mic source, both diarization backends (NeMo — the default — and pyannote), and Ollama. Pick à la carte if you don't need everything :

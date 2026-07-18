@@ -98,7 +98,7 @@ pip install 'vocal-helper[all]'
 ### Depuis les sources (sans PyPI)
 
 ```bash
-pip install 'vocal-helper[all] @ git+https://github.com/warith-harchaoui/vocal-helper.git@v0.4.3'
+pip install 'vocal-helper[all] @ git+https://github.com/warith-harchaoui/vocal-helper.git@v0.4.7'
 ```
 
 L'extra `[all]` installe la source micro, pyannote et Ollama. À la carte si tout n'est pas nécessaire :
