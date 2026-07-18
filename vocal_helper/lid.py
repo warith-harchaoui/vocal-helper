@@ -124,6 +124,114 @@ DEFAULT_SUPPORTED_LANGS: tuple[str, ...] = (
     "zh",
 )
 
+# The bilingual **floor**: French and English are always supported, everywhere.
+# This is about the languages a caller *supports* (its UI / output / project
+# ``lang_pair``), NOT about restricting language detection — a recording's spoken
+# language is always discovered with no a priori (``detect_language`` ranks over
+# the broad ``DEFAULT_SUPPORTED_LANGS``, and ``WhisperStage(language="auto")``
+# detects whatever is spoken). ``resolve_lang_pair`` unions this floor into any
+# caller-supplied set so the supported set is never below FR+EN — the project's
+# hard minimum — while extra languages can always be added.
+DEFAULT_LANG_PAIR: tuple[str, ...] = ("fr", "en")
+
+
+def resolve_lang_pair(
+    spec: str | tuple[str, ...] | list[str] | None = None,
+    *,
+    floor: tuple[str, ...] = DEFAULT_LANG_PAIR,
+) -> tuple[str, ...]:
+    """Normalise a supported-language spec into an ordered, deduplicated tuple.
+
+    This is the single place the FR+EN-minimum rule is enforced for a caller's
+    **supported / output** languages (the ``lang_pair`` convention shared with the
+    front-audio skill and notes-helper's ``locales/i18n.yaml``). The ``floor``
+    languages are always present (first, in ``floor`` order), then any additional
+    languages follow in first-seen order. So the mechanism **guarantees** French
+    and English while never **preventing** extra languages from being added —
+    ``"es"`` resolves to ``("fr", "en", "es")``.
+
+    It does **not** constrain audio language detection: the spoken language is
+    discovered with no a priori (see :func:`detect_language` /
+    :func:`detect_language_regions`), whatever is spoken.
+
+    Parameters
+    ----------
+    spec : str or sequence of str, optional
+        Languages as a comma/space-separated string (``"fr,en"``, ``"en de"``) or
+        a sequence of ISO-639-1 codes. ``None`` (default) yields just the floor.
+        Codes are lower-cased and stripped ; blanks are ignored.
+    floor : tuple of str, optional
+        Languages that must always be included. Defaults to
+        :data:`DEFAULT_LANG_PAIR` (``("fr", "en")``).
+
+    Returns
+    -------
+    tuple of str
+        The floor followed by any extra requested languages, each appearing once.
+
+    Examples
+    --------
+    >>> resolve_lang_pair()
+    ('fr', 'en')
+    >>> resolve_lang_pair("en,fr")
+    ('fr', 'en')
+    >>> resolve_lang_pair("es")
+    ('fr', 'en', 'es')
+    >>> resolve_lang_pair(["de", "en"])
+    ('fr', 'en', 'de')
+    """
+    if spec is None:
+        requested: list[str] = []
+    elif isinstance(spec, str):
+        # Accept both comma- and whitespace-separated specs.
+        requested = [tok for tok in spec.replace(",", " ").split() if tok]
+    else:
+        requested = [str(tok) for tok in spec]
+
+    ordered: list[str] = [code.strip().lower() for code in floor]
+    for code in requested:
+        norm = code.strip().lower()
+        if norm and norm not in ordered:
+            ordered.append(norm)
+    return tuple(ordered)
+
+
+def languages_from_i18n(
+    path: str,
+    *,
+    floor: tuple[str, ...] = DEFAULT_LANG_PAIR,
+) -> tuple[str, ...]:
+    """Read the supported languages from a ``locales/i18n.yaml`` catalog.
+
+    The catalog's ``meta.languages`` keys are the languages a project supports;
+    this returns them through :func:`resolve_lang_pair`, so the FR+EN floor is
+    guaranteed and ordering is stable. Adding a language to the project is then
+    literally adding its column to that catalog — nothing in code changes.
+
+    Parameters
+    ----------
+    path : str
+        Path to the ``i18n.yaml`` catalog.
+    floor : tuple of str, optional
+        Languages that must always be included. Defaults to
+        :data:`DEFAULT_LANG_PAIR`.
+
+    Returns
+    -------
+    tuple of str
+        Supported ISO-639-1 codes, floor first. Falls back to just the floor if
+        the file is missing/empty or declares no languages.
+    """
+    import yaml  # local import: only needed when a catalog is actually read
+
+    try:
+        with open(path, encoding="utf-8") as fh:
+            catalog = yaml.safe_load(fh) or {}
+    except FileNotFoundError:
+        catalog = {}
+    declared = (catalog.get("meta") or {}).get("languages") or {}
+    return resolve_lang_pair(list(declared), floor=floor)
+
 
 # One whisper.cpp model is expensive to load ; cache a headless
 # :class:`WhisperStage` per (model, threads) so a batch — or a multi-region

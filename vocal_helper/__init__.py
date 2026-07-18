@@ -74,6 +74,7 @@ from vocal_helper import sources
 from vocal_helper.asr import WhisperStage, transcribe_pcm
 from vocal_helper.diar import OfflineDiarStage, OnlineDiarStage
 from vocal_helper.lid import (
+    DEFAULT_LANG_PAIR,
     LangRegion,
     RegionVerdict,
     cross_check_regions,
@@ -82,6 +83,8 @@ from vocal_helper.lid import (
     detect_language_regions_fast,
     detect_language_speechbrain,
     language_posterior_curve,
+    languages_from_i18n,
+    resolve_lang_pair,
 )
 from vocal_helper.llm import GemmaAnalystStage
 from vocal_helper.pipeline import (
@@ -150,6 +153,10 @@ __all__ = [
     "detect_language_regions_fast",
     "detect_language_speechbrain",
     "language_posterior_curve",
+    # Supported-language (lang_pair) resolution — FR+EN floor, i18n-driven.
+    "DEFAULT_LANG_PAIR",
+    "resolve_lang_pair",
+    "languages_from_i18n",
     "GemmaAnalystStage",
     # LiveKit-inspired EOT eval + Pipecat-inspired parallel primitive
     "EOTPair",

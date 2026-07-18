@@ -75,6 +75,12 @@ nemo = [
     "torchaudio>=2.5,<3",
     "nemo-toolkit[asr]>=2.0",
 ]
+# Torch-free ONNX speaker embedder (backend='sherpa') — the same TitaNet-large the
+# `nemo` backend uses, run through onnxruntime so it installs light and embeds on any
+# platform. Study-selected best embedder (2026-07-18), validated FR+EN.
+sherpa = [
+    "sherpa-onnx>=1.13",
+]
 # Local LLM analyst via Ollama.
 llm = [
     "ollama>=0.4",

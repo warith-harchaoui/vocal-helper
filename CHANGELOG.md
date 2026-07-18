@@ -5,6 +5,28 @@ This project adheres to [Semantic Versioning](https://semver.org).
 
 ## [Unreleased]
 
+### Added
+
+- **Supported-language (`lang_pair`) resolver.** New `resolve_lang_pair()`,
+  `languages_from_i18n()` and `DEFAULT_LANG_PAIR` (exported from the package) enforce
+  the FR+EN language floor for a caller's *supported / output* languages while never
+  blocking extra languages — `resolve_lang_pair("es") == ("fr", "en", "es")`.
+  `languages_from_i18n()` reads the set from a `locales/i18n.yaml` catalog's
+  `meta.languages`, so adding a language is just adding its column. This does **not**
+  restrict audio language detection, which stays a-priori-free (`WhisperStage
+  language="auto"` / `detect_language`). Covered by `tests/test_lang_pair.py`.
+
+- **Portable `sherpa` diarization backend (torch-free ONNX).** Selectable on both
+  `OnlineDiarStage` (via `_SherpaEmbedder`) and `OfflineDiarStage` (via
+  `_SherpaOfflineDiar`, sherpa-onnx `OfflineSpeakerDiarization`, whole-buffer). Runs the
+  same TitaNet-large as the `nemo` backend through onnxruntime — no PyTorch, embeddable on
+  every platform. Models resolve from `$VH_SHERPA_SEGMENTATION` / `$VH_SHERPA_EMBEDDING` or
+  the diarization-engines bundle's `sherpa/` dir (community-1 segmentation preferred, our
+  sovereign HF-free ONNX export). New `pip install vocal-helper[sherpa]` extra and
+  `tests/test_diar_sherpa.py`. Study-selected in the `pasdebonneoudemauvaisesituation`
+  sandbox (ADR 0002): DER 0.174 on AMI ES2011a, 0.148 on held-out IS1008a, FR+EN validated;
+  streaming = periodic offline re-diarization.
+
 ## [0.4.7] - 2026-07-18
 
 ### Documentation

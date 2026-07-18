@@ -106,7 +106,7 @@ from numpy.typing import NDArray
 
 from vocal_helper.types import DiarizedSegment, VoicedSegment
 
-BackendName = Literal["pyannote", "nemo"]
+BackendName = Literal["pyannote", "nemo", "sherpa"]
 DeviceName = Literal["cpu", "cuda", "mps"]
 
 
@@ -151,8 +151,9 @@ class OnlineDiarStage:
 
     Parameters
     ----------
-    backend : "pyannote" | "nemo"
-        Which embedding model to use. Default ``"pyannote"``.
+    backend : "pyannote" | "nemo" | "sherpa"
+        Which embedding model to use. Default ``"pyannote"``. ``"sherpa"`` runs
+        TitaNet-large through onnxruntime (no torch) — see :class:`_SherpaEmbedder`.
     join_threshold : float
         Cosine-distance threshold below which a new segment joins an
         existing centroid. Default 0.30 — calibrated on AMI dev-slice
@@ -204,9 +205,10 @@ class OnlineDiarStage:
 
         Parameters
         ----------
-        backend : "pyannote" | "nemo"
+        backend : "pyannote" | "nemo" | "sherpa"
             Embedding backend. Default ``"nemo"`` (TitaNet) for its sharper
-            cosine separation ; pass ``"pyannote"`` to opt out of the
+            cosine separation ; ``"sherpa"`` gives the same TitaNet-large via
+            ONNX with no torch install ; pass ``"pyannote"`` to opt out of the
             heavier NeMo install.
         join_threshold : float
             Cosine-distance threshold below which a segment joins an
@@ -290,7 +292,7 @@ class OnlineDiarStage:
         Raises
         ------
         ValueError
-            If ``self.backend`` is neither ``"pyannote"`` nor ``"nemo"``.
+            If ``self.backend`` is not one of ``"pyannote"``, ``"nemo"``, ``"sherpa"``.
         """
         if self._embedder is not None:
             return
@@ -298,6 +300,9 @@ class OnlineDiarStage:
             self._embedder = _PyannoteEmbedder(device=self.device)
         elif self.backend == "nemo":
             self._embedder = _TitaNetEmbedder()
+        elif self.backend == "sherpa":
+            # Torch-free ONNX TitaNet-large (study-selected best embedder, FR+EN).
+            self._embedder = _SherpaEmbedder(model_path=getattr(self, "sherpa_model_path", None))
         else:
             raise ValueError(f"unknown backend {self.backend!r}")
         self._embedder.load()
@@ -889,6 +894,80 @@ class _TitaNetEmbedder:
         return np.asarray(emb.squeeze(0).cpu().numpy(), dtype=np.float32)
 
 
+class _SherpaEmbedder:
+    """Torch-free ONNX speaker embedder via sherpa-onnx.
+
+    Runs the **same TitaNet-large model** as the ``nemo`` backend, but through
+    onnxruntime instead of torch/NeMo — so it installs light and embeds on any platform
+    (desktop, iOS, Android). A 2026-07-18 study
+    (``pasdebonneoudemauvaisesituation``) confirmed TitaNet-large is the best embedder and
+    that its ONNX form separates **French and English** speakers perfectly (FR same +0.82 /
+    diff ≈ 0). Select ``backend='sherpa'`` for that quality without a torch install.
+    """
+
+    def __init__(self, model_path: str | None = None) -> None:
+        """Initialise with no extractor; the ONNX model loads in :meth:`load`.
+
+        Parameters
+        ----------
+        model_path : str, optional
+            Path to the TitaNet-large speaker-embedding ONNX file. Required at
+            :meth:`load` time (kept optional here for two-phase construction).
+        """
+        self._model_path: str | None = model_path
+        self._extractor = None
+
+    def load(self) -> None:
+        """Build the sherpa-onnx speaker-embedding extractor.
+
+        Raises
+        ------
+        ImportError
+            If the optional ``sherpa`` extra is not installed.
+        ValueError
+            If no embedding-model path was provided.
+        """
+        try:
+            import sherpa_onnx  # type: ignore
+        except ImportError as e:
+            raise ImportError(
+                "backend='sherpa' requires the sherpa extra. "
+                "Install with `pip install vocal-helper[sherpa]`."
+            ) from e
+        if not self._model_path:
+            raise ValueError(
+                "backend='sherpa' needs a TitaNet-large embedding ONNX path "
+                "(pass model_path / sherpa_model_path)."
+            )
+        self._extractor = sherpa_onnx.SpeakerEmbeddingExtractor(
+            sherpa_onnx.SpeakerEmbeddingExtractorConfig(model=self._model_path)
+        )
+
+    def embed(self, pcm: NDArray[np.float32], sr: int) -> NDArray[np.float32]:
+        """Return a single TitaNet-large speaker embedding for one segment (ONNX path).
+
+        Parameters
+        ----------
+        pcm : NDArray[np.float32]
+            Mono PCM samples for the segment.
+        sr : int
+            Sample rate of ``pcm``.
+
+        Returns
+        -------
+        NDArray[np.float32]
+            The speaker embedding vector.
+        """
+        # sherpa needs contiguous float32; coerce defensively.
+        if pcm.dtype != np.float32:
+            pcm = pcm.astype(np.float32, copy=False)
+        # One-shot stream: feed the whole segment, then read the embedding.
+        stream = self._extractor.create_stream()
+        stream.accept_waveform(sr, pcm)
+        stream.input_finished()
+        return np.asarray(self._extractor.compute(stream), dtype=np.float32)
+
+
 # ===========================================================================
 # OFFLINE PATH
 # ===========================================================================
@@ -909,6 +988,9 @@ IDEAL_DURATION_S_PYANNOTE = 3600.0
 # NeMo Sortformer must chunk regardless : it degrades past its ~90 s
 # training cap, so whole-buffer is not an option for that backend.
 IDEAL_DURATION_S_NEMO = 60.0
+# sherpa-onnx clusters the whole buffer inside one ``process`` call, so it
+# is always run whole-buffer (chunking would only hurt DER, like pyannote).
+IDEAL_DURATION_S_SHERPA = 1.0e9
 
 
 class OfflineDiarStage:
@@ -962,8 +1044,9 @@ class OfflineDiarStage:
 
     Parameters
     ----------
-    backend : "pyannote" | "nemo"
-        Backend to use. Default ``"pyannote"``.
+    backend : "pyannote" | "nemo" | "sherpa"
+        Backend to use. Default ``"pyannote"``. ``"sherpa"`` is the portable ONNX
+        pipeline (community-1 seg + TitaNet-large emb, no torch) — see ADR 0002.
     ideal_duration_s : float, optional
         Whole-buffer ceiling : inputs longer than this are chunked +
         stitched, shorter ones run as a single call. Default depends on
@@ -1001,8 +1084,9 @@ class OfflineDiarStage:
 
         Parameters
         ----------
-        backend : "pyannote" | "nemo"
-            Offline backend. Default ``"pyannote"``.
+        backend : "pyannote" | "nemo" | "sherpa"
+            Offline backend. Default ``"pyannote"``. ``"sherpa"`` = portable ONNX
+            (community-1 seg + TitaNet-large), whole-buffer, no torch.
         ideal_duration_s : float, optional
             Whole-buffer ceiling : inputs longer than this are chunked +
             stitched, shorter ones run as a single call. ``None`` (default)
@@ -1019,9 +1103,11 @@ class OfflineDiarStage:
         """
         self.backend = backend
         if ideal_duration_s is None:
-            ideal_duration_s = (
-                IDEAL_DURATION_S_PYANNOTE if backend == "pyannote" else IDEAL_DURATION_S_NEMO
-            )
+            ideal_duration_s = {
+                "pyannote": IDEAL_DURATION_S_PYANNOTE,
+                "nemo": IDEAL_DURATION_S_NEMO,
+                "sherpa": IDEAL_DURATION_S_SHERPA,
+            }.get(backend, IDEAL_DURATION_S_PYANNOTE)
         self.ideal_duration_s = ideal_duration_s
         self.overlap_s = overlap_s
         self.stitch_threshold = stitch_threshold
@@ -1041,7 +1127,7 @@ class OfflineDiarStage:
         Raises
         ------
         ValueError
-            If ``self.backend`` is neither ``"pyannote"`` nor ``"nemo"``.
+            If ``self.backend`` is not one of ``"pyannote"``, ``"nemo"``, ``"sherpa"``.
         """
         if self._backend_obj is not None:
             return
@@ -1051,6 +1137,12 @@ class OfflineDiarStage:
         elif self.backend == "nemo":
             self._backend_obj = _NemoSortformerDiar()
             self._embedder = _TitaNetEmbedder()
+        elif self.backend == "sherpa":
+            # Portable ONNX pipeline (community-1 seg + TitaNet-large emb), no torch.
+            # Run whole-buffer, so the stitching embedder is only interface parity.
+            self._backend_obj = _SherpaOfflineDiar()
+            _seg, _emb = _resolve_sherpa_models()
+            self._embedder = _SherpaEmbedder(model_path=_emb)
         else:
             raise ValueError(f"unknown backend {self.backend!r}")
         self._backend_obj.load()
@@ -1564,3 +1656,177 @@ class _NemoSortformerDiar:
             _wav.write(tmp.name, sr, pcm16)
             preds = self._model.diarize(audio=tmp.name, batch_size=1)
         return _parse_sortformer_segments(preds[0])
+
+
+def _resolve_sherpa_models() -> tuple[str, str]:
+    """Locate the sherpa-onnx segmentation + speaker-embedding ONNX files.
+
+    Resolution order for each model, most explicit first:
+
+    1. Environment override — ``$VH_SHERPA_SEGMENTATION`` / ``$VH_SHERPA_EMBEDDING``.
+    2. The HF-free diarization-engines bundle (:func:`resolve_diarization_engines`),
+       under a ``sherpa/`` subdirectory: the community-1 ONNX export
+       (``community1-segmentation.onnx``, our sovereign export) or the
+       ``segmentation-3.0`` drop-in, plus the TitaNet-large embedding ONNX.
+
+    Both are plain ONNX — no torch, no HuggingFace token, no network at runtime.
+
+    Returns
+    -------
+    tuple[str, str]
+        ``(segmentation_model_path, embedding_model_path)``.
+
+    Raises
+    ------
+    RuntimeError
+        If either model cannot be found through any source.
+    """
+    import os
+
+    seg_env = os.environ.get("VH_SHERPA_SEGMENTATION")
+    emb_env = os.environ.get("VH_SHERPA_EMBEDDING")
+
+    seg: str | None = seg_env
+    emb: str | None = emb_env
+    if seg is None or emb is None:
+        engines = resolve_diarization_engines()
+        if engines is not None:
+            sdir = engines / "sherpa"
+            if seg is None:
+                # Prefer our sovereign community-1 export; fall back to seg-3.0.
+                for name in (
+                    "community1-segmentation.onnx",
+                    "sherpa-onnx-pyannote-segmentation-3-0/model.onnx",
+                    "segmentation-3.0.onnx",
+                ):
+                    if (sdir / name).exists():
+                        seg = str(sdir / name)
+                        break
+            if emb is None:
+                # Study-selected best embedder (TitaNet-large); small is the fast twin.
+                for name in (
+                    "nemo_en_titanet_large.onnx",
+                    "titanet_large.onnx",
+                    "nemo_en_titanet_small.onnx",
+                ):
+                    if (sdir / name).exists():
+                        emb = str(sdir / name)
+                        break
+
+    if not seg or not emb:
+        raise RuntimeError(
+            "OfflineDiarStage(backend='sherpa') needs a segmentation ONNX and a "
+            "TitaNet-large embedding ONNX. Provide them via $VH_SHERPA_SEGMENTATION / "
+            "$VH_SHERPA_EMBEDDING, or ship them in the diarization-engines bundle under "
+            "sherpa/. No HuggingFace token is required."
+        )
+    return seg, emb
+
+
+class _SherpaOfflineDiar:
+    """Torch-free ONNX offline diarizer via sherpa-onnx's ``OfflineSpeakerDiarization``.
+
+    Assembles the study-selected portable pipeline — pyannote **community-1** segmentation
+    (ONNX, exported by us) + **TitaNet-large** speaker embedding (ONNX) + fast agglomerative
+    clustering — through onnxruntime, so it pulls in **no torch** and the exact same pipeline
+    runs on every platform (desktop, iOS, Android). The 2026-07-18 study
+    (``pasdebonneoudemauvaisesituation``, ADR 0002) measured DER **0.174** on AMI ES2011a and
+    **0.148** on the held-out IS1008a — better than NeMo Sortformer (0.267) and generalising
+    without tuning-on-test — while staying fully portable and sovereign.
+
+    sherpa clusters the whole buffer inside one ``process`` call, so no external chunking is
+    needed; :class:`OfflineDiarStage` runs it whole-buffer (``IDEAL_DURATION_S`` very large).
+    """
+
+    def __init__(
+        self,
+        *,
+        threshold: float = 0.5,
+        num_clusters: int = -1,
+        min_duration_on: float = 0.3,
+        min_duration_off: float = 0.5,
+    ) -> None:
+        """Store clustering knobs; ONNX models resolve + load in :meth:`load`.
+
+        Parameters
+        ----------
+        threshold : float
+            Cosine clustering threshold used when the speaker count is auto-detected
+            (``num_clusters < 0``). Default ``0.5``.
+        num_clusters : int
+            Fixed speaker count, or ``-1`` to auto-detect. Default ``-1``.
+        min_duration_on : float
+            Minimum turn length kept, in seconds. Default ``0.3``.
+        min_duration_off : float
+            Minimum silence gap that splits turns, in seconds. Default ``0.5``.
+        """
+        self.threshold = threshold
+        self.num_clusters = num_clusters
+        self.min_on = min_duration_on
+        self.min_off = min_duration_off
+        self._sd: Any | None = None
+
+    def load(self) -> None:
+        """Resolve the ONNX models and build the sherpa diarization pipeline.
+
+        Raises
+        ------
+        ImportError
+            If the optional ``sherpa`` extra is not installed.
+        RuntimeError
+            If the models cannot be resolved or the assembled config is invalid.
+        """
+        try:
+            import sherpa_onnx  # type: ignore
+        except ImportError as e:
+            raise ImportError(
+                "OfflineDiarStage(backend='sherpa') requires the sherpa extra. "
+                "Install with `pip install vocal-helper[sherpa]`."
+            ) from e
+
+        seg_model, emb_model = _resolve_sherpa_models()
+        config = sherpa_onnx.OfflineSpeakerDiarizationConfig(
+            segmentation=sherpa_onnx.OfflineSpeakerSegmentationModelConfig(
+                pyannote=sherpa_onnx.OfflineSpeakerSegmentationPyannoteModelConfig(model=seg_model),
+            ),
+            embedding=sherpa_onnx.SpeakerEmbeddingExtractorConfig(model=emb_model),
+            clustering=sherpa_onnx.FastClusteringConfig(
+                num_clusters=self.num_clusters, threshold=self.threshold
+            ),
+            min_duration_on=self.min_on,
+            min_duration_off=self.min_off,
+        )
+        if not config.validate():
+            raise RuntimeError(
+                "invalid sherpa-onnx diarization config; check model paths: "
+                f"seg={seg_model} emb={emb_model}"
+            )
+        self._sd = sherpa_onnx.OfflineSpeakerDiarization(config)
+
+    def diarize(
+        self,
+        pcm: NDArray[np.float32],
+        sr: int,
+    ) -> list[tuple[float, float, str]]:
+        """Diarize a whole PCM buffer; return ``[(t0, t1, speaker), …]`` by start time.
+
+        Parameters
+        ----------
+        pcm : NDArray[np.float32]
+            Mono float32 audio in ``[-1, 1]``.
+        sr : int
+            Sample rate (sherpa expects 16 kHz).
+
+        Returns
+        -------
+        list[tuple[float, float, str]]
+            One tuple per sherpa segment; overlapping spans with different labels
+            signal concurrent speakers.
+        """
+        if self._sd is None:
+            self.load()
+        assert self._sd is not None  # runtime sanity after load().
+        if pcm.dtype != np.float32:
+            pcm = pcm.astype(np.float32, copy=False)
+        result = self._sd.process(pcm).sort_by_start_time()
+        return [(float(seg.start), float(seg.end), f"spk{seg.speaker}") for seg in result]
