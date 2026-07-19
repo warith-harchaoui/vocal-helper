@@ -1386,12 +1386,15 @@ def resolve_diarization_engines() -> Path | None:
         return hits[0].parent
 
     import tempfile
-    import urllib.request
     import zipfile
+
+    import os_helper as osh
 
     dest.mkdir(parents=True, exist_ok=True)
     with tempfile.NamedTemporaryFile(suffix=".zip", delete=False) as tmp:
-        urllib.request.urlretrieve(src, tmp.name)
+        # os_helper.download_file streams the ~750 MB bundle with a progress bar
+        # (tqdm on a TTY, quiet on CI) — one-time fetch, cached below.
+        osh.download_file(src, tmp.name)
         with zipfile.ZipFile(tmp.name) as z:
             z.extractall(dest)
     hits = list(dest.rglob("manifest.json"))

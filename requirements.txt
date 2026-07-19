@@ -15,7 +15,7 @@
 # All suite pins are kept in lock-step with their newest release tags.
 
 # --- Suite dependencies (core) --------------------------------------------
-os-helper>=1.5.0
+os-helper>=1.5.3
 audio-helper>=1.5.5
 # --- Suite dependencies (source extras — install via the extras above) ----
 # capture-helper @ git+https://github.com/warith-harchaoui/capture-helper.git@v0.2.2   # [mic]

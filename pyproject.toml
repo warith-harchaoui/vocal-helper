@@ -45,7 +45,7 @@ classifiers = [
 #   buffer ; everything older than ``recent_window_s`` (default 60 s)
 #   gets folded into the summary.
 dependencies = [
-    "os-helper>=1.5.0",
+    "os-helper>=1.5.3",
     "audio-helper>=1.5.5",
     "numpy>=1.24",
     "scipy>=1.15",
