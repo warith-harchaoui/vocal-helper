@@ -181,7 +181,8 @@ ollama serve   # usually launched at install time
 
 All model weights ship in a single self-hosted **diarization-engines
 bundle** (offline pyannote 3.1, NeMo Sortformer, the online
-`pyannote/embedding` embedder, SpeechBrain VoxLingua107). Point
+`pyannote/embedding` embedder, SpeechBrain VoxLingua107, and the
+torch-free `sherpa` ONNX — pyannote-3.0 segmentation + TitaNet). Point
 `vocal-helper` at it once and the whole stack runs **HuggingFace-free** —
 no token, no gated downloads, `HF_HUB_OFFLINE=1` safe.
 

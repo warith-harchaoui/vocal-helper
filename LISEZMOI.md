@@ -124,7 +124,8 @@ ollama serve
 
 Tous les poids sont fournis dans un **bundle diarization-engines**
 auto-hébergé (pyannote 3.1 offline, NeMo Sortformer, l'embedder online
-`pyannote/embedding`, SpeechBrain VoxLingua107). On pointe `vocal-helper`
+`pyannote/embedding`, SpeechBrain VoxLingua107, et le `sherpa` ONNX
+sans-torch — segmentation pyannote-3.0 + TitaNet). On pointe `vocal-helper`
 dessus une fois et toute la chaîne tourne **sans HuggingFace** — aucun
 token, aucun téléchargement gated, compatible `HF_HUB_OFFLINE=1`.
 

@@ -316,7 +316,8 @@ sudo chmod 0600 /data/vocal-helper/settings.yaml
 ```
 
 All model weights (offline pyannote 3.1, NeMo Sortformer, online
-`pyannote/embedding`, SpeechBrain VoxLingua107) ship in this bundle, so
+`pyannote/embedding`, SpeechBrain VoxLingua107, and the torch-free
+`sherpa` ONNX — pyannote-3.0 segmentation + TitaNet) ship in this bundle, so
 **no HuggingFace account or token is needed** and no gated licences must
 be accepted. TitaNet loads from NVIDIA NGC (also HF-free).
 
@@ -538,7 +539,7 @@ degrades > 2× baseline.
 `settings.yaml` holds only the diarization-engines bundle URL — no
 secrets, no HuggingFace token — so it can be shipped in the clear (git
 config, a ConfigMap, or baked into the image). There is nothing to
-rotate. Point it at your own mirror of `diarization-engines.zip` for
+rotate. Point it at your own mirror of `diarization-engines-slim.zip` for
 air-gapped deploys.
 
 ### 5. YouTube rate-limits

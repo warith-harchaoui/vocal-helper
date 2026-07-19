@@ -111,7 +111,9 @@ Trois backends d'embedding sont câblés :
 - `backend='pyannote'` — `pyannote/embedding` [@pyannoteembedding].
 - `backend='sherpa'` — le même TitaNet-large via
   `sherpa-onnx`/onnxruntime, **sans torch** : install léger et
-  embarquable partout (DER 0.174, FR+EN validé ; ADR 0002).
+  embarquable partout (DER 0.174, FR+EN validé ; ADR 0002). Ses poids
+  ONNX sont fournis dans le bundle diarization-engines, donc ce chemin
+  tourne sans PyTorch et sans HuggingFace.
 
 **Le défaut est `nemo` (TitaNet)**, sélectionné par le sweep
 backend d'embedding Été 2026

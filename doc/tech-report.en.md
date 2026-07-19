@@ -108,7 +108,9 @@ wired :
 - `backend='pyannote'` — `pyannote/embedding` [@pyannoteembedding].
 - `backend='sherpa'` — the same TitaNet-large run through
   `sherpa-onnx`/onnxruntime, **torch-free** : it installs light and
-  embeds on any platform (DER 0.174, FR+EN validated; ADR 0002).
+  embeds on any platform (DER 0.174, FR+EN validated; ADR 0002). Its
+  ONNX weights ship in the diarization-engines bundle, so the path runs
+  with no PyTorch and no HuggingFace.
 
 **Default is `nemo` (TitaNet)**, selected by the Summer 2026
 embedding-backend sweep
