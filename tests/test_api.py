@@ -65,6 +65,22 @@ def test_docs_endpoint_is_served(client: TestClient) -> None:
     assert "swagger" in r.text.lower() or "openapi" in r.text.lower()
 
 
+def test_minimal_gui_served_at_ui(client: TestClient) -> None:
+    """The minimal web GUI is served same-origin at ``/ui`` in a source checkout."""
+    # The API mounts webui/ at /ui only when the folder sits next to the package
+    # (a repo checkout — always true in CI). A bare pip install without the folder
+    # skips the mount, so treat a 404 as "not a source tree" and skip, not fail.
+    from vocal_helper import api
+
+    if not api._WEBUI_DIR.is_dir():
+        pytest.skip("webui/ folder absent (bare install, not a source checkout)")
+    # StaticFiles(html=True) serves index.html at the mount root.
+    r = client.get("/ui/")
+    assert r.status_code == 200
+    # It is the self-contained local GUI page, not an API JSON error.
+    assert "html" in r.text.lower()
+
+
 def test_pipeline_backend_default_is_auto() -> None:
     """The ``/pipeline`` ``diar_backend`` form field must default to 'auto'."""
     # Guard against regressing to the old hardcoded 'pyannote' default that
