@@ -39,8 +39,9 @@ def test_lid_defaults() -> None:
     """LID default constants match the documented window / min-region / lang set."""
     assert DEFAULT_WINDOW_S == 10.0
     assert DEFAULT_MIN_REGION_S == 8.0
-    # Broad ISO-639-1 set, en first (the empty-input fallback language).
-    assert DEFAULT_SUPPORTED_LANGS[0] == "en"
+    # DEFAULT_SUPPORTED_LANGS is an opt-in routing hint, never a default: no
+    # single language is privileged, so we assert membership as a set (order
+    # carries no meaning) rather than which code happens to come first.
     assert {"en", "fr", "es", "it", "pl", "nl"} <= set(DEFAULT_SUPPORTED_LANGS)
     # Canonical ISO-639-1 : two-letter, lower-case, no region suffixes.
     assert all(len(c) == 2 and c.islower() for c in DEFAULT_SUPPORTED_LANGS)
@@ -209,9 +210,60 @@ def test_fast_unsupported_language_falls_back(monkeypatch: pytest.MonkeyPatch) -
     assert out is sentinel
 
 
-def test_fast_empty_input_single_zero_length_region() -> None:
-    """Empty audio yields one zero-length region (matches the slow path's contract)."""
+# ----- detect_language discovery vs opt-in routing (no whisper.cpp) ----------
+#
+# The whisper stage is faked so we can pin the *policy* — discover freely by
+# default, restrict only when asked — without loading a model.
+
+
+class _FakeModel:
+    """Stand-in for pywhispercpp's ``Model`` exposing ``auto_detect_language``."""
+
+    def __init__(self, top: str, prob: float, dist: dict[str, float]) -> None:
+        # ``top``/``prob`` = whisper's own argmax ; ``dist`` = full posterior.
+        self._top = top
+        self._prob = prob
+        self._dist = dist
+
+    def auto_detect_language(
+        self, pcm: np.ndarray, offset_ms: int = 0
+    ) -> tuple[tuple[str, float], dict[str, float]]:
+        """Return ``((argmax, prob), full_distribution)`` like whisper.cpp does."""
+        return (self._top, self._prob), self._dist
+
+
+class _FakeStage:
+    """Minimal stand-in for the cached :class:`WhisperStage` used by LID."""
+
+    def __init__(self, model: _FakeModel) -> None:
+        self._model = model
+
+
+def test_detect_language_discovers_true_argmax(monkeypatch: pytest.MonkeyPatch) -> None:
+    """With no whitelist, detection returns whisper's true top language."""
+    # whisper's argmax is Galician (``gl``) — a language NOT in the routing
+    # hint. Pure discovery must surface it verbatim, never coerce it away.
+    fake = _FakeStage(_FakeModel("gl", 0.82, {"gl": 0.82, "es": 0.1, "en": 0.05}))
+    monkeypatch.setattr(lid, "_get_stage", lambda model, threads: fake)
+    code, prob = lid.detect_language(np.zeros(16_000, dtype=np.float32))
+    assert code == "gl"
+    assert prob == pytest.approx(0.82)
+
+
+def test_detect_language_opt_in_whitelist_reranks(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A caller-supplied ``supported`` set re-ranks strictly within it."""
+    # Same distribution, but the caller can only route en/es → the guard picks
+    # the best routable code (es), dropping the un-routable Galician argmax.
+    fake = _FakeStage(_FakeModel("gl", 0.82, {"gl": 0.82, "es": 0.1, "en": 0.05}))
+    monkeypatch.setattr(lid, "_get_stage", lambda model, threads: fake)
+    code, prob = lid.detect_language(np.zeros(16_000, dtype=np.float32), supported=("en", "es"))
+    assert code == "es"
+    assert prob == pytest.approx(0.1)
+
+
+def test_fast_empty_input_returns_no_regions() -> None:
+    """Empty audio has no language to discover, so no region is invented."""
+    # Discovery, not defaulting: silence must not be labelled a language.
+    # Both the fast path and the slow path return an empty list here.
     out = detect_language_regions_fast(np.zeros(0, dtype=np.float32), 16_000)
-    assert len(out) == 1
-    assert out[0].t0 == out[0].t1 == 0.0
-    assert out[0].lang == DEFAULT_SUPPORTED_LANGS[0]
+    assert out == []

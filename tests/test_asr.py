@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
 
 from vocal_helper.asr import (
     DEFAULT_INITIAL_PROMPT,
@@ -14,8 +15,10 @@ from vocal_helper.asr import (
     WhisperStage,
     _assign_window,
     _pack_segments,
+    transcribe_pcm,
+    transcribe_pcm_with_language,
 )
-from vocal_helper.types import DiarizedSegment
+from vocal_helper.types import DiarizedSegment, Utterance
 
 SR = 16000
 
@@ -189,3 +192,48 @@ def test_batched_chunk_transcribe_failure_keeps_contract() -> None:
     utts = stage._transcribe_chunk_blocking(chunk)
     assert [u["speaker"] for u in utts] == ["S0", "S1"]
     assert all(u["text"] == "" for u in utts)
+
+
+# ----- transcribe_pcm / _with_language (discovery-first, model-free) ---------
+
+
+def _stub_whisper(monkeypatch: pytest.MonkeyPatch, text: str, language: str | None) -> None:
+    """Patch :class:`WhisperStage` so no real whisper.cpp model is loaded.
+
+    ``_ensure_model`` becomes a no-op and ``_transcribe_blocking`` returns a
+    canned :class:`Utterance` carrying ``text`` and the *discovered* ``language``
+    — exactly what the one-shot helpers read back.
+    """
+    # No model load: the helpers call _ensure_model() before transcribing.
+    monkeypatch.setattr(WhisperStage, "_ensure_model", lambda self: None)
+
+    def _fake_transcribe(self: WhisperStage, seg: DiarizedSegment) -> Utterance:
+        """Return a fixed utterance, echoing the segment's timing/speaker."""
+        return Utterance(
+            t0=seg["t0"],
+            t1=seg["t1"],
+            speaker=seg["speaker"],
+            text=text,
+            words=[],
+            language=language,
+        )
+
+    monkeypatch.setattr(WhisperStage, "_transcribe_blocking", _fake_transcribe)
+
+
+def test_transcribe_pcm_with_language_surfaces_detected(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The helper returns the language whisper actually discovered, not the input."""
+    # whisper "discovers" French even though the caller left language on "auto".
+    _stub_whisper(monkeypatch, "bonjour", "fr")
+    pcm = np.zeros(SR, dtype=np.float32)
+    text, language = transcribe_pcm_with_language(pcm, sr=SR)  # language defaults to "auto"
+    assert text == "bonjour"
+    assert language == "fr"
+
+
+def test_transcribe_pcm_keeps_str_contract(monkeypatch: pytest.MonkeyPatch) -> None:
+    """``transcribe_pcm`` still returns only text, delegating to the language helper."""
+    _stub_whisper(monkeypatch, "hola", "es")
+    out = transcribe_pcm(np.zeros(SR, dtype=np.float32), sr=SR)
+    assert out == "hola"
+    assert isinstance(out, str)

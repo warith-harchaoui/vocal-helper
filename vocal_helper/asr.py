@@ -470,6 +470,73 @@ def _assign_window(windows: list[tuple[float, float]], t: float) -> int:
 # ---------------------------------------------------------------------------
 
 
+def transcribe_pcm_with_language(
+    pcm: NDArray[np.float32],
+    sr: int,
+    *,
+    model: str = DEFAULT_MODEL,
+    language: str = DEFAULT_LANGUAGE,
+    threads: int = DEFAULT_THREADS,
+    initial_prompt: str = DEFAULT_INITIAL_PROMPT,
+) -> tuple[str, str | None]:
+    """Synchronous one-shot transcription returning text **and** the language.
+
+    Same as :func:`transcribe_pcm`, but also surfaces the language whisper
+    actually used. With ``language="auto"`` (the default) that is the language
+    *discovered* from the audio — so callers can report the real language of
+    the input instead of echoing back ``"auto"``.
+
+    Parameters
+    ----------
+    pcm : NDArray[np.float32]
+        Mono waveform.
+    sr : int
+        Sample rate of ``pcm`` in Hz.
+    model : str, optional
+        whisper.cpp model name (default :data:`DEFAULT_MODEL`).
+    language : str, optional
+        ISO-639-1 code, or ``"auto"`` to discover it (default
+        :data:`DEFAULT_LANGUAGE`).
+    threads : int, optional
+        Inference threads (default :data:`DEFAULT_THREADS`).
+    initial_prompt : str, optional
+        Domain-bias prompt (default :data:`DEFAULT_INITIAL_PROMPT`).
+
+    Returns
+    -------
+    (str, str or None)
+        ``(text, detected_language)``. The language is ``None`` only when
+        whisper reported none (e.g. an empty / sub-threshold segment).
+
+    Examples
+    --------
+    >>> text, lang = transcribe_pcm_with_language(pcm, 16_000)  # doctest: +SKIP
+    >>> lang                                                    # doctest: +SKIP
+    'fr'
+    """
+    stage = WhisperStage(
+        model=model,
+        language=language,
+        threads=threads,
+        word_timestamps=False,
+        initial_prompt=initial_prompt,
+    )
+    stage._ensure_model()
+    # Wrap the buffer as a single diarized segment (one speaker, whole file).
+    seg = DiarizedSegment(
+        t0=0.0,
+        t1=pcm.shape[0] / float(sr),
+        sample_rate=sr,
+        speaker="S0",
+        pcm=pcm.astype(np.float32, copy=False),
+    )
+    utt = stage._transcribe_blocking(seg)
+    # A dropped/empty segment yields no utterance → empty text, unknown language.
+    if utt is None:
+        return "", None
+    return utt["text"], utt["language"]
+
+
 def transcribe_pcm(
     pcm: NDArray[np.float32],
     sr: int,
@@ -483,22 +550,17 @@ def transcribe_pcm(
 
     ``initial_prompt`` is the same domain-bias lever as
     :class:`WhisperStage` — empty by default, but strongly recommended
-    (cuts WER 15-25 pp on AMI, saves up to 39 % RTF).
+    (cuts WER 15-25 pp on AMI, saves up to 39 % RTF). See
+    :func:`transcribe_pcm_with_language` to also get the discovered language.
     """
-    stage = WhisperStage(
+    # Delegate to the language-aware helper and keep only the text so the
+    # historical ``-> str`` contract is preserved for existing callers.
+    text, _language = transcribe_pcm_with_language(
+        pcm,
+        sr,
         model=model,
         language=language,
         threads=threads,
-        word_timestamps=False,
         initial_prompt=initial_prompt,
     )
-    stage._ensure_model()
-    seg = DiarizedSegment(
-        t0=0.0,
-        t1=pcm.shape[0] / float(sr),
-        sample_rate=sr,
-        speaker="S0",
-        pcm=pcm.astype(np.float32, copy=False),
-    )
-    utt = stage._transcribe_blocking(seg)
-    return "" if utt is None else utt["text"]
+    return text

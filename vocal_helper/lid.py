@@ -85,9 +85,13 @@ DEFAULT_SNAP_S = 1.0
 DEFAULT_FAST_CONF_GATE = 0.5
 
 # Broad ISO-639-1 candidate set — the languages whisper.cpp's large-v3
-# family identifies with usable accuracy. Callers restrict this to the
-# languages they can actually route (e.g. ``("en", "fr", "es", "it",
-# "pl", "nl")``) so whisper never ranks an un-routable relative on top.
+# family identifies with usable accuracy. This is an **opt-in routing hint**,
+# NOT a default: discovery returns the input's actual language (whisper's true
+# argmax over its full ~99-language head). A caller that can only *route* a
+# handful of languages may pass exactly those as ``supported=`` so whisper
+# never ranks an un-routable close relative (Galician ``gl`` over Spanish
+# ``es``) on top — but nothing in this module defaults to a fixed set, and no
+# order privileges any one language. Provided here for callers who want it.
 DEFAULT_SUPPORTED_LANGS: tuple[str, ...] = (
     "en",
     "fr",
@@ -152,31 +156,58 @@ def detect_language(
     model: str = DEFAULT_MODEL,
     threads: int = DEFAULT_THREADS,
     offset_ms: int = 0,
-    supported: tuple[str, ...] = DEFAULT_SUPPORTED_LANGS,
+    supported: tuple[str, ...] | None = None,
 ) -> tuple[str, float]:
-    """Identify the language of ``pcm`` (single window), restricted to ``supported``.
+    """Discover the actual language of ``pcm`` (single window).
 
-    Runs whisper.cpp's ``auto_detect_language`` and returns the most probable
-    language **among** ``supported``. Restricting the candidate set is the
-    "mind the codes" guard : on a short window whisper may rank a close
-    relative (Galician ``gl`` / Catalan ``ca``) above the language the caller
-    can route (Spanish ``es``), so a caller that only handles a handful of
-    languages passes exactly those.
+    Runs whisper.cpp's ``auto_detect_language`` and, by default, returns
+    whisper's **true argmax** over its full language head — the language the
+    input actually is, with no default and no restriction. ``supported`` is an
+    optional, opt-in routing guard: pass the ISO-639-1 codes you can actually
+    route and detection is re-ranked strictly within that set (the "mind the
+    codes" guard — on a short window whisper may rank a close relative such as
+    Galician ``gl`` above the routable Spanish ``es``). Leave it ``None`` to
+    let the input speak for itself.
+
+    Parameters
+    ----------
+    pcm : NDArray[np.float32]
+        Mono waveform window at the model's sample rate.
+    model : str, optional
+        whisper.cpp model name (default :data:`DEFAULT_MODEL`).
+    threads : int, optional
+        Inference threads (default :data:`DEFAULT_THREADS`).
+    offset_ms : int, optional
+        Offset into ``pcm`` handed to whisper's detector (default ``0``).
+    supported : tuple[str, ...] or None, optional
+        Opt-in routable-language whitelist. ``None`` (default) means *discover
+        freely* — return whisper's own top language. A tuple restricts the
+        answer to those codes (e.g. :data:`DEFAULT_SUPPORTED_LANGS`).
 
     Returns
     -------
     (str, float)
-        ``(iso_639_1_code, probability)`` — the top-ranked supported language.
+        ``(iso_639_1_code, probability)`` — the discovered language and its
+        posterior. When ``supported`` is given, the top-ranked code within it.
+
+    Examples
+    --------
+    >>> code, prob = detect_language(pcm)                  # doctest: +SKIP
+    >>> code                                               # doctest: +SKIP
+    'fr'
     """
     stage = _get_stage(model, threads)
-    # whisper.cpp returns its full language distribution ; we ignore its own
-    # argmax (``_top``) and re-rank strictly within ``supported`` below.
-    (_top, _p), all_probs = stage._model.auto_detect_language(  # type: ignore[attr-defined]
+    # whisper.cpp returns (its own argmax, prob) plus the full distribution.
+    (top, p), all_probs = stage._model.auto_detect_language(  # type: ignore[attr-defined]
         np.asarray(pcm, dtype=np.float32),
         offset_ms=offset_ms,
     )
-    # Pick the best routable language ; a code absent from the distribution
-    # scores 0.0, so it can only win if literally nothing else was ranked.
+    # No routing restriction → honour whisper's genuine discovery verbatim.
+    if supported is None:
+        return str(top), float(p)
+    # Opt-in guard: re-rank strictly within the caller's routable set. A code
+    # absent from the distribution scores 0.0, so it can only win if literally
+    # nothing routable was ranked.
     best = max(supported, key=lambda code: float(all_probs.get(code, 0.0)))
     return best, float(all_probs.get(best, 0.0))
 
@@ -189,20 +220,28 @@ def language_posterior_curve(
     threads: int = DEFAULT_THREADS,
     window_s: float = DEFAULT_WINDOW_S,
     hop_s: float = DEFAULT_HOP_S,
-    supported: tuple[str, ...] = DEFAULT_SUPPORTED_LANGS,
+    supported: tuple[str, ...] | None = None,
 ) -> tuple[NDArray[np.float64], list[str], NDArray[np.float64]]:
     """Sample a per-window language posterior over time.
 
     Returns ``(centers[T], langs[L], P[T, L])`` where ``centers`` are window
     centre times (s), ``langs`` the candidate codes, and each row of ``P`` a
-    posterior over ``langs`` (renormalised over the supported set) from
-    whisper's ``auto_detect_language`` on a ``window_s`` window centred there.
-    Overlapping windows (``hop_s < window_s``) give a finely sampled curve.
+    posterior over ``langs`` from whisper's ``auto_detect_language`` on a
+    ``window_s`` window centred there. Overlapping windows (``hop_s <
+    window_s``) give a finely sampled curve.
+
+    ``supported`` is opt-in: ``None`` (default) discovers freely — the
+    posterior axis is whisper's full language head (adopted from the first
+    usable window) so any language can surface. A tuple restricts (and
+    renormalises over) that routable set instead.
     """
     stage = _get_stage(model, threads)
     n = int(pcm.shape[0])
     dur = n / float(sample_rate)
-    langs = list(supported)
+    # Unrestricted discovery starts with an empty axis and adopts whisper's
+    # full candidate set from the first usable window ; a caller-supplied
+    # ``supported`` fixes the axis up front.
+    langs: list[str] = [] if supported is None else list(supported)
     half = window_s / 2.0
     centers: list[float] = []
     rows: list[NDArray[np.float64]] = []
@@ -217,16 +256,26 @@ def language_posterior_curve(
         seg = pcm[int(a * sample_rate) : int(b * sample_rate)].astype(np.float32)
         if seg.shape[0] >= sample_rate:  # need ≥ 1 s to identify
             (_top, _p), all_probs = stage._model.auto_detect_language(seg)  # type: ignore[attr-defined]
-            # Project onto the supported set and renormalise to a proper
+            # Unrestricted discovery: adopt whisper's full candidate set from
+            # this first usable window as the (stable) posterior axis, so no
+            # language is filtered out before it can surface.
+            if not langs:
+                langs = sorted(all_probs)
+            # Project onto the candidate axis and renormalise to a proper
             # distribution — the argmax later must compare like-for-like.
             row = np.array([float(all_probs.get(code, 0.0)) for code in langs])
             s = row.sum()
-            # Zero-mass window (nothing supported ranked) → uniform prior.
+            # Zero-mass window (nothing on the axis ranked) → uniform prior.
             rows.append(row / s if s > 0 else np.ones(len(langs)) / len(langs))
             centers.append(min(t, dur))
         t += hop_s
-    # No usable window at all (audio < 1 s) → one uniform frame, still valid.
-    if not rows:  # audio shorter than 1 s
+    # No usable window at all (audio < 1 s). With no rows we cannot discover
+    # anything ; return an empty axis so callers treat the language as unknown
+    # rather than inventing one.
+    if not rows:
+        if not langs:
+            return np.array([0.0]), [], np.zeros((1, 0))
+        # A caller-fixed axis still yields a valid uniform prior frame.
         return np.array([0.0]), langs, np.ones((1, len(langs))) / len(langs)
     return np.array(centers), langs, np.vstack(rows)
 
@@ -252,7 +301,7 @@ def detect_language_regions(
     min_region_s: float = DEFAULT_MIN_REGION_S,
     refine_s: float = DEFAULT_REFINE_RADIUS_S,
     snap_s: float = DEFAULT_SNAP_S,
-    supported: tuple[str, ...] = DEFAULT_SUPPORTED_LANGS,
+    supported: tuple[str, ...] | None = None,
 ) -> list[LangRegion]:
     """Partition ``pcm`` into mono-language regions (posterior-curve method).
 
@@ -260,15 +309,20 @@ def detect_language_regions(
     boundary we (1) sample a posterior curve over overlapping windows,
     (2) Gaussian-smooth it, (3) take the per-frame argmax, (4) place change
     points where it flips, (5) absorb sub-``min_region_s`` regions, (6) locally
-    refine each change point, and (7) snap it to the nearest silence. The
-    regions this yields must be transcribed *before* committing to a language,
-    so each is transcribed in its own. Always returns ≥ 1 region.
+    refine each change point, and (7) snap it to the nearest silence. Each
+    region's language is discovered from the audio, never defaulted. The
+    regions must be transcribed *before* committing to a language, so each is
+    transcribed in its own. ``supported`` is an opt-in routing whitelist
+    (``None`` = discover freely, see :func:`detect_language`).
+
+    Empty or too-short-to-identify audio has no language to discover, so this
+    returns an **empty list** (no region invented) rather than guessing one.
     """
     n = int(pcm.shape[0])
-    # Degenerate empty input — return a single zero-length region so callers
-    # never have to special-case an empty list.
+    # Empty input — nothing to discover. Return no regions rather than
+    # fabricating a language for silence.
     if n == 0:
-        return [LangRegion(supported[0], 0.0, 0.0)]
+        return []
     dur = n / float(sample_rate)
 
     centers, langs, post = language_posterior_curve(
@@ -280,6 +334,10 @@ def detect_language_regions(
         hop_s=hop_s,
         supported=supported,
     )
+    # Empty candidate axis → the audio was too short to identify anything and
+    # no restriction was given. Honestly report "no discoverable region".
+    if post.shape[1] == 0 or not langs:
+        return []
     if len(post) > 1 and smooth_s > 0:
         from scipy.ndimage import gaussian_filter1d
 
@@ -315,7 +373,7 @@ def detect_language_regions_fast(
     conf_gate: float = DEFAULT_FAST_CONF_GATE,
     model: str = DEFAULT_MODEL,
     threads: int = DEFAULT_THREADS,
-    supported: tuple[str, ...] = DEFAULT_SUPPORTED_LANGS,
+    supported: tuple[str, ...] | None = None,
 ) -> list[LangRegion]:
     """Partition ``pcm`` into language regions, fast path for monolingual audio.
 
@@ -349,8 +407,9 @@ def detect_language_regions_fast(
         whisper.cpp model name (default :data:`DEFAULT_MODEL`).
     threads : int, optional
         Inference threads (default :data:`DEFAULT_THREADS`).
-    supported : tuple[str, ...], optional
-        Routable ISO-639-1 candidates (default :data:`DEFAULT_SUPPORTED_LANGS`).
+    supported : tuple[str, ...] or None, optional
+        Opt-in routable-language whitelist. ``None`` (default) discovers the
+        language freely (see :func:`detect_language`).
 
     Returns
     -------
@@ -365,17 +424,19 @@ def detect_language_regions_fast(
     'en'
     """
     n = int(pcm.shape[0])
-    # Degenerate empty input — mirror detect_language_regions' contract of
-    # always returning at least one (zero-length) region so callers never
-    # have to special-case an empty list.
+    # Empty input — no audio, no language. Mirror detect_language_regions and
+    # return no regions rather than inventing one.
     if n == 0:
-        return [LangRegion(supported[0], 0.0, 0.0)]
+        return []
     dur = n / float(sample_rate)
 
-    # One cheap whole-file detection. A confident, routable answer means the
-    # recording is almost certainly monolingual → skip the posterior scan.
+    # One cheap whole-file detection. A confident answer means the recording is
+    # almost certainly monolingual → skip the posterior scan. When the caller
+    # gave a routable whitelist, also require the discovered language to be in
+    # it before trusting the single-region fast path.
     lang, conf = detect_language(pcm, model=model, threads=threads, supported=supported)
-    if conf >= conf_gate and lang in supported:
+    routable = supported is None or lang in supported
+    if conf >= conf_gate and routable:
         return [LangRegion(lang, 0.0, dur)]
 
     # Uncertain (code-switched or noisy) → pay for the accurate
@@ -438,7 +499,7 @@ def _refine_boundaries(
     *,
     model: str,
     threads: int,
-    supported: tuple[str, ...],
+    supported: tuple[str, ...] | None,
     radius_s: float,
     window_s: float = DEFAULT_REFINE_WINDOW_S,
     hop_s: float = DEFAULT_REFINE_HOP_S,
@@ -458,7 +519,9 @@ def _refine_boundaries(
     out = list(regions)
     for i in range(len(out) - 1):
         a_lang, b_lang = out[i].lang, out[i + 1].lang
-        if a_lang not in supported or b_lang not in supported:
+        # With an opt-in whitelist, only refine boundaries between two routable
+        # languages ; unrestricted discovery (supported is None) refines all.
+        if supported is not None and (a_lang not in supported or b_lang not in supported):
             continue
         b = out[i].t1
         lo = max(out[i].t0, b - radius_s)
@@ -595,26 +658,45 @@ def _ensure_classifier() -> EncoderClassifier:
 def detect_language_speechbrain(
     pcm: NDArray[np.float32],
     *,
-    supported: tuple[str, ...] = DEFAULT_SUPPORTED_LANGS,
+    supported: tuple[str, ...] | None = None,
 ) -> tuple[str, float]:
     """Identify the language of ``pcm`` with SpeechBrain VoxLingua107.
 
     An ECAPA-TDNN spoken-language classifier that shares nothing with whisper
     but the audio — the independent second opinion. VoxLingua107 labels are
     ``"<iso>: <English name>"`` (e.g. ``"fr: French"``); the ISO-639-1 prefix
-    is returned, coerced to ``supported[0]`` when outside ``supported``.
+    is returned. By default the classifier's **true** label is returned so the
+    second opinion stays genuinely independent — it is never silently remapped
+    to a preferred language. Pass ``supported`` only if you want an
+    out-of-whitelist label dropped to the closest routable one.
 
-    Returns ``(iso_639_1_code, probability)``.
+    Parameters
+    ----------
+    pcm : NDArray[np.float32]
+        Mono waveform to classify.
+    supported : tuple[str, ...] or None, optional
+        Opt-in routable-language whitelist. ``None`` (default) returns the true
+        VoxLingua107 label, even if it is outside any routing set. A tuple
+        re-ranks the classifier's posterior within that set instead.
+
+    Returns
+    -------
+    (str, float)
+        ``(iso_639_1_code, probability)``.
     """
     import torch
 
     clf = _ensure_classifier()
     wav = torch.tensor(np.asarray(pcm, dtype=np.float32)).unsqueeze(0)
     _out_prob, score, _index, text_lab = clf.classify_batch(wav)
+    # The classifier's genuine top label — the honest independent opinion.
     raw = str(text_lab[0]).split(":", 1)[0].strip().lower()
-    code = raw if raw in supported else supported[0]
     prob = float(score.exp()) if hasattr(score, "exp") else float(score)
-    return code, prob
+    # No whitelist → report the truth verbatim. With a whitelist, drop an
+    # out-of-set label to the caller's first routable code (opt-in only).
+    if supported is None or raw in supported:
+        return raw, prob
+    return supported[0], prob
 
 
 @dataclass(frozen=True)
@@ -634,7 +716,7 @@ def cross_check_regions(
     regions: list[LangRegion],
     sample_rate: int = DEFAULT_SR,
     *,
-    supported: tuple[str, ...] = DEFAULT_SUPPORTED_LANGS,
+    supported: tuple[str, ...] | None = None,
 ) -> list[RegionVerdict]:
     """Corroborate each region's language with the independent SpeechBrain LID.
 
