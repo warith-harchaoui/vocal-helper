@@ -86,6 +86,8 @@ def _time_offline(stage: OfflineDiarStage, pcm: np.ndarray) -> tuple[list, float
         The ``(t0, t1, speaker)`` segments and the wall-clock seconds the
         ``diarize`` call took (for the RTF denominator).
     """
+    # Fence the timer tightly around the diarize call: model load and VAD are
+    # warmed / done elsewhere so only the diarization work feeds the RTF.
     t = time.perf_counter()
     segs = stage.diarize(pcm, SR)
     return segs, time.perf_counter() - t
@@ -111,14 +113,23 @@ def _time_online(backend: str, voiced: list, shared_emb: object) -> tuple[list, 
     """
     stage = OnlineDiarStage(backend=backend)
     # Reuse the warm embedder + reset the clusterer so each clip starts clean.
+    # Injecting the shared embedder keeps model-load out of the timed region;
+    # zeroing the centroids/next_id stops one clip's speakers leaking into the
+    # next clip's clustering.
     stage._embedder = shared_emb  # type: ignore[assignment]
     stage._centroids, stage._next_id = [], 0
+    # Time only the streaming label pass over the (already-computed) voiced
+    # segments — VAD ran upstream and is deliberately excluded from RTF.
     t = time.perf_counter()
     labelled = []
+    # Feed segments through the online labeller one at a time, mimicking how
+    # the live pipeline consumes captures as they arrive.
     for seg in voiced:
         s, _e = stage._label_capture(seg)
         labelled.append(s)
     wall = time.perf_counter() - t
+    # Normalise the labeller's dicts down to the (t0, t1, speaker) tuple the
+    # DER scorer expects.
     return [(s["t0"], s["t1"], s["speaker"]) for s in labelled], wall
 
 
@@ -138,6 +149,7 @@ def main() -> None:
     ap.add_argument("--n", type=int, default=30)
     args = ap.parse_args()
 
+    # Resolve the (name, wav, rttm) clip triples for the chosen corpus.
     pairs = load_pairs(args.bench, args.corpus, args.n)
     # offline_nemo hangs on long meetings → only score it on the short corpus.
     score_nemo_offline = args.corpus == "bagarre"
@@ -148,15 +160,20 @@ def main() -> None:
     )
 
     # Warm every backend once so model-load never pollutes the RTF numbers.
+    # Each _ensure_* call forces the weights to load now, up front, outside
+    # any timed region.
     off_pyannote = OfflineDiarStage(backend="pyannote")
     off_pyannote._ensure_backend()
     off_nemo = OfflineDiarStage(backend="nemo")
+    # Only pay the Sortformer load cost when we will actually score it.
     if score_nemo_offline:
         off_nemo._ensure_backend()
     warm_nemo = OnlineDiarStage(backend="nemo")
     warm_nemo._ensure_embedder()
     warm_pyan = OnlineDiarStage(backend="pyannote")
     warm_pyan._ensure_embedder()
+    # One shared VAD model feeds both streaming paths (see the shared pass
+    # below), so warm it once here too.
     warm_vad = SileroVADStage()
     warm_vad._ensure_model()
 
@@ -167,35 +184,51 @@ def main() -> None:
         "online_nemo": [],
         "online_pyannote": [],
     }
+    # walls / audio accumulate the RTF numerator (diar wall) and denominator
+    # (audio seconds) so the ratio is computed over the whole corpus, not
+    # averaged per clip.
     walls: dict[str, float] = {k: 0.0 for k in ders}
     audio: dict[str, float] = {k: 0.0 for k in ders}
 
     t_start = time.perf_counter()
     for idx, (name, wav, rttm) in enumerate(pairs):
+        # Per-clip try/except: a single bad file should skip that clip, not
+        # abort the whole corpus sweep.
         try:
             pcm = load_pcm(wav)
             dur = len(pcm) / SR
             ref = ref_from_rttm(rttm)
 
             # --- offline pyannote (the robust default) ---
+            # Score DER against ground truth and bank wall + audio for RTF.
             segs, wall = _time_offline(off_pyannote, pcm)
-            ders["offline_pyannote"].append(DiarizationErrorRate(collar=COLLAR)(ref, ann_from_segs(segs)))
+            ders["offline_pyannote"].append(
+                DiarizationErrorRate(collar=COLLAR)(ref, ann_from_segs(segs))
+            )
             walls["offline_pyannote"] += wall
             audio["offline_pyannote"] += dur
 
             # --- offline nemo (short only) ---
+            # Guarded by score_nemo_offline because Sortformer hangs on long
+            # meetings (see module docstring).
             if score_nemo_offline:
                 segs, wall = _time_offline(off_nemo, pcm)
-                ders["offline_nemo"].append(DiarizationErrorRate(collar=COLLAR)(ref, ann_from_segs(segs)))
+                ders["offline_nemo"].append(
+                    DiarizationErrorRate(collar=COLLAR)(ref, ann_from_segs(segs))
+                )
                 walls["offline_nemo"] += wall
                 audio["offline_nemo"] += dur
 
             # --- streaming paths share one VAD pass (VAD time excluded from RTF) ---
+            # Run VAD once and hand the same voiced segments to both online
+            # backends so VAD cost is charged to neither path's RTF.
             voiced = asyncio.run(_vad(pcm, warm_vad))
             for backend, key, emb in (
                 ("nemo", "online_nemo", warm_nemo._embedder),
                 ("pyannote", "online_pyannote", warm_pyan._embedder),
             ):
+                # Same score-and-bank pattern as the offline paths, but on the
+                # streaming labeller timed by _time_online.
                 segs, wall = _time_online(backend, voiced, emb)
                 ders[key].append(DiarizationErrorRate(collar=COLLAR)(ref, ann_from_segs(segs)))
                 walls[key] += wall
@@ -214,10 +247,18 @@ def main() -> None:
     print(f"\n=== {args.corpus} DER+RTF ({time.perf_counter() - t_start:.0f}s) ===", flush=True)
     print(f"  {'path':18s} {'n':>3s}  {'DER_mean':>8s} {'DER_med':>8s}  {'RTF':>7s}", flush=True)
     for key, vals in ders.items():
+        # Skip paths with no scores (e.g. offline_nemo on the ami corpus,
+        # which was intentionally not run).
         if vals:
             a = np.array(vals)
+            # Report both mean and median DER: the median resists a single
+            # pathological clip, the mean shows the tail. RTF is the pooled
+            # ratio (guarded against a zero denominator).
             rtf = walls[key] / audio[key] if audio[key] > 0 else float("nan")
-            print(f"  {key:18s} {len(a):3d}  {a.mean():8.3f} {np.median(a):8.3f}  {rtf:7.4f}", flush=True)
+            print(
+                f"  {key:18s} {len(a):3d}  {a.mean():8.3f} {np.median(a):8.3f}  {rtf:7.4f}",
+                flush=True,
+            )
 
 
 if __name__ == "__main__":
