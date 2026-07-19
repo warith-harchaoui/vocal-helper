@@ -7,15 +7,6 @@ This project adheres to [Semantic Versioning](https://semver.org).
 
 ### Added
 
-- **Supported-language (`lang_pair`) resolver.** New `resolve_lang_pair()`,
-  `languages_from_i18n()` and `DEFAULT_LANG_PAIR` (exported from the package) enforce
-  the FR+EN language floor for a caller's *supported / output* languages while never
-  blocking extra languages — `resolve_lang_pair("es") == ("fr", "en", "es")`.
-  `languages_from_i18n()` reads the set from a `locales/i18n.yaml` catalog's
-  `meta.languages`, so adding a language is just adding its column. This does **not**
-  restrict audio language detection, which stays a-priori-free (`WhisperStage
-  language="auto"` / `detect_language`). Covered by `tests/test_lang_pair.py`.
-
 - **Portable `sherpa` diarization backend (torch-free ONNX).** Selectable on both
   `OnlineDiarStage` (via `_SherpaEmbedder`) and `OfflineDiarStage` (via
   `_SherpaOfflineDiar`, sherpa-onnx `OfflineSpeakerDiarization`, whole-buffer). Runs the
