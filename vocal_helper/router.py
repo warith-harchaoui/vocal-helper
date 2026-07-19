@@ -17,9 +17,10 @@ Quality × speed per scenario (the whole point)
 Numbers were **re-validated on this machine** (2026-07-19,
 ``studies/router_profile_validation.py``, ``pyannote.metrics`` collar 0.25, median
 DER + RTF) against ground truth — bagarre (30 short mixes) + AMI dev-slice (2 real
-meetings). ``sherpa`` is from ADR 0002 (its ONNX models are not in the local
-bundle). DER = quality (lower is better); RTF = speed (``< 1`` = faster than real
-time):
+meetings). The ``sherpa`` DER is from ADR 0002; its ONNX models (pyannote-3.0
+segmentation + TitaNet-large embedding) now ship in the diarization-engines
+bundle, so the torch-free path runs with no HuggingFace and no PyTorch. DER =
+quality (lower is better); RTF = speed (``< 1`` = faster than real time):
 
 ======== ========= ============ ========== =================================================
 mode     backend   DER          RTF        when the router picks it

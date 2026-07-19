@@ -17,6 +17,11 @@ names exported from `vocal_helper.__all__` plus the documented CLI flags.
   arm64, Linux x86_64/aarch64 (manylinux + musllinux) and Windows across
   cp39–cp314, so a plain `pip install vocal-helper` needs **no C/C++ toolchain**
   on any common platform (only exotic arches fall back to an sdist compile).
+- **The hosted model bundle now carries the `sherpa` ONNX** (pyannote-3.0
+  segmentation + TitaNet-large/small embedding), so the torch-free backend
+  (`pip install vocal-helper[sherpa]`) runs offline diarization with **no
+  PyTorch and no HuggingFace** — the lightest offline path. The bundle also
+  dropped an unused TTS payload, so it stays lean.
 
 ### Documentation
 
