@@ -1353,7 +1353,7 @@ class OfflineDiarStage:
 # from it with zero HuggingFace access (no token, ``HF_HUB_OFFLINE=1`` safe).
 # The canonical source is ``engines.diarization_url`` in ``settings.yaml`` ;
 # this constant is only the last-resort default when nothing is configured.
-DEFAULT_DIARIZATION_ENGINES_URL: str | None = "https://deraison.ai/diarization-engines.zip"
+DEFAULT_DIARIZATION_ENGINES_URL: str | None = "https://deraison.ai/diarization-engines-slim.zip"
 
 
 def resolve_diarization_engines() -> Path | None:

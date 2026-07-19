@@ -191,13 +191,13 @@ Configure it in `settings.yaml` (the only config the project needs):
 cp settings.yaml.example settings.yaml
 # settings.yaml already contains:
 #   engines:
-#     diarization_url: https://deraison.ai/diarization-engines.zip
+#     diarization_url: https://deraison.ai/diarization-engines-slim.zip
 # settings.yaml is git-ignored.
 ```
 
 #### What the URL is
 
-`https://deraison.ai/diarization-engines.zip` is a **self-hosted ZIP**
+`https://deraison.ai/diarization-engines-slim.zip` is a **self-hosted ZIP**
 (~800 MB) that mirrors every gated/hub-hosted model the pipeline needs, so
 the project never has to authenticate against HuggingFace. It contains:
 

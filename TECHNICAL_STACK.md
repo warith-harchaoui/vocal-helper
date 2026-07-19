@@ -310,7 +310,7 @@ cat > /data/vocal-helper/settings.yaml <<'YAML'
 # The self-hosted model bundle — the only config the project needs.
 # No HuggingFace token required.
 engines:
-  diarization_url: https://deraison.ai/diarization-engines.zip
+  diarization_url: https://deraison.ai/diarization-engines-slim.zip
 YAML
 sudo chmod 0600 /data/vocal-helper/settings.yaml
 ```
@@ -443,7 +443,7 @@ RUN pip install \
 # Pre-warm the diarization-engines bundle at build time (optional; caches
 # the weights into the image so first run is instant). No HuggingFace, no
 # secret — just the self-hosted bundle URL.
-ARG VH_DIARIZATION_ENGINES=https://deraison.ai/diarization-engines.zip
+ARG VH_DIARIZATION_ENGINES=https://deraison.ai/diarization-engines-slim.zip
 RUN VH_DIARIZATION_ENGINES="$VH_DIARIZATION_ENGINES" \
     python -c "from vocal_helper.diar import resolve_diarization_engines as r; assert r()"
 
@@ -595,7 +595,7 @@ ollama pull gemma4:e4b
 sudo install -d -m 0700 -o vocalhelper /data/vocal-helper
 sudo -u vocalhelper tee /data/vocal-helper/settings.yaml >/dev/null <<'YAML'
 engines:
-  diarization_url: https://deraison.ai/diarization-engines.zip
+  diarization_url: https://deraison.ai/diarization-engines-slim.zip
 YAML
 sudo chmod 0600 /data/vocal-helper/settings.yaml
 

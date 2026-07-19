@@ -134,7 +134,7 @@ La configuration tient dans `settings.yaml` (seule config nécessaire) :
 cp settings.yaml.example settings.yaml
 # settings.yaml contient déjà :
 #   engines:
-#     diarization_url: https://deraison.ai/diarization-engines.zip
+#     diarization_url: https://deraison.ai/diarization-engines-slim.zip
 # settings.yaml est gitignoré.
 ```
 

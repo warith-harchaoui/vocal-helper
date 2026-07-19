@@ -27,6 +27,6 @@
 #   2. ``engines.diarization_url`` below.
 #   3. The library's built-in default.
 engines:
-  diarization_url: https://deraison.ai/diarization-engines.zip
+  diarization_url: https://deraison.ai/diarization-engines-slim.zip
 # That is the entire configuration. There is no HuggingFace token — the
 # bundle carries every model weight the project needs.
