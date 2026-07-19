@@ -1,4 +1,11 @@
-"""WhisperStage — construction + batched-path tests (stubbed model, no whisper.cpp)."""
+"""WhisperStage — construction, batched offline path, and one-shot helpers.
+
+All tests are model-free: the whisper.cpp model is stubbed or replaced so no
+real backend is loaded. They cover the construction contract (defaults +
+overrides + pipeline wiring), the batched decode's "one utterance per segment"
+invariant (success and failure), the packing/windowing helpers that feed it,
+and the discovery-first one-shot helpers.
+"""
 
 from __future__ import annotations
 
@@ -35,21 +42,33 @@ def _seg(t0: float, t1: float, speaker: str) -> DiarizedSegment:
     )
 
 
-def test_whisper_defaults() -> None:
-    """Defaults reflect the canonical settings without loading whisper.cpp."""
+# ----- construction contract ------------------------------------------------
+
+
+def test_whisper_construction_contract() -> None:
+    """Defaults are canonical and lazy; every constructor override is stored verbatim.
+
+    Merges the defaults, override, empty-prompt, and batch-off checks into one
+    construction contract: a bare stage carries the documented defaults (and
+    hasn't loaded a model), while an explicitly-configured stage echoes each
+    field back unchanged.
+    """
     stage = WhisperStage()
     assert stage.model_name == DEFAULT_MODEL
     assert stage.language == DEFAULT_LANGUAGE
     assert stage.threads == DEFAULT_THREADS
     assert stage.word_timestamps is True
+    # Empty default keeps the zero-config path working; the docstring still
+    # recommends a domain-aligned prompt.
     assert stage.initial_prompt == DEFAULT_INITIAL_PROMPT == ""
     assert stage.min_segment_ms == DEFAULT_MIN_SEGMENT_MS
-    # Lazy — model not loaded yet.
-    assert stage._model is None
+    assert stage._model is None  # lazy — model not loaded until first use
+    # Batching + warm-up are opt-in; a bare stage keeps per-segment behaviour.
+    assert stage.batch is False
+    assert stage.max_chunk_s == DEFAULT_MAX_CHUNK_S
+    assert stage.warmup is False
 
-
-def test_whisper_accepts_overrides() -> None:
-    """Every constructor override is stored verbatim on the stage."""
+    # Every override is stored as given.
     stage = WhisperStage(
         model="base",
         language="fr",
@@ -66,25 +85,8 @@ def test_whisper_accepts_overrides() -> None:
     assert stage.min_segment_ms == 500
 
 
-def test_initial_prompt_documented_default_is_empty() -> None:
-    """Empty default keeps the zero-config path functional ;
-    docstring strongly recommends providing a domain-aligned prompt."""
-    assert DEFAULT_INITIAL_PROMPT == ""
-
-
-# ----- batched offline path -------------------------------------------------
-
-
-def test_batch_defaults_off() -> None:
-    """Batching + warm-up are opt-in ; bare WhisperStage keeps per-segment behaviour."""
-    stage = WhisperStage()
-    assert stage.batch is False
-    assert stage.max_chunk_s == DEFAULT_MAX_CHUNK_S
-    assert stage.warmup is False
-
-
 def test_pipeline_wiring_defaults() -> None:
-    """Offline defaults to batched ASR ; streaming defaults to warm-up."""
+    """Offline defaults to batched ASR; streaming defaults to warm-up; config wins."""
     import vocal_helper as voh
 
     src = lambda: iter(())  # noqa: E731 — never run, just to construct.
@@ -101,28 +103,34 @@ def test_pipeline_wiring_defaults() -> None:
     assert off2._asr.batch is False
 
 
-def test_pack_segments_respects_chunk_cap() -> None:
-    """``_pack_segments`` groups segments up to ``max_chunk_s``, isolating over-cap ones."""
+# ----- packing + windowing helpers ------------------------------------------
+
+
+def test_pack_and_window_helpers() -> None:
+    """``_pack_segments`` respects the chunk cap and ``_assign_window`` maps times.
+
+    Two helpers that feed the batched decode, checked together: packing groups
+    segments up to ``max_chunk_s`` (isolating over-cap ones, collapsing under a
+    huge cap, splitting under a tiny one), and window assignment resolves a time
+    to its containing window or the nearest edge otherwise.
+    """
     segs = [_seg(0, 2, "S0"), _seg(2, 4, "S1"), _seg(4, 6, "S0"), _seg(6, 20, "S1")]
     # cap 5 s : [2+2] together (4 + pad ≤ 5), then the 2 s, then the 14 s alone.
-    chunks = _pack_segments(segs, max_chunk_s=5.0)
-    assert [len(c) for c in chunks] == [2, 1, 1]
+    assert [len(c) for c in _pack_segments(segs, max_chunk_s=5.0)] == [2, 1, 1]
     # cap huge : everything in one chunk.
     assert len(_pack_segments(segs, max_chunk_s=1000.0)) == 1
     # cap tiny : every segment isolated.
     assert [len(c) for c in _pack_segments(segs, max_chunk_s=0.5)] == [1, 1, 1, 1]
 
-
-def test_assign_window_containment_and_nearest() -> None:
-    """``_assign_window`` maps a time to its containing window, else the nearest edge."""
     windows = [(0.0, 2.0), (2.1, 4.1), (4.2, 6.2)]
     assert _assign_window(windows, 1.0) == 0
     assert _assign_window(windows, 3.0) == 1
     assert _assign_window(windows, 6.0) == 2
-    # In a pad gap → nearest by edge distance.
-    assert _assign_window(windows, 2.05) in (0, 1)
-    # Past the end → last window.
-    assert _assign_window(windows, 99.0) == 2
+    assert _assign_window(windows, 2.05) in (0, 1)  # in a pad gap → nearest edge
+    assert _assign_window(windows, 99.0) == 2  # past the end → last window
+
+
+# ----- batched offline decode -----------------------------------------------
 
 
 class _Phrase:
@@ -148,10 +156,17 @@ class _StubModel:
         return self._phrases
 
 
-def test_batched_chunk_preserves_one_utterance_per_segment() -> None:
-    """Batched decode emits exactly one utterance per input segment, in order."""
-    # Three segments: S0 [0,2], S1 [2,3], S0 [3,5]. Concatenated with 0.1 s pads,
-    # local windows ≈ [0,2] [2.1,3.1] [3.2,5.2].
+def test_batched_chunk_one_utterance_per_segment() -> None:
+    """Batched decode emits exactly one utterance per segment — on success and on crash.
+
+    The invariant is the same in both paths: N input segments → N utterances,
+    in order, each tagged with its diarization speaker. On success, phrases are
+    routed to their owning segment and word times are mapped back to the real
+    timeline; on a model crash, each segment still yields an empty utterance
+    (never fewer).
+    """
+    # Success: three segments S0 [0,2], S1 [2,3], S0 [3,5]. Concatenated with
+    # 0.1 s pads, local windows ≈ [0,2] [2.1,3.1] [3.2,5.2].
     chunk = [_seg(0, 2, "S0"), _seg(2, 3, "S1"), _seg(3, 5, "S0")]
     stage = WhisperStage(batch=True)
     stage._model = _StubModel(
@@ -162,23 +177,19 @@ def test_batched_chunk_preserves_one_utterance_per_segment() -> None:
         ]
     )
     utts = stage._transcribe_chunk_blocking(chunk)
-    # Contract: exactly one Utterance per input segment, in order, with diar speaker.
+    # Exactly one Utterance per input segment, in order, carrying the diar speaker.
     assert len(utts) == 3
     assert [u["speaker"] for u in utts] == ["S0", "S1", "S0"]
     assert [u["t0"] for u in utts] == [0, 2, 3]
-    assert utts[0]["text"] == "hello"
-    assert utts[1]["text"] == "bonjour"
-    assert utts[2]["text"] == "world"
-    # Word abs-time is mapped back into the owning segment's real timeline.
+    assert [u["text"] for u in utts] == ["hello", "bonjour", "world"]
     assert utts[1]["language"] == "fr"
-    w_t0, w_t1, w_text = utts[1]["words"][0]
+    # Word abs-time is mapped back into the owning segment's real timeline.
+    w_t0, _w_t1, w_text = utts[1]["words"][0]
     assert w_text == "bonjour"
     assert 2.0 <= w_t0 <= 3.0  # inside S1's [2,3]
 
-
-def test_batched_chunk_transcribe_failure_keeps_contract() -> None:
-    """A model crash still yields one empty utterance per segment (never fewer)."""
-
+    # Failure: a model that always raises still preserves one empty utterance
+    # per segment, so downstream indexing never desyncs.
     class _Boom:
         """A model whose ``transcribe`` always raises, to test the failure path."""
 
@@ -186,10 +197,9 @@ def test_batched_chunk_transcribe_failure_keeps_contract() -> None:
             """Simulate a whisper.cpp blow-up mid-decode."""
             raise RuntimeError("whisper exploded")
 
-    chunk = [_seg(0, 2, "S0"), _seg(2, 4, "S1")]
     stage = WhisperStage(batch=True)
     stage._model = _Boom()
-    utts = stage._transcribe_chunk_blocking(chunk)
+    utts = stage._transcribe_chunk_blocking([_seg(0, 2, "S0"), _seg(2, 4, "S1")])
     assert [u["speaker"] for u in utts] == ["S0", "S1"]
     assert all(u["text"] == "" for u in utts)
 
@@ -221,18 +231,23 @@ def _stub_whisper(monkeypatch: pytest.MonkeyPatch, text: str, language: str | No
     monkeypatch.setattr(WhisperStage, "_transcribe_blocking", _fake_transcribe)
 
 
-def test_transcribe_pcm_with_language_surfaces_detected(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The helper returns the language whisper actually discovered, not the input."""
+def test_one_shot_helpers_surface_discovered_language(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The helpers return whisper's *discovered* language, and ``transcribe_pcm``
+    keeps its text-only contract.
+
+    ``transcribe_pcm_with_language`` surfaces the language whisper actually found
+    (not the "auto" the caller passed), while ``transcribe_pcm`` delegates to it
+    and hands back only the text string.
+    """
     # whisper "discovers" French even though the caller left language on "auto".
     _stub_whisper(monkeypatch, "bonjour", "fr")
-    pcm = np.zeros(SR, dtype=np.float32)
-    text, language = transcribe_pcm_with_language(pcm, sr=SR)  # language defaults to "auto"
+    text, language = transcribe_pcm_with_language(np.zeros(SR, dtype=np.float32), sr=SR)
     assert text == "bonjour"
     assert language == "fr"
 
-
-def test_transcribe_pcm_keeps_str_contract(monkeypatch: pytest.MonkeyPatch) -> None:
-    """``transcribe_pcm`` still returns only text, delegating to the language helper."""
+    # transcribe_pcm delegates to the language helper but returns only the text.
     _stub_whisper(monkeypatch, "hola", "es")
     out = transcribe_pcm(np.zeros(SR, dtype=np.float32), sr=SR)
     assert out == "hola"

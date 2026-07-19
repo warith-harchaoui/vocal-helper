@@ -33,83 +33,68 @@ from vocal_helper.diar import (
 )
 
 
-def test_offline_stage_selects_whole_buffer_for_sherpa() -> None:
-    """``backend='sherpa'`` runs whole-buffer (no chunking), like pyannote.
+def test_sherpa_stage_wiring_and_backend_contract() -> None:
+    """``backend='sherpa'`` runs whole-buffer and exposes the load+diarize contract.
 
-    sherpa clusters the entire recording inside one ``process`` call, so
-    the stage's ``ideal_duration_s`` must default to the very-large sherpa
-    constant — chunking would only cost DER.
+    sherpa clusters the entire recording inside one ``process`` call, so the
+    stage's ``ideal_duration_s`` must default to the very-large sherpa constant
+    (chunking would only cost DER). The backend itself must match the same
+    ``load()`` then ``diarize(pcm, sr) -> [(t0, t1, speaker), …]`` shape as the
+    pyannote / NeMo backends, defaulting to auto speaker count and sensible
+    pruning.
     """
+    # Whole-buffer sizing: no chunking for the clustering backend.
     stage = OfflineDiarStage(backend="sherpa")
     assert stage.ideal_duration_s == IDEAL_DURATION_S_SHERPA
-
-
-def test_sherpa_offline_diar_exposes_backend_interface() -> None:
-    """``_SherpaOfflineDiar`` matches the ``load`` + ``diarize`` backend contract.
-
-    The offline stage calls ``load()`` then ``diarize(pcm, sr)`` and expects
-    ``[(t0, t1, speaker), …]`` — the same shape as the pyannote / NeMo backends.
-    """
+    # Backend contract: load + diarize(pcm, sr), auto-cluster defaults.
     diar = _SherpaOfflineDiar()
     assert hasattr(diar, "load")
-    params = list(inspect.signature(diar.diarize).parameters)
-    assert params == ["pcm", "sr"]
-    # Clustering knobs default to auto speaker count, sensible pruning.
+    assert list(inspect.signature(diar.diarize).parameters) == ["pcm", "sr"]
     assert diar.num_clusters == -1
     assert diar.threshold == 0.5
 
 
-def test_resolve_sherpa_models_prefers_env_override(
+def test_resolve_sherpa_models_env_override_wins_then_bundle(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Explicit ``$VH_SHERPA_*`` paths win over any bundle lookup.
+    """Explicit ``$VH_SHERPA_*`` paths win; without them the bundle's ``sherpa/`` is read.
+
+    Two resolution success paths in one scenario. First, both env overrides set:
+    the resolver returns them verbatim and never consults the bundle (the
+    operator path wins). Then, with the overrides cleared, it discovers the
+    study-selected community-1 segmentation + TitaNet-large embedding ONNX files
+    by name inside the bundle's ``sherpa/`` directory.
 
     Parameters
     ----------
     tmp_path : Path
-        Pytest-provided temporary directory for fake model files.
+        Temporary directory holding the fake override files and the fake bundle.
     monkeypatch : pytest.MonkeyPatch
-        Sets the two model-path environment overrides.
+        Sets / clears the model-path env overrides and the bundle root.
     """
-    # Two non-empty stand-in ONNX files — the resolver only checks existence,
-    # never parses them, so a single null byte is enough to look "present".
-    seg = tmp_path / "seg.onnx"
-    emb = tmp_path / "emb.onnx"
-    seg.write_bytes(b"\x00")
-    emb.write_bytes(b"\x00")
-    # With both env overrides set, the resolver must return them verbatim and
-    # never consult the bundle — the explicit operator path wins.
-    monkeypatch.setenv("VH_SHERPA_SEGMENTATION", str(seg))
-    monkeypatch.setenv("VH_SHERPA_EMBEDDING", str(emb))
-    assert _resolve_sherpa_models() == (str(seg), str(emb))
+    # Env-override branch: two non-empty stand-in ONNX files (the resolver only
+    # checks existence, never parses, so a single null byte reads as "present").
+    seg_env = tmp_path / "seg.onnx"
+    emb_env = tmp_path / "emb.onnx"
+    seg_env.write_bytes(b"\x00")
+    emb_env.write_bytes(b"\x00")
+    monkeypatch.setenv("VH_SHERPA_SEGMENTATION", str(seg_env))
+    monkeypatch.setenv("VH_SHERPA_EMBEDDING", str(emb_env))
+    # Explicit overrides returned verbatim, bundle never consulted.
+    assert _resolve_sherpa_models() == (str(seg_env), str(emb_env))
 
-
-def test_resolve_sherpa_models_reads_bundle(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Without env overrides, the resolver finds ONNX files in the bundle's ``sherpa/``.
-
-    Prefers our sovereign community-1 export for segmentation and TitaNet-large
-    for the embedding — the study-selected offline pair.
-
-    Parameters
-    ----------
-    tmp_path : Path
-        Fake diarization-engines bundle root.
-    monkeypatch : pytest.MonkeyPatch
-        Clears the env overrides and points ``$VH_DIARIZATION_ENGINES`` at the bundle.
-    """
-    # Clear the overrides so the resolver is forced down the bundle branch.
+    # Bundle branch: clear the overrides so the resolver falls to the bundle.
     monkeypatch.delenv("VH_SHERPA_SEGMENTATION", raising=False)
     monkeypatch.delenv("VH_SHERPA_EMBEDDING", raising=False)
     # A minimal bundle: a manifest marks the root, and sherpa/ holds the two
     # study-selected ONNX exports the resolver is expected to discover by name.
-    (tmp_path / "manifest.json").write_text("{}")
-    sdir = tmp_path / "sherpa"
-    sdir.mkdir()
+    bundle = tmp_path / "bundle"
+    (bundle / "sherpa").mkdir(parents=True)
+    (bundle / "manifest.json").write_text("{}")
+    sdir = bundle / "sherpa"
     (sdir / "community1-segmentation.onnx").write_bytes(b"\x00")
     (sdir / "nemo_en_titanet_large.onnx").write_bytes(b"\x00")
-    monkeypatch.setenv("VH_DIARIZATION_ENGINES", str(tmp_path))
+    monkeypatch.setenv("VH_DIARIZATION_ENGINES", str(bundle))
 
     seg, emb = _resolve_sherpa_models()
     assert seg == str(sdir / "community1-segmentation.onnx")

@@ -55,54 +55,65 @@ def probes(monkeypatch: pytest.MonkeyPatch):
     return _set
 
 
-def test_short_batch_routes_to_nemo(probes) -> None:
-    """A short file with nemo installed routes offline to nemo (the crossover)."""
-    # Both backends available + a short duration ⇒ the router's short/dense branch.
-    probes(True, True)
-    use_offline, diar, note = cli._choose_file_diar(
-        BASE, explicit_offline=False, batch=True, force_online=False, duration_s=SHORT_S
+@pytest.mark.parametrize(
+    ("pyannote", "nemo", "duration_s", "use_offline", "diar", "note_needles"),
+    [
+        # Both backends + short ⇒ router's short/dense branch → offline nemo,
+        # and the nudge surfaces the chosen backend plus its quality/speed.
+        (True, True, SHORT_S, True, {"backend": "nemo"}, ("nemo", "DER")),
+        # Duration past the 300 s ceiling ⇒ robust long-form branch → pyannote.
+        (True, True, LONG_S, True, {"backend": "pyannote"}, ("pyannote",)),
+        # Unknown length (probe failed) is NOT read as short → safe long branch.
+        (True, True, None, True, {"backend": "pyannote"}, ("pyannote",)),
+        # Short, but the nemo extra is absent ⇒ pyannote, never an unrunnable pick.
+        (True, False, SHORT_S, True, {"backend": "pyannote"}, ("pyannote",)),
+    ],
+)
+def test_auto_batch_routes_offline_by_duration(
+    probes,
+    pyannote: bool,
+    nemo: bool,
+    duration_s: float | None,
+    use_offline: bool,
+    diar: dict,
+    note_needles: tuple[str, ...],
+) -> None:
+    """Auto batch selection prefers the offline whole-buffer diarizer, routed by real duration.
+
+    The router (the *aiguilleur*) is actually *enforced* for files: with an
+    offline backend installed, a batch run goes offline and picks the backend
+    from the file's probed length — short/dense (≤300 s) → nemo, long / unknown
+    → pyannote — degrading to pyannote when the nemo extra is missing. The nudge
+    note names the chosen backend (and, for nemo, its DER/RTF).
+
+    Parameters
+    ----------
+    probes : Callable[[bool, bool], None]
+        Fixture pinning the pyannote / nemo availability probes.
+    pyannote, nemo : bool
+        Whether each offline backend is "installed" for this scenario.
+    duration_s : float or None
+        Probed clip length; ``None`` models a failed probe.
+    use_offline : bool
+        Expected offline-vs-online decision.
+    diar : dict
+        Expected diarizer config the chooser emits.
+    note_needles : tuple of str
+        Substrings the surfaced nudge note must contain.
+    """
+    probes(pyannote, nemo)
+    got_offline, got_diar, note = cli._choose_file_diar(
+        BASE, explicit_offline=False, batch=True, force_online=False, duration_s=duration_s
     )
-    assert use_offline is True
-    assert diar == {"backend": "nemo"}  # short ≤300 s → nemo, not the old constant pyannote
-    assert note and "nemo" in note and "DER" in note  # quality/speed surfaced
-
-
-def test_long_batch_routes_to_pyannote(probes) -> None:
-    """A long file routes offline to pyannote — nemo hangs past ~25 min."""
-    # A duration past the 300 s ceiling ⇒ the robust long-form branch.
-    probes(True, True)
-    use_offline, diar, note = cli._choose_file_diar(
-        BASE, explicit_offline=False, batch=True, force_online=False, duration_s=LONG_S
-    )
-    assert use_offline is True
-    assert diar == {"backend": "pyannote"}
-    assert note and "pyannote" in note
-
-
-def test_unknown_duration_routes_to_pyannote(probes) -> None:
-    """Unknown length (probe failed) is treated as long-form → pyannote."""
-    # ``duration_s=None`` must NOT be read as short — it is the safe long branch.
-    probes(True, True)
-    use_offline, diar, _ = cli._choose_file_diar(
-        BASE, explicit_offline=False, batch=True, force_online=False, duration_s=None
-    )
-    assert use_offline is True
-    assert diar == {"backend": "pyannote"}
-
-
-def test_short_batch_without_nemo_falls_to_pyannote(probes) -> None:
-    """Short file, but the nemo extra is absent → pyannote, never an unrunnable pick."""
-    # nemo unavailable removes the short/dense branch; pyannote is still installed.
-    probes(True, False)
-    use_offline, diar, _ = cli._choose_file_diar(
-        BASE, explicit_offline=False, batch=True, force_online=False, duration_s=SHORT_S
-    )
-    assert use_offline is True
-    assert diar == {"backend": "pyannote"}
+    assert got_offline is use_offline
+    assert got_diar == diar
+    assert note is not None
+    for needle in note_needles:
+        assert needle in note
 
 
 def test_no_offline_backend_falls_back_to_online_refine(probes) -> None:
-    """No offline backend installed → online diarizer with the refine pass."""
+    """No offline backend installed → online diarizer with the batch refine pass."""
     # Neither pyannote nor nemo available ⇒ the runnable online fallback; the
     # online backend is still routed (auto → nemo), plus the refine knob.
     probes(False, False)
@@ -114,58 +125,94 @@ def test_no_offline_backend_falls_back_to_online_refine(probes) -> None:
     assert note and "refine" in note
 
 
-def test_online_flag_forces_streaming_even_with_bundle(probes) -> None:
-    """``--online`` forces the streaming diarizer regardless of installed backends."""
-    # The explicit online override wins over the offline preference; no nudge.
+@pytest.mark.parametrize(
+    (
+        "explicit_offline",
+        "force_online",
+        "batch",
+        "requested_backend",
+        "duration_s",
+        "use_offline",
+        "diar",
+        "note_is_none",
+    ),
+    [
+        # ``--online`` forces streaming even with a full bundle, plus the batch
+        # refine knob; an explicit online choice carries no router nudge.
+        (
+            False,
+            True,
+            True,
+            "auto",
+            SHORT_S,
+            False,
+            {"backend": "nemo", "refine_on_close": True},
+            True,
+        ),
+        # ``--offline --diar-backend nemo`` honours the operator's backend verbatim
+        # (router not consulted, probes irrelevant), even on a long file that would
+        # otherwise auto-pick pyannote; an explicit backend carries no note.
+        (True, False, True, "nemo", LONG_S, True, {"backend": "nemo"}, True),
+        # ``--offline`` with no explicit backend still routes by duration (short →
+        # nemo); this fires the router, so it *does* carry its rationale note.
+        (True, False, True, "auto", SHORT_S, True, {"backend": "nemo"}, False),
+        # Non-batch (real-time replay) stays online with a routed backend and no
+        # batch-only refine knob; auto routing still surfaces the router note.
+        (False, False, False, "auto", SHORT_S, False, {"backend": "nemo"}, False),
+    ],
+)
+def test_explicit_flags_and_realtime_override_router(
+    probes,
+    explicit_offline: bool,
+    force_online: bool,
+    batch: bool,
+    requested_backend: str,
+    duration_s: float,
+    use_offline: bool,
+    diar: dict,
+    note_is_none: bool,
+) -> None:
+    """Explicit ``--online`` / ``--offline`` / ``--diar-backend`` and real-time replay are honoured.
+
+    Operator overrides win over the auto router: ``--online`` forces streaming
+    (with the batch refine knob) regardless of the installed bundle;
+    ``--offline`` pins the mode yet still routes the backend by duration unless
+    an explicit ``--diar-backend`` is given (then it is used verbatim, probes
+    irrelevant); a non-batch replay stays online with no batch-only refine. An
+    explicit backend / forced-online choice carries no nudge, whereas an auto
+    route still surfaces the router's rationale.
+
+    Parameters
+    ----------
+    probes : Callable[[bool, bool], None]
+        Fixture pinning the pyannote / nemo availability probes.
+    explicit_offline, force_online, batch : bool
+        The ``--offline`` / ``--online`` / batch-mode flags under test.
+    requested_backend : str
+        An explicit ``--diar-backend``, or ``"auto"`` for router routing.
+    duration_s : float
+        Probed clip length driving the auto routes.
+    use_offline : bool
+        Expected offline-vs-online decision.
+    diar : dict
+        Expected diarizer config the chooser emits.
+    note_is_none : bool
+        Whether the chooser must suppress the router nudge for this override.
+    """
+    # Both backends installed: the explicit-backend row proves the override wins
+    # even though the router would otherwise pick differently for that duration.
     probes(True, True)
-    use_offline, diar, note = cli._choose_file_diar(
-        BASE, explicit_offline=False, batch=True, force_online=True, duration_s=SHORT_S
-    )
-    assert use_offline is False
-    assert diar == {"backend": "nemo", "refine_on_close": True}
-    assert note is None  # explicit choice → no nudge
-
-
-def test_explicit_offline_honours_backend_override(probes) -> None:
-    """``--offline --diar-backend nemo`` honours the operator's explicit backend."""
-    # An explicit backend is an override — the router is not consulted, and the
-    # availability probes are irrelevant to the operator's forced choice.
-    probes(False, False)
-    use_offline, diar, note = cli._choose_file_diar(
+    got_offline, got_diar, note = cli._choose_file_diar(
         BASE,
-        explicit_offline=True,
-        batch=True,
-        force_online=False,
-        duration_s=LONG_S,
-        requested_backend="nemo",
+        explicit_offline=explicit_offline,
+        batch=batch,
+        force_online=force_online,
+        duration_s=duration_s,
+        requested_backend=requested_backend,
     )
-    assert use_offline is True
-    assert diar == {"backend": "nemo"}  # honoured verbatim, no forced pyannote
-    assert note is None  # an explicit override carries no router rationale
-
-
-def test_explicit_offline_auto_routes_by_duration(probes) -> None:
-    """``--offline`` with no backend still routes by duration (short → nemo)."""
-    # Forcing offline should not disable the router — only pin the mode to offline.
-    probes(True, True)
-    use_offline, diar, _ = cli._choose_file_diar(
-        BASE, explicit_offline=True, batch=True, force_online=False, duration_s=SHORT_S
-    )
-    assert use_offline is True
-    assert diar == {"backend": "nemo"}
-
-
-def test_realtime_file_stays_online(probes) -> None:
-    """A real-time (non-batch) file replay stays online with a routed backend."""
-    # Not batch ⇒ streaming path; auto online routes to nemo, and no refine knob
-    # is added (that is a batch-only over-segmentation guard).
-    probes(True, True)
-    use_offline, diar, _ = cli._choose_file_diar(
-        BASE, explicit_offline=False, batch=False, force_online=False, duration_s=SHORT_S
-    )
-    assert use_offline is False
-    assert diar == {"backend": "nemo"}
-    assert "refine_on_close" not in diar
+    assert got_offline is use_offline
+    assert got_diar == diar
+    assert (note is None) is note_is_none
 
 
 def test_choose_preserves_base_keys_and_does_not_mutate(probes) -> None:

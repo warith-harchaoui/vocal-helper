@@ -132,22 +132,29 @@ def _distinct(labels: list[str]) -> set[str]:
     return {label for label in labels if label != "S?"}
 
 
-def test_online_diar_over_segments_without_refine() -> None:
-    """Baseline : the greedy online path explodes on outlier embeddings.
+def test_greedy_path_explodes_without_refine_but_max_speakers_caps_it() -> None:
+    """The greedy online path over-segments on outliers, and ``max_speakers`` bounds it.
 
-    This is the documented failure — every outlier mints its own permanent
-    speaker, so the label count runs far past the four real speakers.
+    Two guardrails on the same synthetic fixture, both with ``refine_on_close``
+    off so the raw greedy clusterer is under test. Uncapped, every outlier mints
+    its own permanent speaker, so the label count runs far past the four real
+    speakers (the documented failure). With ``max_speakers`` set, out-of-
+    threshold segments are forced into existing ids, so the count never exceeds
+    the cap regardless of how many outliers arrive.
     """
+    # Uncapped greedy path: ~30 outliers each spawn a throwaway speaker →
+    # far more than N_TRUE_SPEAKERS. Guard loosely: track the mechanism, not
+    # the exact count.
     segments, embeddings = _build_fixture()
-    stage = OnlineDiarStage(refine_on_close=False)
-    stage._embedder = _ScriptedEmbedder(embeddings)
+    uncapped = OnlineDiarStage(refine_on_close=False)
+    uncapped._embedder = _ScriptedEmbedder(embeddings)
+    assert len(_distinct(_run_stage(uncapped, segments))) >= N_TRUE_SPEAKERS + 15
 
-    labels = _run_stage(stage, segments)
-    distinct = _distinct(labels)
-    # Each of the ~30 outliers spawns its own throwaway speaker → far more
-    # than N_TRUE_SPEAKERS. Guard loosely so the test tracks the mechanism,
-    # not the exact count.
-    assert len(distinct) >= N_TRUE_SPEAKERS + 15
+    # Same fixture, now with the max_speakers cap: never more than the cap.
+    segments, embeddings = _build_fixture()
+    capped = OnlineDiarStage(refine_on_close=False, max_speakers=N_TRUE_SPEAKERS)
+    capped._embedder = _ScriptedEmbedder(embeddings)
+    assert len(_distinct(_run_stage(capped, segments))) <= N_TRUE_SPEAKERS
 
 
 def test_refine_on_close_recovers_true_speaker_count() -> None:
@@ -195,14 +202,3 @@ def test_refine_labels_prunes_singleton_into_nearest_speaker() -> None:
     assert len(set(final)) == 2
     # It sits closer to A, so it should share A's final label.
     assert final[-1] == final[0]
-
-
-def test_max_speakers_cap_bounds_online_cluster_count() -> None:
-    """``max_speakers`` forces out-of-threshold segments into existing ids."""
-    segments, embeddings = _build_fixture()
-    stage = OnlineDiarStage(refine_on_close=False, max_speakers=N_TRUE_SPEAKERS)
-    stage._embedder = _ScriptedEmbedder(embeddings)
-
-    labels = _run_stage(stage, segments)
-    # Never more than the cap, regardless of how many outliers arrive.
-    assert len(_distinct(labels)) <= N_TRUE_SPEAKERS
