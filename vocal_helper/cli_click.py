@@ -111,6 +111,37 @@ def _pipeline_config(
     return PipelineConfig(diar=diar_cfg, asr=asr_cfg, llm=llm_cfg, eot=eot_cfg)
 
 
+def _resolve_online_backend(cfg: PipelineConfig, requested_backend: str) -> None:
+    """Resolve a live command's ``"auto"`` diar backend through the router, in place.
+
+    The ``mic`` / ``url`` commands build a streaming :class:`Pipeline` directly,
+    so — unlike ``file`` — they never pass through :func:`_choose_file_diar`. This
+    routes their backend the same way (live stream, no duration → ``nemo`` per the
+    study, or an explicit override) and mutates ``cfg.diar['backend']`` so the
+    sentinel ``"auto"`` never reaches :class:`~vocal_helper.OnlineDiarStage`.
+
+    Parameters
+    ----------
+    cfg : PipelineConfig
+        The live pipeline config whose ``diar`` backend is resolved in place.
+    requested_backend : str
+        ``"auto"`` to route, or an explicit backend name to honour as override.
+
+    Returns
+    -------
+    None
+        ``cfg.diar['backend']`` is updated as a side effect; any router note is
+        written to stderr.
+    """
+    # Reuse the argparse twin's router choke-point so both CLIs decide identically.
+    from vocal_helper.cli_argparse import _route_backend
+
+    backend, note = _route_backend(requested_backend=requested_backend, live=True, duration_s=None)
+    if note:
+        sys.stderr.write(note + "\n")
+    cfg.diar["backend"] = backend
+
+
 def _print_event(ev: dict, jsonl: bool) -> None:
     """Emit a single pipeline event to stdout, JSONL or human-readable."""
     if jsonl:
@@ -218,13 +249,14 @@ def _common_options(func: Callable[..., object]) -> Callable[..., object]:
     )(func)
     func = click.option(
         "--diar-backend",
-        type=click.Choice(["pyannote", "nemo", "sherpa"]),
-        default="nemo",
+        type=click.Choice(["auto", "pyannote", "nemo", "sherpa"]),
+        default="auto",
         show_default=True,
-        help="Speaker-embedding backend for the diarizer. "
-        "'nemo' (TitaNet) is default; 'pyannote' skips the "
-        "~5 GB NeMo install; 'sherpa' runs TitaNet through "
-        "onnxruntime (torch-free, needs the [sherpa] extra).",
+        help="Speaker-diarization backend. Default 'auto' delegates to the "
+        "study-grounded router (the aiguilleur): offline short → 'nemo', "
+        "offline long/unknown → 'pyannote', live → 'nemo', reporting DER "
+        "(quality) and RTF (speed). Pass 'pyannote' / 'nemo' / 'sherpa' to "
+        "override; 'sherpa' is torch-free (needs the [sherpa] extra).",
     )(func)
     func = click.option(
         "--initial-prompt",
@@ -312,6 +344,9 @@ def mic(
         # so the source hands the pipeline frames it can consume without resampling.
         return from_microphone(device_name=device, sample_rate=16_000, frame_ms=20)
 
+    # A live stream carries no duration — route the online backend (auto → nemo
+    # per the study) so ``"auto"`` never reaches the stage.
+    _resolve_online_backend(cfg, diar_backend)
     pipeline = Pipeline(source=factory, config=cfg)
     asyncio.run(_drain(pipeline, jsonl))
 
@@ -371,7 +406,7 @@ def file(
 ) -> None:
     """Replay a 16 kHz mono WAV through the pipeline."""
     from vocal_helper.cli_argparse import _choose_file_diar
-    from vocal_helper.sources import from_wav_file
+    from vocal_helper.sources import from_wav_file, probe_duration_s
 
     cfg = _pipeline_config(
         whisper_model=whisper_model,
@@ -394,11 +429,19 @@ def file(
         # as they decode, which is what you want when timing throughput on a file.
         return from_wav_file(Path(path), real_time=not no_real_time)
 
-    # Shared reliability default (see cli_argparse._choose_file_diar): batch runs
-    # prefer the offline pyannote diarizer when its bundle is present, else the
-    # online diarizer with the global re-clustering repair pass.
+    # Shared decision with the argparse twin (see cli_argparse._choose_file_diar):
+    # batch runs prefer the offline whole-buffer diarizer when a backend is
+    # installed, with the study-grounded router choosing that backend from the
+    # file's real probed duration — short→nemo, long→pyannote — reporting DER +
+    # RTF. Falls back to the online diarizer + refine pass when no offline
+    # backend is available.
     use_offline, diar_cfg, note = _choose_file_diar(
-        cfg.diar, explicit_offline=offline, batch=no_real_time, force_online=online
+        cfg.diar,
+        explicit_offline=offline,
+        batch=no_real_time,
+        force_online=online,
+        duration_s=probe_duration_s(Path(path)),
+        requested_backend=diar_backend,
     )
     if note:
         sys.stderr.write(note + "\n")
@@ -459,6 +502,8 @@ def url(
         """Open a streaming source for the given URL (yt-dlp resolves the media)."""
         return _from_url(url)
 
+    # URL playback is a live stream — route the online backend (auto → nemo).
+    _resolve_online_backend(cfg, diar_backend)
     pipeline = Pipeline(source=factory, config=cfg)
     asyncio.run(_drain(pipeline, jsonl))
 

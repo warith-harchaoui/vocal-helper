@@ -171,6 +171,7 @@ def select_diarization(
     max_speakers: int | None = None,
     torch_free: bool = False,
     pyannote_available: bool = True,
+    nemo_available: bool = True,
 ) -> BackendPlan:
     """Route to the diarization backend that the experiments justify.
 
@@ -201,6 +202,11 @@ def select_diarization(
         present). When a rule would pick ``pyannote`` but it is unavailable, the
         router falls back rather than choosing an unrunnable backend. Default
         ``True``.
+    nemo_available : bool, optional
+        Whether the NeMo Sortformer backend can actually run (the ``nemo`` extra
+        is importable). When the short/dense rule would pick ``nemo`` but it is
+        not installed, the router falls through to the robust ``pyannote`` branch
+        rather than emitting an unrunnable backend. Default ``True``.
 
     Returns
     -------
@@ -216,6 +222,9 @@ def select_diarization(
     'pyannote'
     >>> select_diarization(live=True, torch_free=True).backend
     'sherpa'
+    >>> # a short clip still routes to pyannote when the nemo extra is absent
+    >>> select_diarization(live=False, duration_s=45.0, nemo_available=False).backend
+    'pyannote'
 
     Notes
     -----
@@ -266,7 +275,7 @@ def select_diarization(
     #    deliberately NOT short — without a length we take the robust branch.
     too_many_speakers = max_speakers is not None and max_speakers > SORTFORMER_MAX_SPEAKERS
     short_enough = duration_s is not None and duration_s <= NEMO_MAX_DURATION_S
-    if short_enough and not too_many_speakers:
+    if short_enough and not too_many_speakers and nemo_available:
         der, rtf = _PROFILE[("offline", "nemo")]
         return _plan(
             "offline",
@@ -279,12 +288,17 @@ def select_diarization(
     #    default (AMI median DER 0.122); NeMo hangs past ~25 min and caps at 4
     #    speakers, so pyannote is the only safe choice here.
     if pyannote_available:
+        # Name the *actual* reason nemo was skipped so the operator nudge is
+        # honest — a short clip can reach pyannote purely because the nemo extra
+        # is absent, not because it is long or crowded.
         why_long = (
             "unknown duration (treated as long-form)"
             if duration_s is None
             else f">{NEMO_MAX_DURATION_S:.0f}s"
             if not short_enough
             else f">{SORTFORMER_MAX_SPEAKERS} speakers"
+            if too_many_speakers
+            else "nemo extra not installed"
         )
         der, rtf = _PROFILE[("offline", "pyannote")]
         return _plan(

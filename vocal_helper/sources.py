@@ -50,6 +50,43 @@ DEFAULT_SAMPLE_RATE = 16_000
 DEFAULT_FRAME_MS = 20
 
 
+def probe_duration_s(path: str | Path) -> float | None:
+    """Best-effort media duration in seconds, for the diarization router.
+
+    The router (:func:`vocal_helper.router.select_diarization`) needs the audio
+    length to choose the offline backend — short/dense → NeMo Sortformer, long →
+    pyannote. This is a *cheap metadata read* (ffprobe via ``audio_helper``), not
+    a full decode, so it is safe to call before building the pipeline. Any
+    failure (unreadable file, missing probe backend) returns ``None``, which the
+    router treats as "unknown length" and routes to the robust long-form branch.
+
+    Parameters
+    ----------
+    path : str or pathlib.Path
+        Path to any ffmpeg-decodable media file (wav / mp3 / m4a / video / …).
+
+    Returns
+    -------
+    float or None
+        Duration in seconds when it can be read and is positive, else ``None``.
+
+    Examples
+    --------
+    >>> probe_duration_s("/nonexistent.wav") is None
+    True
+    """
+    # ffprobe (via audio_helper) reads container metadata without decoding the
+    # whole stream — O(1) regardless of file length, and cross-format.
+    try:
+        from audio_helper import get_audio_duration
+
+        seconds = float(get_audio_duration(str(path)))
+    except Exception:  # noqa: BLE001 — any probe failure ⇒ "unknown length"
+        return None
+    # A zero/negative reading is as good as unknown; don't feed it to the router.
+    return seconds if seconds > 0 else None
+
+
 async def from_microphone(
     *,
     sample_rate: int = DEFAULT_SAMPLE_RATE,

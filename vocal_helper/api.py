@@ -210,6 +210,55 @@ def _load_pcm_mono_16k(path: Path) -> tuple[NDArray[np.float32], int]:
     return np.asarray(pcm, dtype=np.float32), int(sr)
 
 
+def _resolve_offline_backend(diar_backend: str, n_samples: int, sr: int) -> str:
+    """Resolve the offline diarization backend for an uploaded file via the router.
+
+    The HTTP ``/pipeline`` (and, through it, the MCP tool) choke-point that makes
+    the *aiguilleur* actually enforced server-side: ``"auto"`` hands the decoded
+    buffer's real duration to :func:`~vocal_helper.router.select_diarization`
+    (offline, ``live=False``) so short/dense audio routes to ``nemo`` and long
+    audio to ``pyannote``, subject to which backends are installed. Any explicit
+    backend is honoured verbatim.
+
+    Parameters
+    ----------
+    diar_backend : str
+        ``"auto"`` to route, or ``"pyannote"`` / ``"nemo"`` / ``"sherpa"``.
+    n_samples : int
+        Number of PCM samples in the decoded mono buffer.
+    sr : int
+        Sample rate in Hz (``0`` ⇒ unknown, treated as unknown duration).
+
+    Returns
+    -------
+    str
+        The concrete backend name to hand the offline diarizer.
+
+    Examples
+    --------
+    >>> _resolve_offline_backend("pyannote", 16_000, 16_000)
+    'pyannote'
+    """
+    # An explicit backend is the caller's override — never second-guess it.
+    if diar_backend != "auto":
+        return diar_backend
+    # Import lazily so the base [api] install (no pyannote/nemo extras) still
+    # boots for /health without pulling the availability probes' dependencies.
+    from vocal_helper.cli_argparse import _offline_nemo_available, _offline_pyannote_available
+    from vocal_helper.router import select_diarization
+
+    # Duration from the decoded buffer — O(1), already in memory. sr==0 (unknown)
+    # collapses to None so the router takes its safe long-form branch.
+    duration_s = float(n_samples) / float(sr) if sr else None
+    plan = select_diarization(
+        live=False,
+        duration_s=duration_s,
+        pyannote_available=_offline_pyannote_available(),
+        nemo_available=_offline_nemo_available(),
+    )
+    return plan.backend
+
+
 # ---------------------------------------------------------------------------
 # Meta
 # ---------------------------------------------------------------------------
@@ -270,7 +319,11 @@ def pipeline(
     language: str = Form("auto"),
     whisper_model: str = Form("large-v3-turbo-q5_0"),
     threads: int = Form(6),
-    diar_backend: str = Form("pyannote", description="pyannote | nemo"),
+    diar_backend: str = Form(
+        "auto",
+        description="auto | pyannote | nemo | sherpa. 'auto' lets the router pick "
+        "by duration (short→nemo, long→pyannote), reporting DER + RTF.",
+    ),
     llm: bool = Form(False, description="Enable the Gemma analyst stage."),
     llm_model: str = Form("gemma4:e4b"),
     llm_recent_window_s: float = Form(60.0),
@@ -288,9 +341,13 @@ def pipeline(
         src = _spool(file, tmp)
         pcm, sr = _load_pcm_mono_16k(src)
         asr_cfg: dict = {"model": whisper_model, "language": language, "threads": threads}
+        # Enforce the study-grounded router (the aiguilleur): the decoded buffer's
+        # real duration drives the offline backend choice — short/dense → nemo,
+        # long → pyannote — unless the caller pins an explicit backend.
+        resolved_backend = _resolve_offline_backend(diar_backend, len(pcm), int(sr))
         # Model weights load from the self-hosted diarization-engines bundle
         # (settings.yaml ``engines.diarization_url``) — no HuggingFace token.
-        diar_cfg: dict = {"backend": diar_backend}
+        diar_cfg: dict = {"backend": resolved_backend}
         # The LLM analyst stage is opt-in : only attach its config when the
         # caller asked for it, otherwise leave it ``None`` (stage skipped).
         llm_cfg: dict | None = None

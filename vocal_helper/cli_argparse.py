@@ -159,73 +159,174 @@ def _offline_pyannote_available() -> bool:
     )
 
 
+def _offline_nemo_available() -> bool:
+    """True when the NeMo Sortformer backend can actually run (extra importable).
+
+    Cheap import probe (no model load): the ``nemo`` extra pulls ``torch`` +
+    ``nemo_toolkit``. The router must not route a short file to NeMo when the
+    extra is absent, so this gates its short/dense branch — otherwise the plan
+    would name an unrunnable backend and the offline stage would crash.
+    """
+    try:
+        import nemo.collections.asr  # type: ignore # noqa: F401
+    except Exception:  # noqa: BLE001 — any import failure means "not available"
+        return False
+    return True
+
+
+def _route_backend(
+    *,
+    requested_backend: str,
+    live: bool,
+    duration_s: float | None,
+) -> tuple[str, str | None]:
+    """Resolve the diarization backend for one run — router-decided or overridden.
+
+    The single choke-point that turns ``--diar-backend`` into a concrete backend
+    so the *aiguilleur* is actually enforced (never decorative). ``"auto"`` (the
+    default) hands the decision to :func:`~vocal_helper.router.select_diarization`
+    with the run's real conditions — live-vs-batch, probed ``duration_s``, and
+    which backends are installed — reporting both **quality (DER)** and **speed
+    (RTF)**. Any explicit backend is honoured as an operator override.
+
+    Parameters
+    ----------
+    requested_backend : str
+        ``"auto"`` to route, or ``"pyannote"`` / ``"nemo"`` / ``"sherpa"`` to
+        override.
+    live : bool
+        ``True`` for a live stream, ``False`` for a batch file.
+    duration_s : float or None
+        Probed audio length in seconds (``None`` = unknown ⇒ long-form branch).
+
+    Returns
+    -------
+    tuple of (str, str or None)
+        The concrete backend name and a one-line stderr note (the router's
+        quality/speed rationale, or an override notice), or ``None`` for no note.
+    """
+    # An explicit backend is the operator's call — honour it, but surface a note
+    # so an online pyannote/nemo override (which the study says loses) is visible.
+    if requested_backend != "auto":
+        return requested_backend, None
+    # "auto" → the router decides from the real scenario conditions.
+    plan = select_diarization(
+        live=live,
+        duration_s=duration_s,
+        torch_free=False,
+        pyannote_available=_offline_pyannote_available(),
+        nemo_available=_offline_nemo_available(),
+    )
+    note = (
+        f"vocal-helper: router → {plan.mode} {plan.backend} "
+        f"(quality DER {plan.expected_der}, speed RTF {plan.expected_rtf}; {plan.reason}). "
+        "Pass --diar-backend to override."
+    )
+    return plan.backend, note
+
+
 def _choose_file_diar(
     base_diar: dict,
     *,
     explicit_offline: bool,
     batch: bool,
     force_online: bool,
+    duration_s: float | None = None,
+    requested_backend: str = "auto",
 ) -> tuple[bool, dict, str | None]:
-    """Pick online-vs-offline for a batch file run (namespace-agnostic).
+    """Pick online-vs-offline **and** the backend for a batch file run.
 
-    Shared by the argparse and click CLIs so the reliability default can't
-    drift between them. The default is backed by the 2026-07-16 DER sweep on
-    AMI + bagarre — offline pyannote DER 0.12 / 0.34 vs online 0.50 / 0.59, so
-    a batch file with the pyannote bundle present runs the literature-grade
-    offline whole-buffer diarizer. Precedence:
+    Shared by the argparse and click CLIs so the decision can't drift between
+    them, and the one place the study-grounded router (the *aiguilleur*) is
+    enforced for files. The offline whole-buffer path is the reliability default
+    for batch (2026-07-16 DER sweep: offline 0.12 / 0.34 vs online 0.50 / 0.59);
+    *which* offline backend runs is the router's call, now fed the file's real
+    probed ``duration_s`` so the short→nemo / long→pyannote crossover actually
+    fires. Precedence:
 
-    - explicit ``--offline`` → offline, honouring the caller's backend.
-    - batch, not ``--online``, pyannote available → offline pyannote (auto).
-    - otherwise → online streaming diarizer, with ``refine_on_close`` enabled
-      for batch so long multi-speaker audio doesn't over-segment.
+    - explicit ``--offline`` → offline; router picks the backend from the real
+      duration (or the caller's ``--diar-backend`` override).
+    - batch, not ``--online``, an offline backend is installed → offline, backend
+      routed by duration; falls back to the online diarizer only when no offline
+      backend can run.
+    - ``--online`` / non-batch → online streaming diarizer (backend routed too),
+      with ``refine_on_close`` for batch so long audio doesn't over-segment.
 
-    Returns ``(use_offline, diar_cfg, note)`` where ``note`` is a one-line
-    stderr message to surface (or ``None``).
+    Returns ``(use_offline, diar_cfg, note)`` with ``diar_cfg`` always carrying a
+    concrete backend (never ``"auto"``) and ``note`` a one-line stderr message
+    (or ``None``).
     """
+    pyannote_ok = _offline_pyannote_available()
+    nemo_ok = _offline_nemo_available()
+    explicit = requested_backend != "auto"
+    # A file the operator forced offline: route the backend by real duration
+    # (honouring an explicit --diar-backend), and run the whole-buffer path.
     if explicit_offline:
-        return True, dict(base_diar), None
-    if batch and not force_online and _offline_pyannote_available():
-        # Delegate the backend choice to the study-grounded router (the
-        # aiguilleur). Without a probed duration we take its robust long-form
-        # branch — pyannote — so the CLI and the router can never disagree, and
-        # the operator sees the router's own rationale in the nudge below.
-        plan = select_diarization(live=False, duration_s=None, pyannote_available=True)
-        note = (
-            f"vocal-helper: batch file → offline {plan.backend} diarizer "
-            f"({plan.reason}) Pass --online for the streaming diarizer, or "
-            "--offline --diar-backend to choose the offline backend."
+        backend, note = _route_backend(
+            requested_backend=requested_backend, live=False, duration_s=duration_s
         )
-        return True, {"backend": plan.backend}, note
+        return True, {**base_diar, "backend": backend}, note
+    # Auto path: prefer offline for batch when an offline backend can actually
+    # run, and let the router choose it from the probed length.
+    offline_runnable = pyannote_ok or nemo_ok or (explicit and requested_backend == "sherpa")
+    if batch and not force_online and offline_runnable:
+        backend, note = _route_backend(
+            requested_backend=requested_backend, live=False, duration_s=duration_s
+        )
+        return True, {**base_diar, "backend": backend}, note
+    # Batch but no offline backend installed → online streaming with the global
+    # refine pass (the runnable fallback); still route the online backend.
     if batch:
+        backend, _ = _route_backend(
+            requested_backend=requested_backend, live=True, duration_s=duration_s
+        )
         note = (
             None
             if force_online
             else (
-                "vocal-helper: offline pyannote bundle not found — using the online "
-                "diarizer with the refine pass. For best reliability configure the "
-                "diarization-engines bundle (settings.yaml) and re-run."
+                "vocal-helper: no offline diarizer installed — using the online "
+                "diarizer with the refine pass. For best reliability install "
+                "vocal-helper[pyannote] and configure the diarization-engines "
+                "bundle (settings.yaml), then re-run."
             )
         )
-        return False, {**base_diar, "refine_on_close": True}, note
-    return False, dict(base_diar), None
+        return False, {**base_diar, "backend": backend, "refine_on_close": True}, note
+    # Non-batch file replay (real-time pacing) → online, backend routed.
+    backend, note = _route_backend(
+        requested_backend=requested_backend, live=True, duration_s=duration_s
+    )
+    return False, {**base_diar, "backend": backend}, note
 
 
 async def _run_pipeline(args: argparse.Namespace, source_factory: SourceFactory) -> None:
     """Instantiate the right pipeline (online / offline) and drain events."""
     config = _build_pipeline_config(args)
+    requested_backend = getattr(args, "diar_backend", "auto")
     # Only the ``file`` subcommand carries the batch/offline levers ; mic/url
     # are inherently live and always take the streaming path.
     if hasattr(args, "no_real_time") or getattr(args, "offline", False):
+        # A file: the length is cheap to read, so the router can fire its
+        # short→nemo / long→pyannote crossover instead of guessing.
         use_offline, diar_cfg, note = _choose_file_diar(
             config.diar,
             explicit_offline=getattr(args, "offline", False),
             batch=getattr(args, "no_real_time", False),
             force_online=getattr(args, "online", False),
+            duration_s=getattr(args, "duration_s", None),
+            requested_backend=requested_backend,
         )
         if note:
             sys.stderr.write(note + "\n")
     else:
-        use_offline, diar_cfg = False, config.diar
+        # Live mic / URL: no duration, inherently streaming — still route the
+        # backend (auto → nemo per the study) instead of leaking ``"auto"``.
+        use_offline = False
+        backend, note = _route_backend(
+            requested_backend=requested_backend, live=True, duration_s=None
+        )
+        if note:
+            sys.stderr.write(note + "\n")
+        diar_cfg = {**config.diar, "backend": backend}
 
     if use_offline:
         # Offline pipeline skips the VAD and gives the diar backend the whole buffer.
@@ -267,9 +368,13 @@ def _handle_mic(args: argparse.Namespace) -> int:
 
 def _handle_file(args: argparse.Namespace) -> int:
     """Handle ``vocal-helper file`` — replay a WAV file through the pipeline."""
-    from vocal_helper.sources import from_wav_file
+    from vocal_helper.sources import from_wav_file, probe_duration_s
 
     path = Path(args.path)
+    # Probe the length once (cheap ffprobe metadata read) so the diarization
+    # router can fire its short→nemo / long→pyannote crossover on the real
+    # duration instead of the decorative ``duration_s=None`` fallback.
+    args.duration_s = probe_duration_s(path)
 
     def factory() -> AsyncIterator[PcmFrame]:
         """Open the WAV source ; honour ``--no-real-time`` to skip wall-clock pacing."""
@@ -352,13 +457,14 @@ def _add_common_flags(sp: argparse.ArgumentParser) -> None:
     )
     sp.add_argument(
         "--diar-backend",
-        choices=["pyannote", "nemo", "sherpa"],
-        default="nemo",
-        help="Speaker-embedding backend for the diarizer. "
-        "Default 'nemo' (TitaNet) — +76%% separability margin over "
-        "'pyannote' on AMI (2026-06-30 sweep). 'pyannote' skips the "
-        "~5 GB NeMo install; 'sherpa' runs the same TitaNet through "
-        "onnxruntime (torch-free, `pip install vocal-helper[sherpa]`).",
+        choices=["auto", "pyannote", "nemo", "sherpa"],
+        default="auto",
+        help="Speaker-diarization backend. Default 'auto' delegates to the "
+        "study-grounded router (the aiguilleur): offline short (≤300 s, ≤4 "
+        "speakers) → 'nemo', offline long/unknown → 'pyannote', live stream → "
+        "'nemo', reporting both DER (quality) and RTF (speed). Pass an explicit "
+        "'pyannote' / 'nemo' / 'sherpa' to override; 'sherpa' is torch-free "
+        "(`pip install vocal-helper[sherpa]`).",
     )
     sp.add_argument(
         "--join-threshold",

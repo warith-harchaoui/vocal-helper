@@ -63,3 +63,36 @@ def test_docs_endpoint_is_served(client: TestClient) -> None:
     assert r.status_code == 200
     # The Swagger bundle self-identifies via one of these tokens in the HTML.
     assert "swagger" in r.text.lower() or "openapi" in r.text.lower()
+
+
+def test_pipeline_backend_default_is_auto() -> None:
+    """The ``/pipeline`` ``diar_backend`` form field must default to 'auto'."""
+    # Guard against regressing to the old hardcoded 'pyannote' default that
+    # bypassed the router entirely on the server side.
+    import inspect
+
+    from vocal_helper.api import pipeline
+
+    default = inspect.signature(pipeline).parameters["diar_backend"].default
+    # FastAPI wraps the default in a Form(...) marker — its ``.default`` is the value.
+    assert getattr(default, "default", default) == "auto"
+
+
+def test_resolve_offline_backend_routes_by_duration(monkeypatch) -> None:
+    """``_resolve_offline_backend`` routes short→nemo / long→pyannote, honours overrides."""
+    # Model-free: pin both availability probes so the router exercises its
+    # length crossover without importing pyannote / NeMo.
+    from vocal_helper import cli_argparse as cli
+    from vocal_helper.api import _resolve_offline_backend
+
+    monkeypatch.setattr(cli, "_offline_pyannote_available", lambda: True)
+    monkeypatch.setattr(cli, "_offline_nemo_available", lambda: True)
+    sr = 16_000
+    # 45 s of audio → short/dense branch → nemo.
+    assert _resolve_offline_backend("auto", 45 * sr, sr) == "nemo"
+    # 1800 s of audio → long-form branch → pyannote.
+    assert _resolve_offline_backend("auto", 1800 * sr, sr) == "pyannote"
+    # Unknown sample rate collapses to unknown duration → robust pyannote branch.
+    assert _resolve_offline_backend("auto", 45 * sr, 0) == "pyannote"
+    # An explicit backend is honoured verbatim, router untouched.
+    assert _resolve_offline_backend("sherpa", 45 * sr, sr) == "sherpa"

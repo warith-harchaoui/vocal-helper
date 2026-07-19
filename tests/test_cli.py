@@ -99,11 +99,12 @@ def _real_parser() -> argparse.ArgumentParser:
 
 
 def test_cli_parser_mic_minimal() -> None:
-    """``mic`` with no flags parses and defaults the diar backend to nemo."""
+    """``mic`` with no flags parses and defaults the diar backend to the router."""
     args = _real_parser().parse_args(["mic"])
     assert args.command == "mic"
-    # Default backend is nemo (2026-06-30 embedding sweep), not pyannote.
-    assert args.diar_backend == "nemo"
+    # Default is 'auto' — the backend is decided by the router at run time
+    # (live stream → nemo per the study), not pinned as a static CLI default.
+    assert args.diar_backend == "auto"
 
 
 def test_cli_parser_file_with_overrides() -> None:
@@ -234,10 +235,32 @@ def _argparse_config(argv: list[str]):
     return _build_pipeline_config(args)
 
 
-def test_argparse_default_backend_is_nemo() -> None:
-    """The shipped default online-diar backend must be nemo (2026-06-30 sweep)."""
+def test_argparse_default_backend_is_auto() -> None:
+    """The shipped default backend is 'auto' — resolved by the router at run time."""
+    # The static config no longer pins a backend; the aiguilleur decides per run.
     cfg = _argparse_config(["mic"])
-    assert cfg.diar["backend"] == "nemo"
+    assert cfg.diar["backend"] == "auto"
+
+
+def test_router_resolves_live_auto_to_nemo() -> None:
+    """A live stream with 'auto' resolves to nemo — the shipped online default."""
+    # This is what the mic/url path actually feeds OnlineDiarStage once 'auto' is
+    # routed: the study makes nemo the best online embedder at every length.
+    from vocal_helper.cli_argparse import _route_backend
+
+    backend, note = _route_backend(requested_backend="auto", live=True, duration_s=None)
+    assert backend == "nemo"
+    assert note and "RTF" in note  # speed axis surfaced alongside quality
+
+
+def test_router_explicit_backend_is_honoured() -> None:
+    """An explicit backend is passed through verbatim, with no router note."""
+    # Operator override: the router must not second-guess an explicit choice.
+    from vocal_helper.cli_argparse import _route_backend
+
+    backend, note = _route_backend(requested_backend="pyannote", live=True, duration_s=None)
+    assert backend == "pyannote"
+    assert note is None
 
 
 def test_argparse_default_llm_model_is_gemma3() -> None:
