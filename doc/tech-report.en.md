@@ -101,11 +101,14 @@ respond after 200–300 ms gaps.
 
 `OnlineDiarStage` consumes `VoicedSegment` events from VAD,
 embeds each one once, and runs a per-segment cosine running-mean
-clusterer over the global speaker list. Two embedding backends are
+clusterer over the global speaker list. Three embedding backends are
 wired :
 
 - `backend='nemo'` — NVIDIA TitaNet [@titanet] via NeMo [@nemo].
 - `backend='pyannote'` — `pyannote/embedding` [@pyannoteembedding].
+- `backend='sherpa'` — the same TitaNet-large run through
+  `sherpa-onnx`/onnxruntime, **torch-free** : it installs light and
+  embeds on any platform (DER 0.174, FR+EN validated; ADR 0002).
 
 **Default is `nemo` (TitaNet)**, selected by the Summer 2026
 embedding-backend sweep

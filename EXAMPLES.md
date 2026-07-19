@@ -18,7 +18,7 @@ diarization-engines bundle configured in `settings.yaml`
 ## 1. Live mic → terminal transcript
 
 ```bash
-vocal-helper mic --language fr \
+vocal-helper mic \
   --initial-prompt "Réunion d'équipe : design, marketing, planning, livrables"
 ```
 
@@ -34,7 +34,7 @@ async def main():
         source=lambda: voh.sources.from_microphone(),
         config=voh.PipelineConfig(
             asr={
-                "language": "fr",
+                "language": "auto",  # discovered from the audio — no default
                 "initial_prompt": "Réunion d'équipe : design, marketing, planning, livrables",
             },
         ),
@@ -67,7 +67,7 @@ async def main():
     p = voh.Pipeline(
         source=lambda: voh.sources.from_wav_file("./meeting.wav"),
         config=voh.PipelineConfig(
-            asr={"language": "en"},
+            asr={"language": "auto"},  # discovered from the audio — no default
             llm={
                 "model": "gemma4:e4b",
                 "recent_window_s": 60.0,   # 60 s verbatim window
@@ -146,7 +146,7 @@ async def main():
                 "backend": "nemo",
                 "join_threshold": 0.35,   # TitaNet's distribution is wider
             },
-            asr={"language": "en"},
+            asr={"language": "auto"},     # discovered from the audio — no default
         ),
     )
     async for ev in p.run():
@@ -160,12 +160,24 @@ asyncio.run(main())
 
 ## 6. Synchronous one-shot transcription (no pipeline)
 
-For when you have a single PCM buffer and just want text back :
+For when you have a single PCM buffer and just want text back. The language is
+**discovered** from the audio by default (`language="auto"`) — no default, no
+pairing :
 
 ```python
 import numpy as np, vocal_helper as voh
 
 pcm = np.zeros(16_000 * 5, dtype=np.float32)  # five seconds of silence
-text = voh.transcribe_pcm(pcm, sr=16_000, language="en")
+text = voh.transcribe_pcm(pcm, sr=16_000)     # language auto-discovered
 print(text)
+```
+
+Need the language whisper actually detected? Use the sibling helper that
+returns it alongside the text :
+
+```python
+from vocal_helper.asr import transcribe_pcm_with_language
+
+text, language = transcribe_pcm_with_language(pcm, sr=16_000)
+print(language, text)   # e.g. 'fr Bonjour tout le monde'
 ```

@@ -3,7 +3,7 @@
 All notable changes to this project will be documented in this file.
 This project adheres to [Semantic Versioning](https://semver.org).
 
-## [Unreleased]
+## [0.5.0] - 2026-07-19
 
 ### Added
 
@@ -17,6 +17,61 @@ This project adheres to [Semantic Versioning](https://semver.org).
   `tests/test_diar_sherpa.py`. Study-selected in the `pasdebonneoudemauvaisesituation`
   sandbox (ADR 0002): DER 0.174 on AMI ES2011a, 0.148 on held-out IS1008a, FR+EN validated;
   streaming = periodic offline re-diarization.
+- **`sherpa` selectable from the CLI.** Both front-ends now offer
+  `--diar-backend sherpa` (argparse and click) — previously the backend
+  existed and was tested but was unreachable from the command line
+  (`choices` listed only `pyannote`/`nemo`).
+- **`transcribe_pcm_with_language` helper** (`vocal_helper.asr`) returns
+  `(text, detected_language)` so callers can report the language whisper
+  actually used instead of echoing the request.
+- **Backend router — the *aiguilleur* (`vocal_helper.router`).**
+  `select_diarization(live, duration_s, max_speakers, torch_free,
+  pyannote_available)` returns a `BackendPlan(mode, backend, expected_der,
+  expected_rtf, reason)` that turns the measured quality×speed trade-off into one
+  explicit, tested decision — both CLIs delegate to it via `_choose_file_diar`,
+  so no front-end hard-codes a backend. Quality (DER) and speed (RTF) are
+  first-class fields keyed from a single `_PROFILE` table, re-validated
+  on-machine (`studies/router_profile_validation.py`, `pyannote.metrics` collar
+  0.25) against bagarre + AMI. Findings: offline has a length crossover (nemo
+  short ≤ 4 spk ↔ pyannote long/unknown/> 4 spk); online has none, so streaming
+  always routes to nemo (torch-free → sherpa). `router.py` is 100 % covered
+  (`tests/test_router.py`).
+
+### Changed
+
+- **Surfaces reshaped to a pure toolbox.** vocal-helper now exposes only
+  library + argparse CLI + click CLI + FastAPI HTTP API + MCP. The API and MCP
+  surfaces are **kept**; the `POST /transcribe` response now carries the detected
+  language, and `api.py` reads `__version__` dynamically (no more drift).
+
+- **Language identification is now discovery-first — no default, no pairing.**
+  `vocal_helper.lid` detection (`detect_language`, `language_posterior_curve`,
+  `detect_language_regions{,_fast}`, `detect_language_speechbrain`,
+  `cross_check_regions`) defaults to `supported=None`, meaning *return the
+  language the input actually is* (whisper's true argmax / VoxLingua107's true
+  label). A restricted candidate set is now an **opt-in routing hint**, never a
+  default: `DEFAULT_SUPPORTED_LANGS` is demoted to a convenience constant with
+  no privileged language. Empty or too-short-to-identify audio returns **no
+  region** rather than inventing English. Completes the direction set by the
+  earlier `lang_pair` removal ("language is discovered, not paired").
+
+### Fixed
+
+- **`POST /transcribe` reported the detected language, not the request echo.**
+  With `language=auto` the endpoint now returns the language whisper detected
+  from the audio instead of literally echoing `"auto"` back.
+- **FastAPI app version was pinned at `0.3.7`** (four releases stale) — now
+  tracks the package version (`0.4.7`).
+- **`__email__` typo** (`warithmetics@deraison.ai` → `warith@deraison.ai`) and
+  stale `__version__` / `CITATION.cff` (0.4.6 → 0.4.7) brought in line with
+  `pyproject.toml`.
+
+### Removed
+
+- **Docker (`Dockerfile`) and the `GUI.md` product plan.** vocal-helper is a
+  toolbox (library + CLIs + API + MCP), not a shipped container or visual
+  product. Containerization stays available as self-authored deployment recipes
+  in `TECHNICAL_STACK.md`; no Dockerfile is shipped.
 
 ## [0.4.7] - 2026-07-18
 

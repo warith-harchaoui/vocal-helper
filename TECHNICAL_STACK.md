@@ -150,6 +150,7 @@ pip install \
 | `llm` | `ollama` client | Gemma analyst + semantic EOT gating |
 | `stream` | `podcast-helper` (via git URL) | `from_url` (YouTube, RSS, HLS…) |
 | `nemo` | `torch`, `torchaudio`, `nemo-toolkit[asr]` | Alternative TitaNet diar backend (`backend="nemo"`) — **now the default per the 2026-06-30 sweep** |
+| `sherpa` | `sherpa-onnx>=1.13` | Torch-free TitaNet diar backend (`backend="sherpa"`) — same embedder via onnxruntime, embeddable anywhere |
 | `mic` | `capture-helper` | Skip on server |
 | `all` | Everything except `mic` and `nemo` | One-line install for prod |
 
@@ -194,9 +195,39 @@ footprint, force `backend="pyannote"` :
 diar={"backend": "pyannote"}
 ```
 
+A third option, `backend="sherpa"`, runs the same TitaNet-large through
+onnxruntime (the `sherpa` extra) — **no PyTorch**, so it installs light and
+embeds on any platform. Same quality as `nemo`, torch-free.
+
 `OfflineDiarStage` uses `pyannote/speaker-diarization-3.1` and will run
 on CUDA automatically thanks to `_auto_torch_device`. The wrapper
 handles the pyannote 3.x `DiarizeOutput` API change transparently.
+
+### Backend router — the *aiguilleur*
+
+You don't pick by hand. `vocal_helper.router` (`voh.select_diarization`) turns the
+measured quality×speed trade-off into one explicit, tested decision — the CLIs
+delegate to it and it reports both **DER** (quality, lower better) and **RTF**
+(speed, `< 1` faster than real time). Numbers re-validated on-machine
+(`studies/router_profile_validation.py`, `pyannote.metrics` collar 0.25, median
+DER + RTF) against bagarre (30 short mixes) + AMI dev-slice; `sherpa` from ADR
+0002 :
+
+| Mode | Scenario | Backend | DER | RTF | Why |
+|---|---|---|---|---|---|
+| offline | short ≤ 300 s, ≤ 4 speakers | **`nemo`** | **0.142** | 0.051 | End-to-end slot attribution, ~2.3× better than pyannote on short dense turns (0.330). |
+| offline | long / unknown / > 4 speakers | **`pyannote`** | **0.122** | 0.067 | Robust default; NeMo hangs past ~25 min, caps at 4 speakers. |
+| offline | torch-free | **`sherpa`** | 0.174 | 0.58 | ONNX TitaNet-large, beats NeMo Sortformer 0.267, FR+EN (ADR 0002). |
+| online | any live stream | **`nemo`** | 0.586 | 0.030 | Best online embedder at every length (beats online pyannote 0.590/0.844). |
+| online | torch-free | **`sherpa`** | 0.174 | 0.58 | Periodic offline re-diarization (ADR 0002). |
+
+Offline has a real length crossover (nemo short ↔ pyannote long) so it needs the
+router; online has none — the streaming clusterer is a latency-bound
+approximation where nemo wins at every length, so streaming always routes to
+nemo. `select_diarization(...)` returns a `BackendPlan(mode, backend,
+expected_der, expected_rtf, reason)`; see the [README router
+section](https://github.com/warith-harchaoui/vocal-helper#backend-router--the-aiguilleur)
+for the authoritative narrative.
 
 ## Layer 4 — music-helper
 
@@ -337,6 +368,11 @@ WantedBy=multi-user.target
 Usage : `systemctl start vocal-helper@meeting-2026-07-02.service`.
 
 ### Pattern B — Docker Compose (portable, reproducible)
+
+> `vocal-helper` ships **no Dockerfile** — the toolbox is library + CLIs + API +
+> MCP, nothing container-specific. The Compose and image recipes below are
+> self-contained *examples you author yourself*; they install `vocal-helper`
+> straight from git, so nothing in the repo needs to change to use them.
 
 ```yaml
 # docker-compose.yml
@@ -589,7 +625,7 @@ print('music-helper :', mh.__version__ if hasattr(mh, '__version__') else 'ok')
 
 ## Bill of materials — reproducible install manifest
 
-Pin versions in your Dockerfile / requirements once you've tested
+Pin versions in your requirements / container image once you've tested
 them end-to-end. As of the July 2026 sweep :
 
 ```

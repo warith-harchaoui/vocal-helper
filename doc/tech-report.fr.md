@@ -105,10 +105,13 @@ les humains répondent naturellement après 200-300 ms.
 `OnlineDiarStage` consomme les événements `VoicedSegment` du VAD,
 embede chacun une fois, et fait tourner un clusterer cosinus à
 moyenne mobile par segment sur la liste globale des locuteurs.
-Deux backends d'embedding sont câblés :
+Trois backends d'embedding sont câblés :
 
 - `backend='nemo'` — NVIDIA TitaNet [@titanet] via NeMo [@nemo].
 - `backend='pyannote'` — `pyannote/embedding` [@pyannoteembedding].
+- `backend='sherpa'` — le même TitaNet-large via
+  `sherpa-onnx`/onnxruntime, **sans torch** : install léger et
+  embarquable partout (DER 0.174, FR+EN validé ; ADR 0002).
 
 **Le défaut est `nemo` (TitaNet)**, sélectionné par le sweep
 backend d'embedding Été 2026
