@@ -3,6 +3,32 @@
 All notable changes to this project will be documented in this file.
 This project adheres to [Semantic Versioning](https://semver.org).
 
+## [Unreleased]
+
+### Fixed
+
+- **The diarization router (the *aiguilleur*) is now actually enforced — it was
+  decorative in 0.5.0.** The router shipped and printed a rationale but was never
+  consulted with real inputs: the CLI called `select_diarization(duration_s=None)`
+  (a constant → always pyannote on the auto branch), `--offline` bypassed it and
+  used the `--diar-backend` default, the mic/url online path never called it, and
+  `POST /pipeline` hardcoded `pyannote`. So the quality×speed **length crossover**
+  that is the repo's headline value proposition could not fire in any production
+  path. Now every surface routes on real conditions: files probe their duration
+  (`vocal_helper.sources.probe_duration_s`, a cheap ffprobe read) so offline
+  short (≤300 s, ≤4 spk) → `nemo` and long/unknown → `pyannote`; the API routes on
+  the decoded buffer's real length; mic/url resolve the online backend (→ `nemo`).
+
+### Changed
+
+- **`--diar-backend` default `nemo` → `auto`** on both CLIs. `auto` delegates to
+  the router (reporting DER **and** RTF); an explicit `pyannote` / `nemo` /
+  `sherpa` is honoured as an operator override. `POST /pipeline` `diar_backend`
+  default `pyannote` → `auto` likewise.
+- **`router.select_diarization` gained `nemo_available`** so a short file never
+  routes to NeMo when the extra is absent — it falls through to pyannote rather
+  than naming an unrunnable backend.
+
 ## [0.5.0] - 2026-07-19
 
 ### Added

@@ -114,6 +114,11 @@ print(plan.backend, plan.expected_der, plan.expected_rtf)  # nemo 0.142 0.051 �
 print(voh.select_diarization(live=False, duration_s=1800.0).backend)  # 'pyannote' — long form
 ```
 
+The router is **enforced, not advisory**: `--diar-backend` defaults to **`auto`**
+on both CLIs and `POST /pipeline`, so a file's real duration is probed and routed
+(short → `nemo`, long → `pyannote`) without you choosing. Pass an explicit
+`pyannote` / `nemo` / `sherpa` to override.
+
 ## Installation
 
 > **More recipes?** See [`EXAMPLES.md`](https://github.com/warith-harchaoui/vocal-helper/blob/main/EXAMPLES.md)
