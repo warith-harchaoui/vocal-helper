@@ -34,6 +34,7 @@ from __future__ import annotations
 import asyncio
 from collections import deque
 from dataclasses import dataclass, field
+from typing import Any
 
 import os_helper as osh
 
@@ -199,7 +200,7 @@ class GemmaAnalystStage:
         self.flush_every_s = flush_every_s
         self.host = host
         self.prompt_template = prompt_template
-        self._client = None
+        self._client: Any = None
         self._buf = _Buffer()
         # Track the t0 of the oldest pending-for-summary utterance so
         # the time-based cadence can fire on duration accumulated.

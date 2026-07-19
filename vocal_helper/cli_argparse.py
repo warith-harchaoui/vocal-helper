@@ -37,8 +37,9 @@ import argparse
 import asyncio
 import json
 import sys
-from collections.abc import AsyncIterator, Sequence
+from collections.abc import AsyncIterator, Mapping, Sequence
 from pathlib import Path
+from typing import Any
 
 from vocal_helper.pipeline import (
     OfflinePipeline,
@@ -111,7 +112,7 @@ def _build_pipeline_config(args: argparse.Namespace) -> PipelineConfig:
     return PipelineConfig(diar=diar_cfg, asr=asr_cfg, llm=llm_cfg, eot=eot_cfg)
 
 
-def _print_event(ev: dict, jsonl: bool) -> None:
+def _print_event(ev: Mapping[str, Any], jsonl: bool) -> None:
     """Emit a single pipeline event to stdout in the requested format."""
     if jsonl:
         # Filter the raw PCM before serialising — a 20 ms buffer would blow
@@ -328,6 +329,7 @@ async def _run_pipeline(args: argparse.Namespace, source_factory: SourceFactory)
             sys.stderr.write(note + "\n")
         diar_cfg = {**config.diar, "backend": backend}
 
+    pipeline: Pipeline | OfflinePipeline
     if use_offline:
         # Offline pipeline skips the VAD and gives the diar backend the whole buffer.
         # We re-project the shared config onto the offline shape (no ``vad`` /

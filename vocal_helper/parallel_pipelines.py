@@ -129,7 +129,7 @@ def run_parallel_sync(
         # Branches finish in completion order, but the caller expects the
         # ORIGINAL branch order — remember each name's slot and reassemble.
         order = {name: i for i, (name, _) in enumerate(branches)}
-        rows = [None] * len(branches)  # type: ignore[assignment]
+        rows: list[tuple[str, R, float] | None] = [None] * len(branches)
         # Drain as results land (fail-fast on the first exception raised).
         for f in concurrent.futures.as_completed(futures):
             name, out, wall = f.result()

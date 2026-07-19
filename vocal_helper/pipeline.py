@@ -40,7 +40,7 @@ from vocal_helper.diar import OfflineDiarStage, OnlineDiarStage
 try:
     from vocal_helper.eot import SemanticEOTStage  # type: ignore[assignment]
 except Exception:  # pragma: no cover — optional
-    SemanticEOTStage = None  # type: ignore[assignment]
+    SemanticEOTStage = None  # type: ignore[assignment, misc]
 
 from vocal_helper.llm import GemmaAnalystStage
 from vocal_helper.types import (

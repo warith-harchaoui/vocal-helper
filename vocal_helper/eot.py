@@ -54,6 +54,7 @@ from __future__ import annotations
 import asyncio
 import time
 from dataclasses import dataclass
+from typing import Any
 
 import numpy as np
 from numpy.typing import NDArray
@@ -130,8 +131,8 @@ class SemanticEOTStage:
         self.host = host
         # Clients are lazy — an EOT-disabled pipeline must never import ollama /
         # pywhispercpp just by being constructed. Populated by ``_ensure_clients``.
-        self._ollama = None
-        self._whisper = None
+        self._ollama: Any = None
+        self._whisper: Any = None
         # At most one segment is held back at a time — the merge chain is linear.
         self._pending: _PendingSegment | None = None
 

@@ -99,7 +99,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 import numpy as np
 from numpy.typing import NDArray
@@ -277,7 +277,7 @@ class OnlineDiarStage:
         self.refine_on_close = refine_on_close
         self.min_cluster_size = min_cluster_size
         self.merge_threshold = merge_threshold if merge_threshold is not None else join_threshold
-        self._embedder = None
+        self._embedder: Any = None
         self._centroids: list[_Centroid] = []
         self._next_id = 0
 
@@ -581,7 +581,11 @@ class OnlineDiarStage:
         labels = list(by_label.keys())
         # Per-provisional centroid = unit-norm mean of its segment embeddings.
         centroids = np.stack(
-            [_unit_mean([embeddings[i] for i in by_label[lab]]) for lab in labels], axis=0
+            [
+                _unit_mean([cast("NDArray[np.float32]", embeddings[i]) for i in by_label[lab]])
+                for lab in labels
+            ],
+            axis=0,
         )
 
         # 1. Merge near-duplicate centroids via single-linkage union-find.
@@ -642,7 +646,7 @@ class OnlineDiarStage:
             group_members.setdefault(find(li), []).extend(by_label[lab])
         group_roots = list(group_members.keys())
         group_centroid = {
-            root: _unit_mean([embeddings[i] for i in members])
+            root: _unit_mean([cast("NDArray[np.float32]", embeddings[i]) for i in members])
             for root, members in group_members.items()
         }
 
@@ -663,7 +667,7 @@ class OnlineDiarStage:
                     final_root[i] = root
             else:
                 for i in members:
-                    emb = embeddings[i]
+                    emb = cast("NDArray[np.float32]", embeddings[i])
                     nearest = int(np.argmax(survivor_mat @ emb))
                     final_root[i] = survivors[nearest]
 
@@ -761,7 +765,7 @@ class _PyannoteEmbedder:
             CUDA > MPS > CPU at load time.
         """
         self.device = device  # ``None`` → auto-pick at load time
-        self._inference = None
+        self._inference: Any = None
 
     def load(self) -> None:
         """Build the ``pyannote/embedding`` inference from the local bundle.
@@ -850,7 +854,7 @@ class _TitaNetEmbedder:
 
     def __init__(self) -> None:
         """Initialise with no model ; the checkpoint loads in :meth:`load`."""
-        self._model = None
+        self._model: Any = None
 
     def load(self) -> None:
         """Fetch the pretrained ``titanet_large`` model into eval mode.
@@ -915,7 +919,7 @@ class _SherpaEmbedder:
             :meth:`load` time (kept optional here for two-phase construction).
         """
         self._model_path: str | None = model_path
-        self._extractor = None
+        self._extractor: Any = None
 
     def load(self) -> None:
         """Build the sherpa-onnx speaker-embedding extractor.
@@ -1112,8 +1116,8 @@ class OfflineDiarStage:
         self.overlap_s = overlap_s
         self.stitch_threshold = stitch_threshold
         self.device = device
-        self._backend_obj: Any | None = None
-        self._embedder: Any | None = None
+        self._backend_obj: Any = None
+        self._embedder: Any = None
 
     # ----- lifecycle ----------------------------------------------------
 
@@ -1419,7 +1423,7 @@ class _PyannoteOfflineDiar:
             correctly.
         """
         self.device = device  # ``None`` → auto-pick at load time
-        self._pipeline = None
+        self._pipeline: Any = None
         # Resolved at load time so ``diarize`` knows where to put the
         # input tensor when it's not on the same device as the model.
         self._device: str = "cpu"
@@ -1580,7 +1584,7 @@ class _NemoSortformerDiar:
     def __init__(self) -> None:
         """Initialise with no model ; the checkpoint restores in :meth:`load`."""
         # Lazily populated in ``load`` — kept ``None`` so import is cheap.
-        self._model: Any | None = None
+        self._model: Any = None
 
     def load(self) -> None:
         """Load the Sortformer model, preferring the local bundle.
@@ -1764,7 +1768,7 @@ class _SherpaOfflineDiar:
         self.num_clusters = num_clusters
         self.min_on = min_duration_on
         self.min_off = min_duration_off
-        self._sd: Any | None = None
+        self._sd: Any = None
 
     def load(self) -> None:
         """Resolve the ONNX models and build the sherpa diarization pipeline.

@@ -35,8 +35,9 @@ from __future__ import annotations
 import asyncio
 import json
 import sys
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Callable, Mapping
 from pathlib import Path
+from typing import Any
 
 try:
     import click
@@ -142,7 +143,7 @@ def _resolve_online_backend(cfg: PipelineConfig, requested_backend: str) -> None
     cfg.diar["backend"] = backend
 
 
-def _print_event(ev: dict, jsonl: bool) -> None:
+def _print_event(ev: Mapping[str, Any], jsonl: bool) -> None:
     """Emit a single pipeline event to stdout, JSONL or human-readable."""
     if jsonl:
         # Strip the raw PCM before serialising — cheaper log, right transport.
@@ -445,6 +446,7 @@ def file(
     )
     if note:
         sys.stderr.write(note + "\n")
+    pipeline: Pipeline | OfflinePipeline
     if use_offline:
         pipeline = OfflinePipeline(
             source=factory,

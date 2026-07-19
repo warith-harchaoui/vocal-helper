@@ -32,6 +32,7 @@ from __future__ import annotations
 import asyncio
 from collections import deque
 from dataclasses import dataclass
+from typing import Any
 
 import numpy as np
 from numpy.typing import NDArray
@@ -119,8 +120,8 @@ class SileroVADStage:
         self.edge_pad_ms = edge_pad_ms
         self.sample_rate = sample_rate
 
-        self._model = None
-        self._torch = None
+        self._model: Any = None
+        self._torch: Any = None
         # Carry-over leftover at every frame boundary so a Silero
         # window is never split across two frames.
         self._tail = np.zeros(0, dtype=np.float32)
@@ -175,8 +176,8 @@ class SileroVADStage:
                         await outbox.put(seg)
                 await outbox.put(None)
                 return
-            seg = self._consume_frame(item)
-            for s in seg:
+            segs = self._consume_frame(item)
+            for s in segs:
                 await outbox.put(s)
 
     # ----- the actual VAD logic ------------------------------------------

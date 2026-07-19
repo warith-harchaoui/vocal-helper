@@ -110,7 +110,7 @@ from vocal_helper.vad import SileroVADStage
 try:
     from vocal_helper.eot import SemanticEOTStage  # type: ignore[assignment]
 except Exception:  # pragma: no cover — optional
-    SemanticEOTStage = None  # type: ignore[assignment]
+    SemanticEOTStage = None  # type: ignore[assignment, misc]
 
 try:
     from vocal_helper.eot_bench import (  # type: ignore[assignment]
@@ -120,7 +120,7 @@ try:
     )
     from vocal_helper.eot_bench import score as eot_score  # type: ignore[assignment]
 except Exception:  # pragma: no cover — optional
-    EOTPair = None  # type: ignore[assignment]
+    EOTPair = None  # type: ignore[assignment, misc]
     false_cutoff_rate = None  # type: ignore[assignment]
     hang_rate = None  # type: ignore[assignment]
     eot_score = None  # type: ignore[assignment]

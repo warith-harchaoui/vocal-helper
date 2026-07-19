@@ -191,7 +191,7 @@ class WhisperStage:
         # Off by default (offline batch doesn't care) ; the streaming
         # :class:`~vocal_helper.pipeline.Pipeline` turns it on.
         self.warmup = warmup
-        self._model: Any | None = None
+        self._model: Any = None
 
     # ----- lifecycle ------------------------------------------------------
 
