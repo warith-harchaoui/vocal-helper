@@ -59,7 +59,9 @@ def test_sherpa_offline_diar_exposes_backend_interface() -> None:
     assert diar.threshold == 0.5
 
 
-def test_resolve_sherpa_models_prefers_env_override(tmp_path: Path, monkeypatch) -> None:
+def test_resolve_sherpa_models_prefers_env_override(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Explicit ``$VH_SHERPA_*`` paths win over any bundle lookup.
 
     Parameters
@@ -69,16 +71,22 @@ def test_resolve_sherpa_models_prefers_env_override(tmp_path: Path, monkeypatch)
     monkeypatch : pytest.MonkeyPatch
         Sets the two model-path environment overrides.
     """
+    # Two non-empty stand-in ONNX files — the resolver only checks existence,
+    # never parses them, so a single null byte is enough to look "present".
     seg = tmp_path / "seg.onnx"
     emb = tmp_path / "emb.onnx"
     seg.write_bytes(b"\x00")
     emb.write_bytes(b"\x00")
+    # With both env overrides set, the resolver must return them verbatim and
+    # never consult the bundle — the explicit operator path wins.
     monkeypatch.setenv("VH_SHERPA_SEGMENTATION", str(seg))
     monkeypatch.setenv("VH_SHERPA_EMBEDDING", str(emb))
     assert _resolve_sherpa_models() == (str(seg), str(emb))
 
 
-def test_resolve_sherpa_models_reads_bundle(tmp_path: Path, monkeypatch) -> None:
+def test_resolve_sherpa_models_reads_bundle(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Without env overrides, the resolver finds ONNX files in the bundle's ``sherpa/``.
 
     Prefers our sovereign community-1 export for segmentation and TitaNet-large
@@ -91,8 +99,11 @@ def test_resolve_sherpa_models_reads_bundle(tmp_path: Path, monkeypatch) -> None
     monkeypatch : pytest.MonkeyPatch
         Clears the env overrides and points ``$VH_DIARIZATION_ENGINES`` at the bundle.
     """
+    # Clear the overrides so the resolver is forced down the bundle branch.
     monkeypatch.delenv("VH_SHERPA_SEGMENTATION", raising=False)
     monkeypatch.delenv("VH_SHERPA_EMBEDDING", raising=False)
+    # A minimal bundle: a manifest marks the root, and sherpa/ holds the two
+    # study-selected ONNX exports the resolver is expected to discover by name.
     (tmp_path / "manifest.json").write_text("{}")
     sdir = tmp_path / "sherpa"
     sdir.mkdir()
@@ -105,7 +116,7 @@ def test_resolve_sherpa_models_reads_bundle(tmp_path: Path, monkeypatch) -> None
     assert emb == str(sdir / "nemo_en_titanet_large.onnx")
 
 
-def test_resolve_sherpa_models_raises_when_unconfigured(monkeypatch) -> None:
+def test_resolve_sherpa_models_raises_when_unconfigured(monkeypatch: pytest.MonkeyPatch) -> None:
     """A clear ``RuntimeError`` is raised when no models can be found.
 
     Parameters
