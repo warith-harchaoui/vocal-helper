@@ -70,6 +70,10 @@ except ImportError as exc:  # pragma: no cover
         "Install with: pip install 'vocal-helper[api]'"
     ) from exc
 
+# Single source of truth for the version — read it from the package so the
+# HTTP surface can never drift from ``pyproject`` / ``__init__`` again (it was
+# once stale at 0.3.7 while the package was several releases ahead).
+from vocal_helper import __version__ as _VERSION
 
 # ---------------------------------------------------------------------------
 # App factory + shared plumbing
@@ -83,10 +87,21 @@ app = FastAPI(
         "and full VAD + diarization + STT + optional Gemma summary on an "
         "uploaded audio file."
     ),
-    version="0.3.7",
+    version=_VERSION,
     docs_url="/docs",
     redoc_url="/redoc",
 )
+
+# Optionally serve the minimal local web GUI (repo ``webui/`` folder) at ``/ui``
+# when it is present next to the package (a source checkout). Mounting it on the
+# API itself keeps it **same-origin** — the page's ``fetch`` hits ``/transcribe``
+# with no CORS dance — and fully local. A pip install without the folder simply
+# skips the mount, so this never breaks a headless server.
+_WEBUI_DIR = Path(__file__).resolve().parent.parent / "webui"
+if _WEBUI_DIR.is_dir():
+    from fastapi.staticfiles import StaticFiles
+
+    app.mount("/ui", StaticFiles(directory=str(_WEBUI_DIR), html=True), name="webui")
 
 
 def _spool(upload: UploadFile, dest_dir: Path, suffix_hint: str | None = None) -> Path:
@@ -222,7 +237,7 @@ def transcribe(
     """One-shot transcription of the uploaded audio — no VAD, no diarization."""
     # Import inside the handler so a bare [api] install still serves /health
     # even when the heavier ASR backend isn't wired up yet.
-    from vocal_helper.asr import transcribe_pcm
+    from vocal_helper.asr import transcribe_pcm_with_language
 
     # Spool → decode → transcribe, all rooted in one request-scoped tmpdir
     # so the ``finally`` cleanup below can remove everything in one shot.
@@ -230,7 +245,10 @@ def transcribe(
     try:
         src = _spool(file, tmp)
         pcm, sr = _load_pcm_mono_16k(src)
-        text = transcribe_pcm(
+        # Capture the language whisper actually used, not the request input:
+        # with ``language="auto"`` that is the language discovered from the
+        # audio, so the response tells the truth instead of echoing "auto".
+        text, detected = transcribe_pcm_with_language(
             pcm=pcm,
             sr=int(sr),
             model=whisper_model,
@@ -240,7 +258,9 @@ def transcribe(
     finally:
         # Text response — synchronous cleanup, no background handler needed.
         _cleanup(tmp)
-    return JSONResponse({"text": text, "language": language})
+    # Fall back to the request value only when whisper reported no language
+    # (e.g. an empty upload) so the field is never silently null on success.
+    return JSONResponse({"text": text, "language": detected or language})
 
 
 @app.post("/pipeline", tags=["actions"])

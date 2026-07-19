@@ -71,7 +71,7 @@ Warith Harchaoui, Ph.D. — https://linkedin.com/in/warith-harchaoui/
 """
 
 from vocal_helper import sources
-from vocal_helper.asr import WhisperStage, transcribe_pcm
+from vocal_helper.asr import WhisperStage, transcribe_pcm, transcribe_pcm_with_language
 from vocal_helper.diar import OfflineDiarStage, OnlineDiarStage
 from vocal_helper.lid import (
     LangRegion,
@@ -90,6 +90,7 @@ from vocal_helper.pipeline import (
     Pipeline,
     PipelineConfig,
 )
+from vocal_helper.router import BackendPlan, select_diarization
 from vocal_helper.types import (
     DiarizedSegment,
     PcmFrame,
@@ -99,10 +100,13 @@ from vocal_helper.types import (
 )
 from vocal_helper.vad import SileroVADStage
 
-# Optional in-flight modules — imported best-effort so the base package
-# stays importable even when the WIP EOT / parallel-pipelines / TTS
-# modules are absent (they live behind ``git stash`` while the
-# multi-surface upgrade lands).
+# Optional companion modules — the semantic end-of-turn detector, its
+# benchmark helpers, and the parallel-pipelines primitive all ship in this
+# package and are fully functional. They are imported best-effort anyway so
+# the base package stays importable in a slimmed-down install that trims these
+# surfaces (or one where an optional dependency they touch is absent); a
+# missing module degrades to ``None`` rather than breaking ``import
+# vocal_helper``.
 try:
     from vocal_helper.eot import SemanticEOTStage  # type: ignore[assignment]
 except Exception:  # pragma: no cover — optional
@@ -141,6 +145,9 @@ __all__ = [
     "OfflineDiarStage",
     "SemanticEOTStage",
     "WhisperStage",
+    # Backend router — the study-grounded "aiguilleur".
+    "BackendPlan",
+    "select_diarization",
     # Spoken-language diarization (see vocal_helper.lid).
     "LangRegion",
     "RegionVerdict",
@@ -164,8 +171,9 @@ __all__ = [
     "Utterance",
     "SummarySnapshot",
     "transcribe_pcm",
+    "transcribe_pcm_with_language",
 ]
 
 __author__ = "Warith Harchaoui, Ph.D."
-__email__ = "warithmetics@deraison.ai"
-__version__ = "0.4.6"
+__email__ = "warith@deraison.ai"
+__version__ = "0.5.0"

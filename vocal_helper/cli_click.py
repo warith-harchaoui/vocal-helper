@@ -11,7 +11,7 @@ the ``vocal-helper-click`` entry point in ``pyproject.toml``.
 Design notes
 ------------
 - Subcommands mirror ``vocal-helper`` (the argparse twin) so both CLIs
-  can be introspected identically by higher layers (FastAPI, MCP).
+  expose the same operations under symmetric, predictable names.
 - Flags reuse the argparse names (``--whisper-model``, ``--language``,
   ``--diar-backend``, …) rather than the more idiomatic click positional
   style — consistency across the two CLIs beats micro-idiomaticity.
@@ -218,12 +218,13 @@ def _common_options(func: Callable[..., object]) -> Callable[..., object]:
     )(func)
     func = click.option(
         "--diar-backend",
-        type=click.Choice(["pyannote", "nemo"]),
+        type=click.Choice(["pyannote", "nemo", "sherpa"]),
         default="nemo",
         show_default=True,
-        help="Speaker-embedding backend for the online diarizer. "
+        help="Speaker-embedding backend for the diarizer. "
         "'nemo' (TitaNet) is default; 'pyannote' skips the "
-        "~5 GB NeMo install.",
+        "~5 GB NeMo install; 'sherpa' runs TitaNet through "
+        "onnxruntime (torch-free, needs the [sherpa] extra).",
     )(func)
     func = click.option(
         "--initial-prompt",

@@ -46,3 +46,9 @@ nomoreclaude.sh
 # Local-only bug report / working notes (not shipped)
 DIARIZATION-TROUBLES.md
 todo.md
+
+# Local-only working notes (assessment, todos)
+.private/
+
+# Local-only strategy note (not shipped)
+claude-skill.md

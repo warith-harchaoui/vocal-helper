@@ -2,12 +2,11 @@
 vocal_helper.cli — backwards-compat shim.
 
 The canonical argparse CLI lives in :mod:`vocal_helper.cli_argparse`
-so it can sit next to the click twin (:mod:`vocal_helper.cli_click`),
-the FastAPI HTTP surface (:mod:`vocal_helper.api`), and the MCP surface
-(:mod:`vocal_helper.mcp`) with symmetric naming — and so the four
-surfaces share a single config builder without drift. This module
-keeps the old import path (``from vocal_helper.cli import main``)
-working so downstream code and tests continue to load.
+so it can sit next to the click twin (:mod:`vocal_helper.cli_click`)
+with symmetric naming — and so both CLI surfaces share a single config
+builder without drift. This module keeps the old import path
+(``from vocal_helper.cli import main``) working so downstream code and
+tests continue to load.
 
 The shipped ``vocal-helper`` entry point resolves to
 :func:`vocal_helper.cli_argparse.main` (see ``[project.scripts]`` in

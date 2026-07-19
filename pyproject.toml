@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "vocal-helper"
-version = "0.4.7"
+version = "0.5.0"
 description = "Vocal Helper — async producer/consumer pipeline turning a live PCM stream into diarized, transcribed utterances and (optionally) a rolling LLM summary. Stages: Voice Activity Detection → online speaker diarization (Hungarian-style cosine clustering on backend embeddings) → STT (pywhispercpp turbo) → optional analyst (Gemma 3 4b via Ollama)."
 readme = "README.md"
 requires-python = ">=3.10,<3.14"
@@ -97,7 +97,8 @@ api = [
     "uvicorn[standard]>=0.30",
     "python-multipart>=0.0.9",
 ]
-# MCP surface via fastapi-mcp — mounts the FastAPI app as MCP tools.
+# MCP surface via fastapi-mcp — mounts the FastAPI app as MCP tools so any
+# MCP-aware host can call ``transcribe`` / ``pipeline`` locally.
 mcp = [
     "fastapi-mcp>=0.3",
 ]
@@ -112,10 +113,11 @@ lid = [
 # 2026-06-30 study made TitaNet the default online-diar embedding
 # (76 % wider separability margin vs pyannote/embedding). Skip it
 # explicitly if the ~ 5 GB NeMo install footprint is prohibitive :
-#   pip install 'vocal-helper[cli,api,mcp,mic,stream,pyannote,llm]'
-# then pass ``backend="pyannote"`` to ``OnlineDiarStage``.
+#   pip install 'vocal-helper[cli,api,mcp,mic,stream,pyannote,sherpa,llm]'
+# then pass ``backend="pyannote"`` (or the torch-free ``"sherpa"``) to
+# ``OnlineDiarStage`` / ``OfflineDiarStage``.
 all = [
-    "vocal-helper[cli,api,mcp,mic,stream,pyannote,nemo,llm,lid]",
+    "vocal-helper[cli,api,mcp,mic,stream,pyannote,nemo,sherpa,llm,lid]",
 ]
 dev = [
     "pytest>=8",

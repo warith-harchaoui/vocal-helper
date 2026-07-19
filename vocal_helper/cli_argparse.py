@@ -47,14 +47,15 @@ from vocal_helper.pipeline import (
     PipelineConfig,
     SourceFactory,
 )
+from vocal_helper.router import select_diarization
 from vocal_helper.types import PcmFrame
 
 # ---------------------------------------------------------------------------
 # Config builder — shared by every subcommand that spins up a pipeline.
 #
 # We keep the mapping "CLI namespace -> PipelineConfig" in one place so the
-# click twin (:mod:`vocal_helper.cli_click`) and the FastAPI surface can
-# reuse the exact same defaults without drift.
+# click twin (:mod:`vocal_helper.cli_click`) can reuse the exact same
+# defaults without drift.
 # ---------------------------------------------------------------------------
 
 
@@ -184,14 +185,17 @@ def _choose_file_diar(
     if explicit_offline:
         return True, dict(base_diar), None
     if batch and not force_online and _offline_pyannote_available():
-        # Auto-upgrade to the validated-best backend regardless of the online
-        # embedder choice ; ``--online`` opts back out.
+        # Delegate the backend choice to the study-grounded router (the
+        # aiguilleur). Without a probed duration we take its robust long-form
+        # branch — pyannote — so the CLI and the router can never disagree, and
+        # the operator sees the router's own rationale in the nudge below.
+        plan = select_diarization(live=False, duration_s=None, pyannote_available=True)
         note = (
-            "vocal-helper: batch file → offline pyannote diarizer (most reliable; "
-            "DER ~0.12 on AMI). Pass --online for the streaming diarizer, or "
+            f"vocal-helper: batch file → offline {plan.backend} diarizer "
+            f"({plan.reason}) Pass --online for the streaming diarizer, or "
             "--offline --diar-backend to choose the offline backend."
         )
-        return True, {"backend": "pyannote"}, note
+        return True, {"backend": plan.backend}, note
     if batch:
         note = (
             None
@@ -348,12 +352,13 @@ def _add_common_flags(sp: argparse.ArgumentParser) -> None:
     )
     sp.add_argument(
         "--diar-backend",
-        choices=["pyannote", "nemo"],
+        choices=["pyannote", "nemo", "sherpa"],
         default="nemo",
-        help="Speaker-embedding backend for the online diarizer. "
+        help="Speaker-embedding backend for the diarizer. "
         "Default 'nemo' (TitaNet) — +76%% separability margin over "
-        "'pyannote' on AMI (2026-06-30 sweep). Switch to 'pyannote' "
-        "to skip the ~5 GB NeMo install.",
+        "'pyannote' on AMI (2026-06-30 sweep). 'pyannote' skips the "
+        "~5 GB NeMo install; 'sherpa' runs the same TitaNet through "
+        "onnxruntime (torch-free, `pip install vocal-helper[sherpa]`).",
     )
     sp.add_argument(
         "--join-threshold",
