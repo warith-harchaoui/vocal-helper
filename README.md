@@ -139,6 +139,13 @@ on both CLIs and `POST /pipeline`, so a file's real duration is probed and route
 
 We recommend using Python environments. Check this link if you're unfamiliar with setting one up: [🥸 Tech tips](https://harchaoui.org/warith/4ml/#install).
 
+> **No compiler needed for the base install.** The core (`vocal-helper`, no
+> extras) pulls **prebuilt wheels** on every common platform — `pywhispercpp`
+> ships wheels for macOS arm64, Linux x86_64/aarch64 and Windows (cp39–cp314),
+> so nothing compiles. The heavy pieces are **opt-in**: the `[nemo]` extra brings
+> ~5 GB of PyTorch, and offline diarization fetches a model bundle on first use
+> (see *Model weights* below). Base install = library + CLIs + light ASR/VAD.
+
 ### From PyPI (recommended)
 
 ```bash
@@ -148,7 +155,7 @@ pip install 'vocal-helper[all]'
 ### From source (no PyPI)
 
 ```bash
-pip install 'vocal-helper[all] @ git+https://github.com/warith-harchaoui/vocal-helper.git@v0.5.1'
+pip install 'vocal-helper[all] @ git+https://github.com/warith-harchaoui/vocal-helper.git@v0.5.2'
 ```
 
 The `[all]` extra brings the mic source, both diarization backends (NeMo — the default — and pyannote), and Ollama. Pick à la carte if you don't need everything :
@@ -388,6 +395,22 @@ default) and the input speaks for itself.
 - v0.3 — out of scope : speaker ID anchoring via pre-enrolled voiceprints (excluded by user's industrial deployment compliance constraints — IDs stay anonymous `S0`, `S1`, … within a session).
 - v0.3 — replace the in-stage `_PyannoteEmbedder` with the overlap-aware variant from `pdbms.diar.backends.pyannote.embed_overlap_aware` for noisy mixes.
 - v0.3 — Pipecat-style typed Frame events with SystemFrame priority queue (clean shutdown / out-of-band control signals that bypass DataFrame queues).
+
+## Versioning & stability
+
+`vocal-helper` follows [Semantic Versioning](https://semver.org). While it is
+**pre-1.0** (currently `0.5.x`, a Beta) the contract is deliberate, not chaotic:
+
+- **The public API** is the names exported from `vocal_helper.__all__` plus the
+  documented CLI flags. That's what stability promises apply to.
+- **Behaviour and default changes land only in MINOR releases** (`0.5` → `0.6`).
+  A **PATCH** release (`0.5.1` → `0.5.2`) is bug-fixes and docs only — it will
+  never change a default under you.
+- One honest exception already shipped: `0.5.1` flipped the `--diar-backend`
+  default from `nemo` to `auto`. That was part of *repairing the router*, which
+  was non-functional in `0.5.0` — a fix, not a whim. From here, such changes are
+  minor-only.
+- Deprecations get a release with a warning before removal.
 
 ## Author
 

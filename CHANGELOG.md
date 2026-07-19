@@ -1,7 +1,32 @@
 # Changelog
 
 All notable changes to this project will be documented in this file.
-This project adheres to [Semantic Versioning](https://semver.org).
+This project adheres to [Semantic Versioning](https://semver.org). Pre-1.0
+stability policy: **breaking behaviour and default changes land only in MINOR
+releases; PATCH releases are bug-fixes and docs only.** The public API is the
+names exported from `vocal_helper.__all__` plus the documented CLI flags.
+
+## [0.5.2] - 2026-07-19
+
+### Changed
+
+- **Maturity classifier `3 - Alpha` → `4 - Beta`.** Reflects the actual state:
+  104 functional tests at 50 % coverage, CI on Python 3.10–3.13, a corrected +
+  regression-guarded router, and downstream use.
+- **Pinned `pywhispercpp>=1.5`** — that line ships prebuilt wheels for macOS
+  arm64, Linux x86_64/aarch64 (manylinux + musllinux) and Windows across
+  cp39–cp314, so a plain `pip install vocal-helper` needs **no C/C++ toolchain**
+  on any common platform (only exotic arches fall back to an sdist compile).
+
+### Documentation
+
+- Added a **Versioning & stability** policy (README + LISEZMOI): pre-1.0, defaults
+  change only in minors, never patches. Recorded honestly that the 0.5.1
+  `--diar-backend` default change (`nemo` → `auto`) was part of *fixing the
+  non-functional router*, not a gratuitous change — but such changes are
+  minor-only from here.
+- Clarified the install docs: the base install is light and wheel-based; the
+  heavy `[nemo]` extra (~5 GB torch) and the model bundle are opt-in.
 
 ## [0.5.1] - 2026-07-19
 

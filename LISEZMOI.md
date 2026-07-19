@@ -98,7 +98,7 @@ pip install 'vocal-helper[all]'
 ### Depuis les sources (sans PyPI)
 
 ```bash
-pip install 'vocal-helper[all] @ git+https://github.com/warith-harchaoui/vocal-helper.git@v0.5.1'
+pip install 'vocal-helper[all] @ git+https://github.com/warith-harchaoui/vocal-helper.git@v0.5.2'
 ```
 
 L'extra `[all]` installe la source micro, pyannote et Ollama. À la carte si tout n'est pas nécessaire :
@@ -309,6 +309,18 @@ la détection à l'intérieur de cet ensemble (afin qu'un proche non routable �
 galicien devant l'espagnol sur une fenêtre courte — ne l'emporte jamais). C'est
 entièrement optionnel : laissez-le à `None` (le défaut) et l'audio parle de
 lui-même.
+
+## Versionnage & stabilité
+
+`vocal-helper` suit le [versionnage sémantique](https://semver.org). En **pré-1.0**
+(`0.5.x`, une Beta), le contrat reste délibéré : l'**API publique** est
+`vocal_helper.__all__` + les options CLI documentées ; les **changements de
+comportement et de défauts n'arrivent qu'en version MINEURE** (`0.5` → `0.6`) —
+un **correctif** (`0.5.1` → `0.5.2`) ne corrige que des bugs et la doc, jamais un
+défaut. Seule exception déjà livrée : `0.5.1` a basculé le défaut `--diar-backend`
+de `nemo` à `auto`, dans le cadre de la *réparation du routeur* (non fonctionnel
+en `0.5.0`) — un correctif, pas un caprice ; désormais ce type de changement est
+réservé aux mineures.
 
 ## Auteur
 
