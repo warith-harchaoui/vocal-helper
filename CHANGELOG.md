@@ -6,6 +6,50 @@ stability policy: **breaking behaviour and default changes land only in MINOR
 releases; PATCH releases are bug-fixes and docs only.** The public API is the
 names exported from `vocal_helper.__all__` plus the documented CLI flags.
 
+## [0.6.0] - 2026-07-20
+
+### Added
+
+- **Transcript-viewer GUI at `GET /gui`.** A self-contained single page
+  (HTML + Tailwind CDN + vanilla JS, no build step) served same-origin by the
+  FastAPI app from the new in-package `vocal_helper.gui` module (mirrors the
+  AI Helpers suite convention, e.g. `audio_helper.gui`). Drop an audio file
+  **or paste a URL** → run the offline diarized pipeline → read a
+  **speaker-labelled, colour-coded transcript** (one stable colour per speaker,
+  with a live legend) alongside the rolling Gemma summary. Utterances reveal
+  progressively (motion-guarded) so a long transcript reads as if it streams in.
+  It POSTs to the existing `/pipeline` endpoint — zero new server logic — and
+  contacts only the local server, so audio never leaves the machine. `GET /`
+  now redirects to `/gui`. Because the module ships inside the package, the GUI
+  works for a bare `pip install`, not only a source checkout.
+- **URL ingest on `POST /pipeline`.** The endpoint now accepts an optional `url`
+  form field (in addition to a file upload): the LOCAL server fetches any
+  yt-dlp-reachable URL / RSS / direct audio via `sources.from_url` (needs the
+  `[stream]` extra). This powers the GUI's "paste a URL" affordance end-to-end.
+  The uploaded `file` becomes optional; exactly one of `file` / `url` is required
+  (a clean 400 otherwise).
+- **Agent skill family `skills/vocal-helper/`** — a Claude Skill *and* an
+  OpenCode skill (`SKILL.md` with a trigger-exhaustive third-person description
+  + `references/{cli-reference,surfaces,triggers}.md`) plus `skills/README.md`
+  with symlink-install instructions for `~/.claude/skills/` and
+  `~/.opencode/skills/`.
+- **`TRIGGERS.md`** — the exhaustive, user-facing catalogue of what invokes
+  vocal-helper (transcription / diarization / "who spoke when" / summary /
+  subtitles / language ID) and its SKIP boundary, referenced from README +
+  LISEZMOI.
+- **Local-first badge + `## The Promise` / `## La promesse`** sections in
+  README / LISEZMOI, emphasising that voice and transcripts stay on-device.
+
+### Changed
+
+- The older static form GUI at `/ui` (repo `webui/` staticfiles) is kept for
+  backward compatibility; `/gui` is now the canonical, in-package GUI.
+
+### Notes
+
+- Public API unchanged — every name in `vocal_helper.__all__` is preserved. The
+  new GUI, `/gui` route, and `url` form field are purely additive (SemVer minor).
+
 ## [0.5.2] - 2026-07-19
 
 ### Changed

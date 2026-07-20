@@ -7,6 +7,7 @@
 [![Python](https://img.shields.io/badge/python-3.10%E2%80%933.13-blue.svg)](#)
 [![Code style: ruff](https://img.shields.io/badge/code%20style-ruff-000000.svg)](https://github.com/astral-sh/ruff)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](.github/PULL_REQUEST_TEMPLATE.md)
+[![Local-first](https://img.shields.io/badge/privacy-local--first-2f6f5e.svg)](#the-promise)
 
 
 
@@ -15,6 +16,10 @@
 `Vocal Helper` belongs to a collection of libraries called `AI Helpers` developed for building Artificial Intelligence.
 
 [🌍 AI Helpers](https://harchaoui.org/warith/ai-helpers)
+
+## The Promise
+
+**Local-first by design.** vocal-helper runs entirely on your machine — transcription, diarization and summarisation happen locally (whisper.cpp / pyannote / NeMo / local Ollama); your audio and transcripts are never uploaded to a third-party service, no telemetry, no account, no cloud lock-in. Your voice — and everyone else's on the recording — is among the most personal data there is, and a transcript is a verbatim record of what was said and by whom; keeping both on your own hardware is what makes this tool safe to point at a real meeting, interview, or therapy session. Part of the [AI Helpers](https://github.com/warith-harchaoui/ai-helpers) suite: sovereignty over your data through local-first Open Source.
 
 Vocal Helper is an **async producer/consumer pipeline** turning audio into diarized, transcribed utterances — and (optionally) a rolling LLM summary of the conversation. Two paths ship :
 
@@ -289,12 +294,11 @@ When to use which — and the [router](#backend-router--the-aiguilleur) picks th
 | ≤ 60 s clips, ≤ 4 speakers, fast turn-around | `OfflinePipeline(backend='nemo')` | `nemo` Sortformer | End-to-end attribution, confusion ≈ 0, RTF ≈ 0.004 (250×). |
 | On-device / no PyTorch | either, `backend='sherpa'` | `sherpa` ONNX | Torch-free TitaNet-large; DER 0.174/0.148, FR+EN, embeddable anywhere. |
 
-## A toolbox: library, CLI, HTTP & MCP
+## A toolbox: library, CLI, HTTP, MCP & GUI
 
 `vocal-helper` is a **toolbox**, not an app. It exposes the *same* local pipeline
 through coherent surfaces so it composes into your own project without
-re-implementing the wiring — while the app layer, deployment, and any GUI stay
-in *your* project, not here. Everything runs **locally**: no surface sends audio
+re-implementing the wiring. Everything runs **locally**: no surface sends audio
 to a remote service.
 
 | Surface | Entry point | Extra | Kind of use |
@@ -302,8 +306,9 @@ to a remote service.
 | Python library | `import vocal_helper as voh` | (none) | Compose the stages into your own app; full typed API. |
 | argparse CLI | `vocal-helper` | (none — ships with the base install) | Shell scripts, cron, headless CI, pipes to `jq`. |
 | click CLI | `vocal-helper-click` | `[cli]` | Rich `--help`, shell completion, **composable** sub-commands. |
-| FastAPI HTTP | `uvicorn vocal_helper.api:app` | `[api]` | A local HTTP surface — upload a file, get a transcript / event list; `GET /docs` for the Swagger UI. |
+| FastAPI HTTP | `uvicorn vocal_helper.api:app` | `[api]` | A local HTTP surface — upload a file (or pass a `url`), get a transcript / event list; `GET /docs` for the Swagger UI. |
 | MCP tools | `vocal-helper-mcp` | `[api,mcp]` | Any MCP-aware host (agent runtimes, IDEs) — publishes `transcribe` + `pipeline` as local first-class tools. |
+| Transcript-viewer GUI | `GET /gui` (served by the API) | `[api]` | A build-step-free browser page: drop a file or paste a URL → **speaker colour-coded transcript + rolling summary**. `/` redirects to it. |
 
 ```bash
 # argparse — language is discovered by default ('auto'); pass --language xx only to force one
@@ -313,13 +318,32 @@ vocal-helper file meeting.wav --offline --llm
 # click twin — same operations, composable sub-commands
 vocal-helper-click transcribe clip.wav
 
-# local HTTP surface (Swagger UI at /docs doubles as a zero-code mini-GUI)
+# local HTTP surface + transcript-viewer GUI (open http://127.0.0.1:8000/gui)
 uvicorn vocal_helper.api:app --host 127.0.0.1 --port 8000 &
 curl -F 'file=@clip.wav' http://localhost:8000/transcribe        # language auto-discovered
+curl -F 'url=https://youtu.be/…' http://localhost:8000/pipeline  # URL fetched locally ([stream])
 
 # MCP surface — the same local app, exposed as agent tools
 vocal-helper-mcp
 ```
+
+### The transcript-viewer GUI (`GET /gui`)
+
+A self-contained single page (HTML + Tailwind CDN + vanilla JS, no build step)
+served **same-origin** by the API. Drop an audio file **or paste a URL**, run
+diarized transcription locally, and read a **speaker-labelled, colour-coded
+transcript** (one stable colour per speaker) alongside the rolling summary. It
+POSTs to the same `/pipeline` endpoint — zero extra server logic — and contacts
+only the local server, so your audio never leaves the machine. Utterances reveal
+progressively (motion-guarded) so a long transcript reads as if it streams in.
+
+### Use it as an agent skill
+
+`skills/vocal-helper/` packages vocal-helper as a **Claude Skill** *and* an
+**OpenCode skill** so an agent can transcribe / diarize / summarise on your
+behalf. See [`skills/README.md`](skills/README.md) to install (symlink into
+`~/.claude/skills/` and `~/.opencode/skills/`), and
+[`TRIGGERS.md`](TRIGGERS.md) for the exhaustive catalogue of what invokes it.
 
 ## Subscribers — fan-out without owning the loop
 

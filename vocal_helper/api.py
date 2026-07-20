@@ -12,8 +12,11 @@ What ships here
 - ``POST /transcribe`` — one-shot ASR of an uploaded WAV / mp3 / m4a /
   ogg / flac. Returns ``{"text": ..., "language": ...}``.
 - ``POST /pipeline`` — full offline pipeline (VAD + diarization + STT
-  + optional Gemma summary) on an uploaded audio file. Returns a list
-  of :class:`Utterance` events, optionally with the final summary.
+  + optional Gemma summary) on an uploaded audio file *or* a media URL
+  (``url`` form field, fetched locally via yt-dlp, ``[stream]`` extra).
+  Returns a list of :class:`Utterance` events, optionally the summary.
+- ``GET /gui`` — self-contained transcript-viewer GUI (drop a file or
+  paste a URL → speaker colour-coded transcript + rolling summary).
 - ``GET /health`` — liveness probe.
 
 Install the extra to get the runtime dependencies::
@@ -63,7 +66,7 @@ if TYPE_CHECKING:
 
 try:
     from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, UploadFile
-    from fastapi.responses import JSONResponse
+    from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 except ImportError as exc:  # pragma: no cover
     raise ImportError(
         "The FastAPI HTTP surface requires the [api] extra. "
@@ -92,11 +95,15 @@ app = FastAPI(
     redoc_url="/redoc",
 )
 
-# Optionally serve the minimal local web GUI (repo ``webui/`` folder) at ``/ui``
-# when it is present next to the package (a source checkout). Mounting it on the
-# API itself keeps it **same-origin** — the page's ``fetch`` hits ``/transcribe``
-# with no CORS dance — and fully local. A pip install without the folder simply
-# skips the mount, so this never breaks a headless server.
+# The canonical GUI is the transcript viewer served from :mod:`vocal_helper.gui`
+# at ``GET /gui`` (mirrors the AI Helpers suite convention, e.g. audio_helper).
+# It is same-origin (the page's ``fetch`` hits ``/pipeline`` with no CORS dance)
+# and fully local. It ships *inside the package*, so it works for a bare
+# ``pip install`` too — no source checkout required.
+#
+# The older static form GUI is still mounted at ``/ui`` when the repo ``webui/``
+# folder sits next to the package (a source checkout), kept for backward
+# compatibility; a bare install without the folder simply skips that mount.
 _WEBUI_DIR = Path(__file__).resolve().parent.parent / "webui"
 if _WEBUI_DIR.is_dir():
     from fastapi.staticfiles import StaticFiles
@@ -210,6 +217,67 @@ def _load_pcm_mono_16k(path: Path) -> tuple[NDArray[np.float32], int]:
     return np.asarray(pcm, dtype=np.float32), int(sr)
 
 
+def _fetch_url_pcm_mono_16k(url: str, tmp: Path) -> tuple[NDArray[np.float32], int]:
+    """
+    Resolve a media URL to a mono float32 16 kHz buffer, fetched by the LOCAL server.
+
+    Delegates to :func:`vocal_helper.sources.from_url` (podcast-helper / yt-dlp),
+    draining its PCM frame stream into a single contiguous buffer. This keeps the
+    GUI's "paste a URL" path fully local: the audio is fetched and processed on
+    the machine running the server, never in the browser and never via a SaaS.
+
+    Parameters
+    ----------
+    url : str
+        Any ``yt-dlp``-reachable URL (YouTube / Vimeo / SoundCloud), a podcast
+        RSS feed (latest episode), or a direct audio/HLS URL.
+    tmp : Path
+        Request-scoped temp directory (reserved for any spill; the frames are
+        drained in memory here).
+
+    Returns
+    -------
+    tuple[NDArray[np.float32], int]
+        The mono float32 waveform and its sample rate (16000).
+
+    Raises
+    ------
+    HTTPException
+        400 when the ``[stream]`` extra is missing or the URL cannot be fetched.
+    """
+    import numpy as np
+
+    try:
+        from vocal_helper.sources import from_url
+    except ImportError as exc:  # pragma: no cover
+        raise HTTPException(
+            status_code=400,
+            detail="URL ingest requires the [stream] extra: pip install 'vocal-helper[stream]'.",
+        ) from exc
+
+    async def _drain() -> tuple[list, int]:
+        """Collect every PCM frame from the URL source into a list + sample rate."""
+        chunks: list = []
+        sample_rate = 16_000
+        async for frame in from_url(url):
+            # ``PcmFrame`` carries the float32 mono samples under ``pcm`` and the
+            # rate under ``sample_rate`` (toolbox contract: 16 kHz mono float32).
+            chunks.append(np.asarray(frame["pcm"], dtype=np.float32))
+            sample_rate = int(frame.get("sample_rate", sample_rate))
+        return chunks, sample_rate
+
+    try:
+        chunks, sr = asyncio.run(_drain())
+    except HTTPException:
+        raise
+    except Exception as exc:
+        # A fetch/decode failure on a caller-supplied URL is a client problem.
+        raise HTTPException(status_code=400, detail=f"Could not fetch URL {url!r}: {exc}") from exc
+
+    pcm = np.concatenate(chunks) if chunks else np.zeros(0, dtype=np.float32)
+    return np.asarray(pcm, dtype=np.float32), int(sr)
+
+
 def _resolve_offline_backend(diar_backend: str, n_samples: int, sr: int) -> str:
     """Resolve the offline diarization backend for an uploaded file via the router.
 
@@ -270,6 +338,36 @@ def health() -> dict:
     return {"status": "ok"}
 
 
+@app.get("/", include_in_schema=False)
+def root() -> RedirectResponse:
+    """Redirect the bare root to the transcript viewer so opening the server just works."""
+    # A human hitting http://host:port/ almost always wants the viewer, not a
+    # 404. Machines use the documented endpoints directly, so this is safe.
+    return RedirectResponse(url="/gui")
+
+
+@app.get("/gui", response_class=HTMLResponse, tags=["meta"])
+def gui() -> HTMLResponse:
+    """Serve the self-contained single-page transcript-viewer GUI.
+
+    The page (defined in :mod:`vocal_helper.gui`) is a build-step-free
+    HTML + Tailwind-CDN + vanilla-JS client that POSTs to the very same
+    ``/pipeline`` endpoint below: drop a file or paste a URL, get back a
+    speaker-labelled, colour-coded transcript plus the rolling summary.
+    It adds no server-side logic — it is purely a friendlier front door.
+
+    Returns
+    -------
+    HTMLResponse
+        The complete HTML document (status 200, ``text/html``).
+    """
+    # Import here so the (large) HTML string is only loaded when the route is
+    # actually hit, and so importing the API module stays cheap.
+    from .gui import GUI_HTML
+
+    return HTMLResponse(content=GUI_HTML)
+
+
 # ---------------------------------------------------------------------------
 # Actions
 # ---------------------------------------------------------------------------
@@ -315,7 +413,14 @@ def transcribe(
 @app.post("/pipeline", tags=["actions"])
 def pipeline(
     background: BackgroundTasks,
-    file: UploadFile = File(..., description="Audio file (WAV / MP3 / M4A / OGG / FLAC)."),
+    file: UploadFile | None = File(
+        None, description="Audio file (WAV / MP3 / M4A / OGG / FLAC). Omit when using 'url'."
+    ),
+    url: str = Form(
+        "",
+        description="Media URL (YouTube / podcast RSS / direct audio) fetched by the "
+        "LOCAL server via yt-dlp. Requires the [stream] extra. Ignored when a file is sent.",
+    ),
     language: str = Form("auto"),
     whisper_model: str = Form("large-v3-turbo-q5_0"),
     threads: int = Form(6),
@@ -336,10 +441,18 @@ def pipeline(
     from vocal_helper.pipeline import OfflinePipeline, OfflinePipelineConfig
     from vocal_helper.sources import from_numpy_array
 
+    # Exactly one source: an uploaded file (primary) or a URL the LOCAL server
+    # resolves via yt-dlp. Reject the ambiguous / empty cases up front with a 400.
+    if file is None and not url.strip():
+        raise HTTPException(status_code=400, detail="Provide either an audio 'file' or a 'url'.")
+
     tmp = _new_tmpdir()
     try:
-        src = _spool(file, tmp)
-        pcm, sr = _load_pcm_mono_16k(src)
+        if file is not None:
+            src = _spool(file, tmp)
+            pcm, sr = _load_pcm_mono_16k(src)
+        else:
+            pcm, sr = _fetch_url_pcm_mono_16k(url.strip(), tmp)
         asr_cfg: dict = {"model": whisper_model, "language": language, "threads": threads}
         # Enforce the study-grounded router (the aiguilleur): the decoded buffer's
         # real duration drives the offline backend choice — short/dense → nemo,

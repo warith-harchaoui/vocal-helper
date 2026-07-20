@@ -35,7 +35,21 @@ deepeval = pytest.importorskip("deepeval")
 from deepeval.metrics import BaseMetric  # noqa: E402
 from deepeval.test_case import LLMTestCase  # noqa: E402
 
-from tests._ami_fixture import load_ami_clips  # noqa: E402
+# The AMI fixture is a sibling test-support module. Import it whether the suite
+# runs with ``tests/`` on the path as a package (``tests._ami_fixture``) or with
+# the tests dir itself on ``sys.path`` (plain ``_ami_fixture``) — and skip the
+# whole (integration-only) module if it cannot be found, so mere collection on a
+# machine that happens to have deepeval installed never explodes.
+try:
+    from tests._ami_fixture import load_ami_clips  # noqa: E402
+except ModuleNotFoundError:
+    try:
+        from _ami_fixture import load_ami_clips  # type: ignore[no-redef]  # noqa: E402
+    except ModuleNotFoundError:  # pragma: no cover - support module absent
+        pytest.skip(
+            "tests/_ami_fixture support module not importable (integration-only).",
+            allow_module_level=True,
+        )
 
 # ---------------------------------------------------------------------------
 # Versioned thresholds. Generous margins over the observed pyannote + whisper

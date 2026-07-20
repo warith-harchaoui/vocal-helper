@@ -52,9 +52,50 @@ def test_openapi_lists_expected_endpoints(client: TestClient) -> None:
     r = client.get("/openapi.json")
     assert r.status_code == 200
     paths = r.json()["paths"]
-    # The three routes downstream tooling relies on ; extras are allowed.
-    expected = {"/health", "/transcribe", "/pipeline"}
+    # The routes downstream tooling relies on ; extras are allowed.
+    expected = {"/health", "/transcribe", "/pipeline", "/gui"}
     assert expected.issubset(set(paths.keys()))
+
+
+def test_transcript_viewer_gui_served_at_gui(client: TestClient) -> None:
+    """``GET /gui`` should serve the self-contained transcript-viewer page (200 HTML)."""
+    r = client.get("/gui")
+    assert r.status_code == 200
+    assert "text/html" in r.headers["content-type"]
+    body = r.text.lower()
+    # It is the transcript viewer, not an API JSON error.
+    assert "<!doctype html>" in body
+    assert "transcript viewer" in body
+    # Core promises of this GUI: colour-coded speakers, a URL field, a summary
+    # panel, and same-origin POSTs to /pipeline. Assert each is present so the
+    # page can never silently regress to the old form-only log.
+    assert "palette" in body  # per-speaker colour palette (colourFor)
+    assert "paste a url" in body  # URL ingest affordance
+    assert "rolling summary" in body  # summary panel
+    assert "/pipeline" in r.text  # talks to the real endpoint
+
+
+def test_root_redirects_to_gui(client: TestClient) -> None:
+    """``GET /`` should redirect to the transcript viewer so opening the server just works."""
+    r = client.get("/", follow_redirects=False)
+    assert r.status_code in (307, 308, 302)
+    assert r.headers["location"] == "/gui"
+
+
+def test_pipeline_accepts_url_field() -> None:
+    """``/pipeline`` must expose an optional ``url`` form field (paste-a-URL ingest)."""
+    # Model-free introspection: the URL path lets the GUI submit a media URL the
+    # LOCAL server fetches. Guard the field so the GUI's URL affordance can't
+    # regress into a 422 on the server side.
+    import inspect
+
+    from vocal_helper.api import pipeline
+
+    params = inspect.signature(pipeline).parameters
+    assert "url" in params
+    # The uploaded file must be optional now (either file OR url is accepted).
+    file_default = params["file"].default
+    assert getattr(file_default, "default", file_default) is None
 
 
 def test_docs_endpoint_is_served(client: TestClient) -> None:
