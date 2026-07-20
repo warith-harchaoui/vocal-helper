@@ -44,6 +44,10 @@ names exported from `vocal_helper.__all__` plus the documented CLI flags.
 
 - The older static form GUI at `/ui` (repo `webui/` staticfiles) is kept for
   backward compatibility; `/gui` is now the canonical, in-package GUI.
+- **`os-helper` pin lowered `>=1.5.3` → `>=1.5.2`** (the published floor). The
+  diarization-bundle fetch prefers `os_helper.download_file` when present and
+  falls back to a stdlib streaming download on older os-helper, so the pin stays
+  satisfiable against PyPI without depending on an unpublished sibling release.
 
 ### Notes
 

@@ -1392,9 +1392,19 @@ def resolve_diarization_engines() -> Path | None:
 
     dest.mkdir(parents=True, exist_ok=True)
     with tempfile.NamedTemporaryFile(suffix=".zip", delete=False) as tmp:
-        # os_helper.download_file streams the ~750 MB bundle with a progress bar
-        # (tqdm on a TTY, quiet on CI) — one-time fetch, cached below.
-        osh.download_file(src, tmp.name)
+        # Prefer os_helper.download_file (streams the ~750 MB bundle with a
+        # progress bar — tqdm on a TTY, quiet on CI). It landed in a newer
+        # os-helper; on an older *published* release that lacks it, fall back to
+        # a plain stdlib streaming download so the base pin stays satisfiable
+        # against PyPI (one-time fetch either way, cached below).
+        if hasattr(osh, "download_file"):
+            osh.download_file(src, tmp.name)
+        else:  # pragma: no cover - exercised only on older os-helper
+            import shutil
+            import urllib.request
+
+            with urllib.request.urlopen(src) as resp, open(tmp.name, "wb") as out:
+                shutil.copyfileobj(resp, out)
         with zipfile.ZipFile(tmp.name) as z:
             z.extractall(dest)
     hits = list(dest.rglob("manifest.json"))
