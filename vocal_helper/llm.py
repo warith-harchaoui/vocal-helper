@@ -300,7 +300,18 @@ class GemmaAnalystStage:
         should_flush = False
         if self.flush_every_s is not None and self._buf.pending_for_summary:
             newest_pending_t1 = self._buf.pending_for_summary[-1]["t1"]
-            span_s = newest_pending_t1 - (self._oldest_pending_t0 or newest_pending_t1)
+            # ``_oldest_pending_t0`` is a real timestamp that can legitimately be
+            # ``0.0`` (the very first utterance of a session starts at t=0), so
+            # test it with ``is None`` — a truthiness check would treat that
+            # cold-start ``0.0`` as "unset" and collapse the span to zero, which
+            # would silently disable the time cadence until the queue rolled
+            # past the first utterance.
+            oldest_t0 = (
+                self._oldest_pending_t0
+                if self._oldest_pending_t0 is not None
+                else newest_pending_t1
+            )
+            span_s = newest_pending_t1 - oldest_t0
             if span_s >= self.flush_every_s:
                 should_flush = True
         elif len(self._buf.pending_for_summary) >= self.flush_every_n:
