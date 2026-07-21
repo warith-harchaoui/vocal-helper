@@ -153,3 +153,130 @@ def test_resolve_offline_backend_routes_by_duration(monkeypatch) -> None:
     assert _resolve_offline_backend("auto", 45 * sr, 0) == "pyannote"
     # An explicit backend is honoured verbatim, router untouched.
     assert _resolve_offline_backend("sherpa", 45 * sr, sr) == "sherpa"
+
+
+# ---------------------------------------------------------------------------
+# Error-path + happy-path round trips.
+#
+# Every model / decode / pipeline boundary below is mocked so these run in
+# milliseconds with no whisper.cpp, no pyannote, no ffmpeg — the endpoints'
+# request handling (status codes, cleanup, response shape) is what's under
+# test, not the ML stages they wrap.
+# ---------------------------------------------------------------------------
+
+
+def test_pipeline_rejects_missing_file_and_url(client: TestClient) -> None:
+    """``/pipeline`` with neither a file nor a url must fail fast with 400.
+
+    This is the explicit ``file is None and not url.strip()`` guard: without it
+    the handler would spin up a temp dir and an empty pipeline before failing
+    deep inside a stage. We also send a *blank* url to prove the ``.strip()``
+    catches whitespace-only input, not just the empty string.
+    """
+    # Blank url + no file part — the ambiguous/empty case the guard rejects.
+    r = client.post("/pipeline", data={"url": "   "})
+    assert r.status_code == 400
+    assert "file" in r.json()["detail"].lower()
+
+
+def test_transcribe_bad_upload_returns_400(client: TestClient, monkeypatch) -> None:
+    """A file that ``audio-helper`` cannot decode is a client error (400), not a 500.
+
+    ``/transcribe`` spools the upload then decodes it via ``_load_pcm_mono_16k``,
+    which wraps decode failures in an ``HTTPException(400)``. We stub the decoder
+    to raise the way a corrupt/unsupported upload would, and assert the failure
+    surfaces as 400 through the handler's ``finally`` cleanup rather than a 500.
+    """
+    from vocal_helper import api
+
+    def _boom(path):
+        # Mimic ffmpeg/audio-helper choking on a garbage container.
+        raise api.HTTPException(status_code=400, detail="Could not decode 'x': bad data")
+
+    # Patch the module-level decoder so no real ffmpeg/audio-helper runs.
+    monkeypatch.setattr(api, "_load_pcm_mono_16k", _boom)
+    # A tiny junk payload — enough to be a valid multipart file part.
+    r = client.post("/transcribe", files={"file": ("x.wav", b"not-audio", "audio/wav")})
+    assert r.status_code == 400
+    assert "decode" in r.json()["detail"].lower()
+
+
+def test_transcribe_happy_path_reports_detected_language(client: TestClient, monkeypatch) -> None:
+    """``/transcribe`` returns whisper's text + the *detected* language, models mocked.
+
+    Both boundaries are stubbed: the decoder returns a trivial buffer, and the
+    ASR call returns a fixed ``(text, detected)`` pair. The point is the response
+    contract — the handler must echo the language whisper actually used (``fr``
+    here) rather than the requested ``auto`` sentinel.
+    """
+    import numpy as np
+
+    from vocal_helper import api
+    from vocal_helper import asr as asr_mod
+
+    # Decode → a 1-sample mono buffer at 16 kHz (never touches ffmpeg).
+    monkeypatch.setattr(
+        api, "_load_pcm_mono_16k", lambda p: (np.zeros(1, dtype=np.float32), 16_000)
+    )
+    # ASR → a fixed transcript and a *detected* language distinct from the request.
+    monkeypatch.setattr(
+        asr_mod, "transcribe_pcm_with_language", lambda **kw: ("bonjour le monde", "fr")
+    )
+
+    r = client.post(
+        "/transcribe",
+        files={"file": ("clip.wav", b"RIFF-fake", "audio/wav")},
+        data={"language": "auto"},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["text"] == "bonjour le monde"
+    # 'auto' was requested but whisper detected 'fr' — the response tells the truth.
+    assert body["language"] == "fr"
+
+
+def test_pipeline_happy_path_strips_pcm_and_counts(client: TestClient, monkeypatch) -> None:
+    """``/pipeline`` drains the pipeline into JSON, dropping the un-serialisable PCM.
+
+    The whole OfflinePipeline is replaced by a fake whose ``run()`` yields two
+    events — one carrying a raw ``pcm`` array. The handler must strip that key
+    (float32 arrays don't JSON-serialise) while keeping the text/speaker fields,
+    and report an accurate ``count``. Decoding and the source builder are stubbed
+    too, so no ffmpeg / real diarizer is involved.
+    """
+    import numpy as np
+
+    from vocal_helper import api
+
+    # Decode → a short buffer; enough for the router's duration math, no ffmpeg.
+    monkeypatch.setattr(
+        api, "_load_pcm_mono_16k", lambda p: (np.zeros(16_000, dtype=np.float32), 16_000)
+    )
+    # Pin the backend so the router (and its availability probes) stays out of it.
+    monkeypatch.setattr(api, "_resolve_offline_backend", lambda backend, n, sr: "pyannote")
+
+    class _FakePipe:
+        """Stand-in OfflinePipeline yielding two events, one with raw PCM."""
+
+        def __init__(self, *a, **k) -> None:
+            # Accept whatever the handler passes (source=factory, config=...).
+            pass
+
+        async def run(self):
+            # First event carries a raw float32 array under 'pcm' that must be
+            # dropped from the JSON response; the rest of the fields survive.
+            yield {"t0": 0.0, "t1": 1.0, "speaker": "S1", "text": "hi", "pcm": np.zeros(4)}
+            yield {"t0": 1.0, "t1": 2.0, "speaker": "S2", "text": "there"}
+
+    # Swap the class the handler imports from vocal_helper.pipeline.
+    import vocal_helper.pipeline as pipe_mod
+
+    monkeypatch.setattr(pipe_mod, "OfflinePipeline", _FakePipe)
+
+    r = client.post("/pipeline", files={"file": ("m.wav", b"RIFF-fake", "audio/wav")})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["count"] == 2
+    # PCM stripped from every event, text preserved.
+    assert all("pcm" not in ev for ev in body["events"])
+    assert body["events"][0]["text"] == "hi"

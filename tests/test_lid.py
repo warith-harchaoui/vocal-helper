@@ -277,3 +277,208 @@ def test_detect_language_discovery_then_opt_in_whitelist(
     code, prob = lid.detect_language(pcm, supported=("en", "es"))
     assert code == "es"  # best code that the caller can actually route
     assert prob == pytest.approx(0.1)
+
+
+# ----- language_posterior_curve discovery axis (no whisper.cpp) --------------
+
+
+def test_posterior_curve_discovers_axis_and_reports_unknown_when_too_short(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The curve adopts whisper's full head as its axis, but invents nothing on
+    audio too short to identify.
+
+    Three discovery-first facts on one mocked posterior:
+    - with no ``supported`` set, the language axis is *discovered* from the first
+      usable (≥ 1 s) window — sorted whisper codes, no code filtered out;
+    - audio under 1 s yields no usable window, so an unrestricted call returns an
+      empty axis (caller must treat the language as unknown, never defaulted);
+    - the same too-short audio with a caller-fixed axis still returns that axis
+      as a single uniform-prior frame rather than an empty one.
+    """
+    dist = {"fr": 0.7, "en": 0.2, "de": 0.1}
+    fake = _FakeStage(_FakeModel("fr", 0.7, dist))
+    monkeypatch.setattr(lid, "_get_stage", lambda model, threads: fake)
+    sr = 16_000
+
+    # 12 s of audio → several usable windows; the axis is whisper's own head,
+    # sorted, and every row is a proper (summing-to-one) distribution over it.
+    pcm = np.zeros(12 * sr, dtype=np.float32)
+    centers, langs, post = lid.language_posterior_curve(pcm, sr, hop_s=3.0, window_s=10.0)
+    assert langs == ["de", "en", "fr"]  # discovered + sorted, nothing dropped
+    assert post.shape[1] == 3
+    assert np.allclose(post.sum(axis=1), 1.0)  # each window renormalised
+    assert len(centers) == post.shape[0]
+
+    # < 1 s → no window ever reaches the 1 s identification floor. Unrestricted
+    # discovery must report "unknown" (empty axis), not fabricate a language.
+    tiny = np.zeros(sr // 2, dtype=np.float32)
+    _c, langs_empty, post_empty = lid.language_posterior_curve(tiny, sr)
+    assert langs_empty == []
+    assert post_empty.shape[1] == 0
+
+    # Same too-short audio, but the caller fixed the axis: a valid uniform-prior
+    # frame over exactly that routable set is returned instead of an empty axis.
+    _c2, langs_fixed, post_fixed = lid.language_posterior_curve(tiny, sr, supported=("en", "fr"))
+    assert langs_fixed == ["en", "fr"]
+    assert np.allclose(post_fixed, 0.5)  # uniform over the two fixed codes
+
+
+# ----- detect_language_regions full pipeline (no whisper.cpp) ----------------
+
+
+def test_regions_empty_short_and_switch(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The end-to-end partition invents nothing on empty/short audio and finds a
+    real switch when the posterior argmax flips.
+
+    Drives the whole detect_language_regions pipeline (curve → smooth → argmax →
+    change points → absorb → refine → snap) through the mocked whisper head:
+    - empty input → empty list (no region fabricated for silence);
+    - audio too short to identify → empty list (discovery yields no axis);
+    - a first-half-French / second-half-Spanish signal → exactly the fr→es
+      switch, with contiguous, file-spanning regions and discovered labels.
+    """
+    sr = 16_000
+
+    # Empty input short-circuits before any whisper call.
+    assert lid.detect_language_regions(np.zeros(0, dtype=np.float32), sr) == []
+
+    # Half-second clip: no window clears the 1 s floor → empty axis → no region.
+    monkeypatch.setattr(
+        lid, "_get_stage", lambda model, threads: _FakeStage(_FakeModel("fr", 0.9, {"fr": 1.0}))
+    )
+    assert lid.detect_language_regions(np.zeros(sr // 2, dtype=np.float32), sr) == []
+
+    # A time-varying posterior: French dominates the first half, Spanish the
+    # second. The fake model reads the window's midpoint to pick the winner, so
+    # the argmax genuinely flips partway through a 40 s file.
+    class _SwitchModel:
+        """Posterior that flips fr→es at the 20 s mark (based on window content)."""
+
+        def auto_detect_language(self, pcm, offset_ms: int = 0):
+            # A non-zero marker sample encodes the window's centre time; the
+            # region pipeline hands us real slices, so key off their mean sign.
+            leans_es = float(np.mean(pcm)) > 0.0
+            dist = {"es": 0.9, "fr": 0.1} if leans_es else {"fr": 0.9, "es": 0.1}
+            top = "es" if leans_es else "fr"
+            return (top, dist[top]), dist
+
+    monkeypatch.setattr(lid, "_get_stage", lambda model, threads: _FakeStage(_SwitchModel()))
+    t = np.arange(40 * sr) / sr
+    pcm = np.zeros(40 * sr, dtype=np.float32)
+    pcm[t >= 20.0] = 0.5  # positive-mean second half → "es"; first half → "fr"
+    regions = lid.detect_language_regions(pcm, sr, smooth_s=0.0, snap_s=0.0, refine_s=0.0)
+    langs = [r.lang for r in regions]
+    assert langs == ["fr", "es"]  # discovered switch, in order
+    assert regions[0].t0 == 0.0 and regions[-1].t1 == pytest.approx(40.0)
+    # Regions tile the file with no gaps or overlaps.
+    for a, b in zip(regions, regions[1:], strict=False):
+        assert a.t1 == b.t0
+
+
+# ----- SpeechBrain second opinion + cross-check (no torch / no model) --------
+
+
+def test_speechbrain_label_parse_and_cross_check(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The VoxLingua107 opinion parses its ``iso: Name`` label and cross-check
+    only judges regions long enough to classify.
+
+    Two independent-verification contracts on a fake classifier:
+    - ``detect_language_speechbrain`` strips ``"fr: French"`` to the ISO prefix
+      and, with no whitelist, returns that true label verbatim (never remapped);
+      with a whitelist that excludes it, it drops to the first routable code;
+    - ``cross_check_regions`` runs the classifier only on regions ≥ 1 s, passing
+      shorter ones through as trivially agreeing, and flags a genuine
+      whisper-vs-SpeechBrain disagreement as ``agree=False``.
+    """
+    sr = 16_000
+
+    class _FakeScore:
+        """Mimics a torch scalar: ``.exp()`` yields the probability."""
+
+        def __init__(self, value: float) -> None:
+            self._v = value
+
+        def exp(self) -> float:
+            return self._v
+
+    class _FakeClassifier:
+        """Returns a fixed VoxLingua107 ``"iso: Name"`` label + log-prob score."""
+
+        def __init__(self, label: str, prob: float) -> None:
+            self._label, self._prob = label, prob
+
+        def classify_batch(self, wav):
+            # SpeechBrain's real signature: (out_prob, score, index, text_lab).
+            return None, _FakeScore(self._prob), None, [self._label]
+
+    # Force a French second opinion; torch is only used to wrap the array, so a
+    # stub module is enough to keep the test offline.
+    import sys
+    import types as _types
+
+    torch_stub = _types.ModuleType("torch")
+    torch_stub.tensor = lambda arr: _StubTensor(arr)
+    monkeypatch.setitem(sys.modules, "torch", torch_stub)
+    monkeypatch.setattr(lid, "_ensure_classifier", lambda: _FakeClassifier("fr: French", 0.88))
+
+    seg = np.zeros(sr, dtype=np.float32)
+    code, prob = lid.detect_language_speechbrain(seg)
+    assert code == "fr"  # ISO prefix parsed out of "fr: French"
+    assert prob == pytest.approx(0.88)
+
+    # Whitelist that excludes the true label → drop to the first routable code
+    # (opt-in coercion only; the honest label would otherwise survive).
+    dropped, _p = lid.detect_language_speechbrain(seg, supported=("en", "de"))
+    assert dropped == "en"
+
+    # Cross-check: a 1 s "es" region disagrees with SpeechBrain's "fr"; a 0.5 s
+    # region is too short to judge and passes through as agreeing.
+    regions = [LangRegion("es", 0.0, 1.0), LangRegion("en", 1.0, 1.5)]
+    pcm = np.zeros(int(1.5 * sr), dtype=np.float32)
+    verdicts = lid.cross_check_regions(pcm, regions, sr)
+    assert verdicts[0].primary == "es" and verdicts[0].speechbrain == "fr"
+    assert verdicts[0].agree is False  # genuine model disagreement, not a bug
+    assert verdicts[1].speechbrain == "-"  # too short → sentinel, trivially agrees
+    assert verdicts[1].agree is True
+
+
+class _StubTensor:
+    """Minimal torch-tensor stand-in supporting ``.unsqueeze`` for the SB path."""
+
+    def __init__(self, arr) -> None:
+        self._arr = arr
+
+    def unsqueeze(self, _dim: int) -> _StubTensor:
+        return self
+
+
+# ----- _ensure_classifier failure modes (opt-in [lid] extra) -----------------
+
+
+def test_ensure_classifier_requires_bundle(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Without a local VoxLingua107 snapshot, the second opinion refuses to fetch
+    from HuggingFace and raises a clear RuntimeError.
+
+    The independent verifier is strictly bundle-only (no HF fallback). With
+    SpeechBrain importable but no configured engines directory,
+    ``_ensure_classifier`` must raise ``RuntimeError`` naming the settings knob —
+    not silently reach out to the network.
+    """
+    import sys
+    import types as _types
+
+    # Reset the process-wide singleton so this test builds the classifier fresh.
+    monkeypatch.setattr(lid, "_classifier", None)
+    # SpeechBrain present (import succeeds) but no engines bundle resolved.
+    sb_stub = _types.ModuleType("speechbrain.inference.classifiers")
+    sb_stub.EncoderClassifier = object
+    monkeypatch.setitem(sys.modules, "speechbrain", _types.ModuleType("speechbrain"))
+    monkeypatch.setitem(
+        sys.modules, "speechbrain.inference", _types.ModuleType("speechbrain.inference")
+    )
+    monkeypatch.setitem(sys.modules, "speechbrain.inference.classifiers", sb_stub)
+    # No local snapshot → the bundle-only guard must trip.
+    monkeypatch.setattr("vocal_helper.diar.resolve_diarization_engines", lambda: None)
+    with pytest.raises(RuntimeError, match="VoxLingua107"):
+        lid._ensure_classifier()

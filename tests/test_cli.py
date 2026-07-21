@@ -282,3 +282,150 @@ def test_router_backend_resolution() -> None:
     backend2, note2 = _route_backend(requested_backend="pyannote", live=True, duration_s=None)
     assert backend2 == "pyannote"
     assert note2 is None  # explicit choice → no router note
+
+
+# ---------------------------------------------------------------------------
+# click CLI — argument validation, error exit codes, and a mocked happy path.
+#
+# These drive the *shipped* click commands through click's CliRunner so the
+# whole option stack (Path(exists=True), Choice, version) is exercised. Every
+# model / decode boundary is mocked, so nothing here touches ffmpeg, numpy of
+# real size, whisper.cpp, or a diarizer — only the CLI plumbing is under test.
+# ---------------------------------------------------------------------------
+
+
+def _click_runner():
+    """Return (click_cli, CliRunner) or skip cleanly when the [cli] extra is absent."""
+    pytest.importorskip("click")  # optional [cli] extra
+    from click.testing import CliRunner
+
+    from vocal_helper.cli_click import cli as click_cli
+
+    return click_cli, CliRunner()
+
+
+def test_click_rejects_missing_path() -> None:
+    """``file`` / ``transcribe`` with a non-existent path must exit non-zero (usage error).
+
+    ``click.Path(exists=True)`` is the guard: a path the user typo'd or that was
+    deleted should be caught by argument validation *before* any source opens or
+    any model loads. click reports this as exit code 2 and mentions the bad path,
+    so the user gets an actionable message instead of a deep stack trace.
+    """
+    click_cli, runner = _click_runner()
+
+    # Both file-consuming commands share the same existence guard; check each.
+    for sub in ("file", "transcribe"):
+        result = runner.invoke(click_cli, [sub, "/no/such/file.wav"])
+        # Exit 2 is click's canonical "usage error" code.
+        assert result.exit_code == 2, sub
+        # The offending path is surfaced so the message is actionable.
+        assert "/no/such/file.wav" in result.output
+
+
+def test_click_rejects_unknown_diar_backend() -> None:
+    """An out-of-choice ``--diar-backend`` must be rejected by click, not silently kept.
+
+    ``--diar-backend`` is a ``click.Choice`` over the supported engines. A value
+    outside that set (a stale ``kaldi`` from muscle memory) has to fail at parse
+    time with exit 2, mirroring the argparse twin's rejection — otherwise the bad
+    backend would only blow up later when a stage tries to load it.
+    """
+    click_cli, runner = _click_runner()
+
+    result = runner.invoke(click_cli, ["mic", "--diar-backend", "kaldi"])
+    assert result.exit_code == 2
+    # click echoes the invalid value in its Choice error.
+    assert "kaldi" in result.output
+
+
+def test_click_version_flag_exits_zero() -> None:
+    """``--version`` prints the program name + version and exits cleanly.
+
+    ``version_option`` is wired at the group; this proves the package metadata
+    lookup resolves (a broken ``package_name`` would raise here) and that the
+    prog name matches the ``vocal-helper-click`` entry point.
+    """
+    click_cli, runner = _click_runner()
+
+    result = runner.invoke(click_cli, ["--version"])
+    assert result.exit_code == 0
+    assert "vocal-helper-click" in result.output
+
+
+def test_click_transcribe_happy_path(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+    """``transcribe`` decodes + transcribes a real path, printing plain text or JSONL.
+
+    The path must exist (``Path(exists=True)``) so we create an empty file, but
+    the decode (``audio_helper.load_audio``) and the ASR call
+    (``transcribe_pcm``) are both mocked — no ffmpeg, no whisper.cpp. This pins
+    the command's two output modes: bare text on stdout by default, and a
+    ``{"path", "text"}`` JSON object under ``--jsonl``.
+    """
+    pytest.importorskip("click")
+    import json as _json
+
+    import audio_helper
+    import numpy as np
+    from click.testing import CliRunner
+
+    from vocal_helper import asr as asr_mod
+    from vocal_helper.cli_click import cli as click_cli
+
+    # A real (empty) file so click's existence check passes; content is unused
+    # because the decoder is stubbed out below.
+    wav = tmp_path / "clip.wav"
+    wav.write_bytes(b"")
+
+    # Decode → a trivial 1-sample buffer at 16 kHz; never invokes ffmpeg.
+    monkeypatch.setattr(
+        audio_helper, "load_audio", lambda *a, **k: (np.zeros(1, dtype=np.float32), 16_000)
+    )
+    # ASR → a fixed transcript; never loads whisper.cpp weights.
+    monkeypatch.setattr(asr_mod, "transcribe_pcm", lambda **k: "hello world")
+
+    runner = CliRunner()
+
+    # Default mode → plain text on stdout.
+    plain = runner.invoke(click_cli, ["transcribe", str(wav)])
+    assert plain.exit_code == 0
+    assert plain.output.strip() == "hello world"
+
+    # --jsonl mode → a single JSON object carrying the path and the transcript.
+    jsonl = runner.invoke(click_cli, ["transcribe", str(wav), "--jsonl"])
+    assert jsonl.exit_code == 0
+    payload = _json.loads(jsonl.output.strip())
+    assert payload == {"path": str(wav), "text": "hello world"}
+
+
+def test_click_print_event_renders_both_event_shapes(capsys: pytest.CaptureFixture) -> None:
+    """``_print_event`` renders utterance and summary events in both output modes.
+
+    The printer is the CLI's rendering choke-point, so it deserves a direct test.
+    An utterance event (``text`` key) becomes a timestamped speaker line; a
+    summary event (``summary`` key) becomes the rolling-digest block. In ``jsonl``
+    mode both collapse to a single JSON line with the raw ``pcm`` stripped (it is
+    un-serialisable and pointless in a log).
+    """
+    pytest.importorskip("click")
+    from vocal_helper.cli_click import _print_event
+
+    utterance = {"t0": 0.0, "t1": 1.5, "speaker": "S1", "text": "hi", "pcm": [0.0]}
+    summary = {"t0": 12.0, "model": "gemma3:4b", "summary": "so far", "recent": "verbatim"}
+
+    # Human-readable utterance line carries the timestamps, speaker, and text.
+    _print_event(utterance, jsonl=False)
+    out = capsys.readouterr().out
+    assert "S1" in out and "hi" in out and "0.00s" in out
+
+    # Human-readable summary block carries the model tag and both text panels.
+    _print_event(summary, jsonl=False)
+    out = capsys.readouterr().out
+    assert "rolling summary" in out and "gemma3:4b" in out and "verbatim" in out
+
+    # JSONL mode emits one line and drops the un-serialisable raw PCM.
+    _print_event(utterance, jsonl=True)
+    import json as _json
+
+    line = _json.loads(capsys.readouterr().out.strip())
+    assert "pcm" not in line and line["text"] == "hi"
