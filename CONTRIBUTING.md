@@ -17,29 +17,49 @@ cd vocal-helper
 pip install -e '.[dev,all]'
 ```
 
-## Pre-commit hooks
+## Local gate — catch red CI before you push
 
-The repo ships a `.pre-commit-config.yaml` that mirrors the CI gates
-locally. Install once :
+Everything the server enforces is mirrored by a single local target, so
+failures surface on your machine instead of blocking on GitHub :
 
 ```bash
-pip install pre-commit
-pre-commit install                     # runs on every ``git commit``
-pre-commit install --hook-type pre-push  # runs pytest + attribution audit before push
+make preflight     # pre-commit hooks + ruff check + ruff format-check + pytest
 ```
 
-The hooks are :
+A green `preflight` means the CI pipeline in `.github/workflows/ci.yml`
+will pass. Wire it as an enforced pre-push gate (you can't push red) :
+
+```bash
+make install-hooks   # writes a pre-push hook that runs `make preflight`
+```
+
+`make install-hooks` is deliberately robust to a **global**
+`core.hooksPath` (some setups route all hooks to `~/.config/git/hooks`,
+e.g. for an anti-attribution `prepare-commit-msg`). Because git honours
+only one hooks directory, the script points `core.hooksPath` at
+`.git/hooks` for this repo only — leaving global config untouched — and
+copies any pre-existing global hooks in so they keep firing here. Bypass
+the gate in a pinch with `git push --no-verify`.
+
+### The underlying hooks
+
+The repo ships a `.pre-commit-config.yaml` that mirrors the CI gates :
 
 - **Commit time (fast)** — `ruff --fix`, trailing whitespace,
   end-of-file newline, YAML / TOML syntax, merged large files, LF
   line endings.
 - **Push time (slower)** — `pytest -q` (unit only, no integration).
 
-Run manually against the whole tree :
+Run the hygiene + ruff hooks against the whole tree :
 
 ```bash
-pre-commit run --all-files
+make precommit                # → pre-commit run --all-files
 ```
+
+> If your machine does **not** set a global `core.hooksPath`, the stock
+> `pre-commit install && pre-commit install --hook-type pre-push` also
+> works; `make install-hooks` is the portable path that survives either
+> setup.
 
 ## Tests
 
