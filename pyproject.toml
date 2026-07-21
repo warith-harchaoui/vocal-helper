@@ -175,11 +175,13 @@ omit = [
 
 [tool.coverage.report]
 # Fail the CI if headline coverage on the core surface drops below
-# this floor. Set deliberately below the current headline (~ 40 %
-# after omitting model-loading paths) so an unrelated PR doesn't
-# red-line the pipeline. Bump in a standalone PR as the ML-backed
-# stages get their own integration harnesses.
-fail_under = 35
+# this floor. Set deliberately below the current headline (~ 64 %
+# after the error-path / robustness test pass, with model-loading
+# paths omitted) so an unrelated PR doesn't red-line the pipeline
+# while still catching a large regression — e.g. a PR that quietly
+# deletes half the suite. Bump again in a standalone change as the
+# ML-backed stages get their own integration harnesses.
+fail_under = 55
 show_missing = true
 skip_covered = false
 exclude_lines = [
