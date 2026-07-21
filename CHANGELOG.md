@@ -6,6 +6,29 @@ stability policy: **breaking behaviour and default changes land only in MINOR
 releases; PATCH releases are bug-fixes and docs only.** The public API is the
 names exported from `vocal_helper.__all__` plus the documented CLI flags.
 
+## [0.6.1] - 2026-07-21
+
+### Fixed
+
+- **Analyst time cadence now fires from a cold start.** `_on_utterance`
+  measured the pending span with `newest_t1 - (self._oldest_pending_t0 or
+  newest_t1)`, so a legitimate oldest-`t0` of `0.0` — every session's very first
+  utterance — was treated as unset, collapsing the span to `0` and preventing
+  `flush_every_s` from ever tripping until the queue rolled past that first
+  utterance. Aligned the read with an explicit `is None` check (matching the
+  sibling eviction guard). Regression test starts timestamps at `t0=0.0` and
+  asserts the cadence still fires.
+
+### Internal
+
+- Error-path and edge-case test coverage for the analyst stage (prompt
+  assembly + block fold, empty-queue no-op, LLM-failure keeps summary / drops
+  poisoned block, VAD-blip skip, time-vs-count cadence selection, run() drain +
+  shutdown flush, missing-`[llm]` extra ImportError) plus VAD, sources, LID,
+  API, and CLI. Coverage floor raised 35 → 55.
+- Local CI-mirror gate: `make preflight` (pre-commit + ruff + tests) wired as a
+  `pre-push` hook via `make install-hooks`.
+
 ## [0.6.0] - 2026-07-20
 
 ### Added
