@@ -51,7 +51,7 @@ upstream research codebase is `pdbms` [@pdbms]).
   the full response when ready. User Experience (UX) preference.
 - No WebRTC / multi-participant transport in v0.x. Use
   `livekit-agents` [@livekitagents] for that.
-- No TTS for v0.1.0 (added optionally in v0.2.0 via
+- No Text-to-Speech (TTS) for v0.1.0 (added optionally in v0.2.0 via
   `vocal_helper.tts.PiperTTS` — see §4).
 
 # 2. Pipeline architecture
@@ -92,7 +92,7 @@ back-pressuring the main chain.
 
 Default `SileroVADStage(activity_threshold=0.5, min_silence_ms=300,
 min_speech_ms=300, edge_pad_ms=200, sample_rate=16000)` using
-Silero v5 [@silero] ONNX on CPU. The 48 ms cadence + 0.5 threshold
+Silero v5 [@silero] ONNX on Central Processing Unit (CPU). The 48 ms cadence + 0.5 threshold
 operating point is the canonical pdbms setting validated in the
 upstream `vad-cadence-study.md` §10. The 300 ms silence threshold
 sits in the conversational sweet spot reported by both LiveKit
@@ -111,7 +111,7 @@ wired :
 - `backend='pyannote'` — `pyannote/embedding` [@pyannoteembedding].
 - `backend='sherpa'` — the same TitaNet-large run through
   `sherpa-onnx`/onnxruntime, **torch-free** : it installs light and
-  embeds on any platform (DER 0.174, FR+EN validated; ADR 0002). Its
+  embeds on any platform (Diarization Error Rate, DER 0.174, FR+EN validated; ADR 0002). Its
   ONNX weights ship in the diarization-engines bundle, so the path runs
   with no PyTorch and no HuggingFace.
 
@@ -153,7 +153,7 @@ The torch-free `sherpa` backend clusters the whole buffer inside one
 `sherpa-onnx` call, so `stitch_threshold` never applies to it. Its
 clustering used to be hardcoded, with a `FastClustering` threshold of
 `0.5` and a speaker count of `-1` (auto). `0.5` was tuned on clean AMI
-meeting audio; on noisy, PII-redacted 2-party telephony it
+meeting audio; on noisy, Personally Identifiable Information (PII)-redacted 2-party telephony it
 over-segments into ~36 speakers. Since **v0.7.0**, `OfflineDiarStage`
 forwards `sherpa_cluster_threshold` and `sherpa_num_clusters` to that
 config (defaults unchanged). A 2026-07-23 sweep against a pyannoteAI
@@ -182,7 +182,7 @@ sweep (`studies/whisper_prompt_lang_lock.py`) on AMI :
 
 ![Whisper bias prompt — WER drop on AMI dev-slice](figures/fig-whisper-bias-prompt.svg)
 
-A domain-aligned bias prompt drops WER by **15-25 percentage
+A domain-aligned bias prompt drops Word Error Rate (WER) by **15-25 percentage
 points** and saves up to **39 % RTF**. The prompt should name the
 domain and a handful of expected proper nouns or technical terms.
 Default is the empty string (zero-config path works) but the
@@ -193,7 +193,7 @@ Language locking (`language="en"` vs `"auto"`) has a negligible
 effect on quality in this sweep — keep `"auto"` unless you have a
 strong production reason to pin.
 
-**STT engine comparison — pywhispercpp vs faster-whisper**
+**Speech-to-Text (STT) engine comparison — pywhispercpp vs faster-whisper**
 (`studies/stt_faster_whisper_vs_pywhispercpp.py`, Summer 2026) :
 
 | engine | IS1008a WER | IS1008a RTF | ES2011a WER | ES2011a RTF |
@@ -336,7 +336,7 @@ have three escalating cost levels :
    `whisper.cpp`'s `models/convert-h5-to-ggml.py` and quantise
    them to `q5_0` for `pywhispercpp`.
 
-2. **Fine-tune existing turbo to one language (1-3 GPU days).**
+2. **Fine-tune existing turbo to one language (1-3 Graphics Processing Unit (GPU) days).**
    Continue training `large-v3-turbo` on Common Voice
    [@commonvoice] + Multilingual LibriSpeech
    [@multilinguallibrispeech] + the user's production corpus with

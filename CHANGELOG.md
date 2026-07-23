@@ -35,7 +35,7 @@ names exported from `vocal_helper.__all__` plus the documented CLI flags.
 
 - **Sherpa over-segmentation on noisy telephony is now controllable.** The
   hardcoded threshold `0.5` (tuned on clean AMI meeting audio) over-segments real,
-  noisy, PII-redacted phone calls into dozens of speakers (we measured ~36 on
+  noisy, Personally Identifiable Information (PII)-redacted phone calls into dozens of speakers (we measured ~36 on
   2-party calls). A 2026-07-23 sweep against a pyannoteAI silver ground truth showed
   that raising `sherpa_cluster_threshold` helps only slowly (still ~30 speakers at
   0.6). When the speaker count is known, for instance 2-party telephony, setting
@@ -58,9 +58,9 @@ names exported from `vocal_helper.__all__` plus the documented CLI flags.
 ### Internal
 
 - Error-path and edge-case test coverage for the analyst stage (prompt
-  assembly + block fold, empty-queue no-op, LLM-failure keeps summary / drops
-  poisoned block, VAD-blip skip, time-vs-count cadence selection, run() drain +
-  shutdown flush, missing-`[llm]` extra ImportError) plus VAD, sources, LID,
+  assembly + block fold, empty-queue no-op, Large Language Model (LLM)-failure keeps summary / drops
+  poisoned block, Voice Activity Detection (VAD)-blip skip, time-vs-count cadence selection, run() drain +
+  shutdown flush, missing-`[llm]` extra ImportError) plus VAD, sources, Language Identification (LID),
   API, and CLI. Coverage floor raised 35 → 55.
 - Local CI-mirror gate: `make preflight` (pre-commit + ruff + tests) wired as a
   `pre-push` hook via `make install-hooks`.
@@ -83,7 +83,7 @@ names exported from `vocal_helper.__all__` plus the documented CLI flags.
   works for a bare `pip install`, not only a source checkout.
 - **URL ingest on `POST /pipeline`.** The endpoint now accepts an optional `url`
   form field (in addition to a file upload): the LOCAL server fetches any
-  yt-dlp-reachable URL / RSS / direct audio via `sources.from_url` (needs the
+  yt-dlp-reachable URL / RSS (Really Simple Syndication) / direct audio via `sources.from_url` (needs the
   `[stream]` extra). This powers the GUI's "paste a URL" affordance end-to-end.
   The uploaded `file` becomes optional; exactly one of `file` / `url` is required
   (a clean 400 otherwise).
@@ -128,7 +128,7 @@ names exported from `vocal_helper.__all__` plus the documented CLI flags.
   segmentation + TitaNet-large/small embedding), so the torch-free backend
   (`pip install vocal-helper[sherpa]`) runs offline diarization with **no
   PyTorch and no HuggingFace** — the lightest offline path. The bundle also
-  dropped an unused TTS payload, so it stays lean.
+  dropped an unused Text-to-Speech (TTS) payload, so it stays lean.
 
 ### Documentation
 
@@ -159,7 +159,7 @@ names exported from `vocal_helper.__all__` plus the documented CLI flags.
 ### Changed
 
 - **`--diar-backend` default `nemo` → `auto`** on both CLIs. `auto` delegates to
-  the router (reporting DER **and** RTF); an explicit `pyannote` / `nemo` /
+  the router (reporting Diarization Error Rate (DER) **and** Real-Time Factor (RTF)); an explicit `pyannote` / `nemo` /
   `sherpa` is honoured as an operator override. `POST /pipeline` `diar_backend`
   default `pyannote` → `auto` likewise.
 - **`router.select_diarization` gained `nemo_available`** so a short file never
@@ -203,7 +203,7 @@ names exported from `vocal_helper.__all__` plus the documented CLI flags.
 ### Changed
 
 - **Surfaces reshaped to a pure toolbox.** vocal-helper now exposes only
-  library + argparse CLI + click CLI + FastAPI HTTP API + MCP. The API and MCP
+  library + argparse CLI + click CLI + FastAPI HTTP API + Model Context Protocol (MCP). The API and MCP
   surfaces are **kept**; the `POST /transcribe` response now carries the detected
   language, and `api.py` reads `__version__` dynamically (no more drift).
 
@@ -248,7 +248,7 @@ names exported from `vocal_helper.__all__` plus the documented CLI flags.
 ### Fixed
 
 - **Offline NeMo Sortformer backend returned no speakers at all.**
-  `OfflineDiarStage(backend="nemo")` parsed the model output as legacy RTTM
+  `OfflineDiarStage(backend="nemo")` parsed the model output as legacy Rich Transcription Time Marked (RTTM)
   (`SPEAKER …` lines, ≥8 fields), but nemo-toolkit 2.x emits the compact
   `"<start> <end> <speaker>"` form — so every line was dropped and the backend
   produced an empty diarization (DER 1.0 on every input). The parser now
@@ -373,8 +373,8 @@ names exported from `vocal_helper.__all__` plus the documented CLI flags.
 ### Changed
 
 - **Offline diarization now runs whole-buffer by default.** The pdbms offline
-  map-reduce study (2026-07-14 — full stack VAD + ASR + diar on AMI, scored by
-  VAD F1 / WER / DER-JER against AMI ground truth) found DER strictly monotone
+  map-reduce study (2026-07-14 — full stack VAD + Automatic Speech Recognition (ASR) + diar on AMI, scored by
+  VAD F1 / Word Error Rate (WER) / DER-JER against AMI ground truth) found DER strictly monotone
   in chunk size: whole-buffer is best (median DER **0.143** vs 0.170 at 300 s,
   and cliffs to 0.31 / 0.50 at 120 s / 60 s as speaker fragmentation outruns
   the stitch); VAD is chunk-invariant; and ASR *destabilises* when chunked (one
@@ -522,7 +522,7 @@ names exported from `vocal_helper.__all__` plus the documented CLI flags.
 - `OnlineDiarStage` and `OfflineDiarStage` now accept a `device`
   kwarg (`"cpu"` / `"cuda"` / `"mps"` / `None`). Default `None`
   uses the new `_auto_torch_device` helper which picks CUDA > MPS >
-  CPU. On Apple Silicon this lifts pyannote 3.1 from ~ 15× real-time
+  Central Processing Unit (CPU). On Apple Silicon this lifts pyannote 3.1 from ~ 15× real-time
   (CPU) to roughly real-time (MPS). `_PyannoteOfflineDiar.load`
   wraps `pipeline.to(...)` in a `try` block ; if MPS rejects an op
   the stage stays on CPU rather than crash. `_PyannoteEmbedder`

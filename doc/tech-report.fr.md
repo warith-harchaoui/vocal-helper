@@ -9,9 +9,10 @@ bibliography: refs.bib
 # Résumé
 
 `vocal-helper` est un **pipeline vocal producteur/consommateur**
-asynchrone pour `Python ≥ 3.10`. Il transforme un flux PCM en
+asynchrone pour `Python ≥ 3.10`. Il transforme un flux PCM
+(modulation d'impulsions codées) en
 direct ou enregistré en énoncés diarisés, transcrits, et (en
-option) en résumé glissant produit par un LLM. Deux pipelines :
+option) en résumé glissant produit par un LLM (grand modèle de langue). Deux pipelines :
 `Pipeline` pour le streaming (microphone, URL, flux podcast), et
 `OfflinePipeline` pour le batch (enregistrements de réunion,
 archives de messagerie vocale). Chaque défaut de ce rapport est
@@ -31,14 +32,14 @@ reste de la suite [AI Helpers](https://harchaoui.org/warith/ai-helpers)
 - **Batch offline** sur un enregistrement de réunion — diarisation
   de la meilleure qualité (`pyannote/speaker-diarization-3.1`
   [@pyannotediarization], auto-chunk + stitch au-delà de 300 s) →
-  ASR → résumé optionnel.
+  ASR (reconnaissance automatique de la parole) → résumé optionnel.
 - **Défauts justifiés empiriquement.** Chaque levier est calé par
   une étude reproductible sur le corpus AMI Meeting Corpus
   [@carletta2007unleashing] dev-slice. Aucun défaut tiré d'un
   blog marketing.
 - **Queues producteur/consommateur** entre étages pour que chaque
   étage tourne à sa propre cadence — l'analyste LLM reste à
-  RTF ≈ 0.1 tandis que le VAD est à RTF ≈ 1e-5.
+  RTF (facteur temps réel) ≈ 0.1 tandis que le VAD (détection d'activité vocale) est à RTF ≈ 1e-5.
 
 ## 1.2 Non-objectifs
 
@@ -47,10 +48,10 @@ reste de la suite [AI Helpers](https://harchaoui.org/warith/ai-helpers)
   vers une identité nommée entre sessions. Contrainte de conformité
   pour le déploiement industriel.
 - Pas de sortie LLM en streaming token/caractère. Chaque appel LLM
-  retourne la réponse complète une fois prête. Préférence UX.
+  retourne la réponse complète une fois prête. Préférence UX (expérience utilisateur).
 - Pas de transport WebRTC / multi-participant en v0.x. Utiliser
   `livekit-agents` [@livekitagents] pour ça.
-- Pas de TTS pour v0.1.0 (ajouté en option v0.2.0 via
+- Pas de TTS (synthèse vocale) pour v0.1.0 (ajouté en option v0.2.0 via
   `vocal_helper.tts.PiperTTS` — voir §4).
 
 # 2. Architecture du pipeline
@@ -92,7 +93,7 @@ secondaires sans back-pressure sur la chaîne principale.
 
 Défaut `SileroVADStage(activity_threshold=0.5, min_silence_ms=300,
 min_speech_ms=300, edge_pad_ms=200, sample_rate=16000)` utilisant
-Silero v5 [@silero] ONNX sur CPU. Le point de fonctionnement
+Silero v5 [@silero] ONNX sur CPU (processeur central). Le point de fonctionnement
 cadence 48 ms + seuil 0.5 est le canon pdbms validé dans
 l'étude amont `vad-cadence-study.md` §10. Le seuil de silence
 300 ms se trouve dans la fenêtre conversationnelle rapportée à la
@@ -111,7 +112,7 @@ Trois backends d'embedding sont câblés :
 - `backend='pyannote'` — `pyannote/embedding` [@pyannoteembedding].
 - `backend='sherpa'` — le même TitaNet-large via
   `sherpa-onnx`/onnxruntime, **sans torch** : install léger et
-  embarquable partout (DER 0.174, FR+EN validé ; ADR 0002). Ses poids
+  embarquable partout (DER 0.174, taux d'erreur de diarisation, FR+EN validé ; ADR 0002). Ses poids
   ONNX sont fournis dans le bundle diarization-engines, donc ce chemin
   tourne sans PyTorch et sans HuggingFace.
 
@@ -185,7 +186,7 @@ sweep 2026-06-30 (`studies/whisper_prompt_lang_lock.py`) sur AMI :
 
 ![Bias prompt Whisper — baisse de WER sur AMI dev-slice](figures/fig-whisper-bias-prompt.svg)
 
-Un prompt de biais aligné domaine baisse le WER de **15 à 25
+Un prompt de biais aligné domaine baisse le WER (taux d'erreur de mots) de **15 à 25
 points de pourcentage** et économise jusqu'à **39 % de RTF**. Le
 prompt doit nommer le domaine et une poignée de noms propres ou
 termes techniques attendus. Le défaut est la chaîne vide (le
@@ -196,7 +197,7 @@ Le verrouillage de langue (`language="en"` vs `"auto"`) a un effet
 négligeable sur la qualité dans ce sweep — garder `"auto"` sauf
 raison forte de production.
 
-**Comparaison de moteurs STT — pywhispercpp vs faster-whisper**
+**Comparaison de moteurs STT (transcription de la parole) — pywhispercpp vs faster-whisper**
 (`studies/stt_faster_whisper_vs_pywhispercpp.py`, 2026-07-01) :
 
 | moteur | IS1008a WER | IS1008a RTF | ES2011a WER | ES2011a RTF |
@@ -346,7 +347,7 @@ une langue ont trois niveaux de coût croissant :
    `models/convert-h5-to-ggml.py` de `whisper.cpp` et les
    quantiser en `q5_0` pour `pywhispercpp`.
 
-2. **Fine-tuner le turbo existant vers une langue (1-3 jours GPU).**
+2. **Fine-tuner le turbo existant vers une langue (1-3 jours GPU, processeur graphique).**
    Continuer l'entraînement de `large-v3-turbo` sur Common Voice
    [@commonvoice] + Multilingual LibriSpeech
    [@multilinguallibrispeech] + le corpus production de
