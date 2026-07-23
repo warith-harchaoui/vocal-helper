@@ -1102,22 +1102,22 @@ class OfflineDiarStage:
             Overlap between adjacent chunks when chunking. Default 10 s.
         stitch_threshold : float
             Cosine-distance threshold for cross-chunk AHC stitching.
-            Default 0.35. (No effect on the ``sherpa`` backend, which clusters the
-            whole buffer internally — see ``sherpa_cluster_threshold``.)
+            Default 0.35. Has no effect on the ``sherpa`` backend, which clusters the
+            whole buffer internally (see ``sherpa_cluster_threshold``).
         sherpa_cluster_threshold : float
             Cosine threshold for sherpa-onnx's internal ``FastClustering`` when the
             speaker count is auto-detected. Higher merges more (fewer speakers).
-            Default ``0.5`` — the value the 2026-07-18 AMI study selected on clean
+            Default ``0.5``, the value the 2026-07-18 AMI study selected on clean
             meeting audio. Noisy / PII-redacted telephony over-segments at 0.5
             (its embeddings are less separable), so callers on that domain should
             raise it; a 2026-07-23 sweep against the pyannoteAI silver ground truth
             picks the telephony value. Only the ``sherpa`` backend reads this.
         sherpa_num_clusters : int
             Fixed speaker count for sherpa's clustering, or ``-1`` (default) to
-            auto-detect via ``sherpa_cluster_threshold``. When the count is known —
-            e.g. 2-party telephony — setting ``2`` sidesteps the auto-detector (a
+            auto-detect via ``sherpa_cluster_threshold``. When the count is known,
+            e.g. 2-party telephony, setting ``2`` sidesteps the auto-detector: the
             2026-07-23 sweep found the threshold alone still leaves ~30 speakers on
-            real phone calls, whereas a fixed count collapses it cleanly). ``sherpa``
+            real phone calls, whereas a fixed count brings it back down. ``sherpa``
             only.
         device : str, optional
             Torch device for the pyannote pipeline + embedder. ``None``
@@ -1164,7 +1164,7 @@ class OfflineDiarStage:
         elif self.backend == "sherpa":
             # Portable ONNX pipeline (community-1 seg + TitaNet-large emb), no torch.
             # Run whole-buffer, so the stitching embedder is only interface parity.
-            # The clustering threshold IS plumbed through now (was hardcoded 0.5,
+            # The clustering threshold is forwarded now (it was hardcoded to 0.5,
             # which over-segments noisy telephony into dozens of speakers).
             self._backend_obj = _SherpaOfflineDiar(
                 threshold=self.sherpa_cluster_threshold,

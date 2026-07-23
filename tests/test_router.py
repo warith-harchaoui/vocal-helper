@@ -196,3 +196,36 @@ def test_returns_backend_plan_dataclass() -> None:
     assert isinstance(plan, BackendPlan)
     assert plan.reason  # every decision is justified
     assert plan.expected_der > 0 and plan.expected_rtf > 0
+
+
+def test_known_count_pins_sherpa_clustering() -> None:
+    """A known speaker count pins sherpa's clustering; absence leaves it on auto.
+
+    This is the pdbms diar-study §12.1 fix: a torch-free 2-party call must carry the
+    count into the plan so the consumer collapses sherpa's over-segmentation.
+    """
+    pinned = select_diarization(live=False, torch_free=True, num_speakers=2)
+    assert pinned.backend == "sherpa"
+    assert pinned.sherpa_num_clusters == 2
+
+    # No known count → auto-clustering, so meeting-audio behaviour is unchanged.
+    auto = select_diarization(live=False, torch_free=True)
+    assert auto.backend == "sherpa"
+    assert auto.sherpa_num_clusters is None
+
+    # The count also rides the pyannote-unavailable → sherpa fallback.
+    fallback = select_diarization(live=False, duration_s=5000.0,
+                                  pyannote_available=False, num_speakers=2)
+    assert fallback.backend == "sherpa"
+    assert fallback.sherpa_num_clusters == 2
+
+    # A known count never perturbs a non-sherpa pick (no pin field on nemo/pyannote).
+    nemo = select_diarization(live=False, duration_s=45.0, num_speakers=2)
+    assert nemo.backend == "nemo"
+    assert nemo.sherpa_num_clusters is None
+
+
+def test_rationale_aliases_reason() -> None:
+    """``plan.rationale`` mirrors ``plan.reason`` (consumers log the former)."""
+    plan = select_diarization(live=True)
+    assert plan.rationale == plan.reason

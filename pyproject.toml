@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "vocal-helper"
-version = "0.7.0"
+version = "0.7.1"
 description = "Vocal Helper — async producer/consumer pipeline turning a live PCM stream into diarized, transcribed utterances and (optionally) a rolling LLM summary. Stages: Voice Activity Detection → online speaker diarization (Hungarian-style cosine clustering on backend embeddings) → STT (pywhispercpp turbo) → optional analyst (Gemma 3 4b via Ollama)."
 readme = "README.md"
 requires-python = ">=3.10,<3.14"

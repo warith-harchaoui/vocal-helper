@@ -21,10 +21,10 @@
 
 **Local-first by design.** vocal-helper runs entirely on your machine — transcription, diarization and summarisation happen locally (whisper.cpp / pyannote / NeMo / local Ollama); your audio and transcripts are never uploaded to a third-party service, no telemetry, no account, no cloud lock-in. Your voice — and everyone else's on the recording — is among the most personal data there is, and a transcript is a verbatim record of what was said and by whom; keeping both on your own hardware is what makes this tool safe to point at a real meeting, interview, or therapy session. Part of the [AI Helpers](https://github.com/warith-harchaoui/ai-helpers) suite: sovereignty over your data through local-first Open Source.
 
-Vocal Helper is an **async producer/consumer pipeline** turning audio into diarized, transcribed utterances — and (optionally) a rolling LLM summary of the conversation. Two paths ship :
+Vocal Helper is an **async producer/consumer pipeline** turning audio into diarized, transcribed utterances — and (optionally) a rolling Large Language Model (LLM) summary of the conversation. Two paths ship :
 
-- **Online** (`voh.Pipeline`) — live PCM stream → live transcript + live summary. Each stage runs at its own cadence, decoupled by bounded queues. The STT stage warms up on start so the first caption doesn't stall on whisper's cold inference.
-- **Offline** (`voh.OfflinePipeline`) — full audio buffer → highest-quality diarization (pyannote 3.1 runs the whole meeting in one call — the 2026-07-14 offline map-reduce study found whole-buffer strictly best for DER; chunk-and-stitch survives only as a memory backstop past ~1 h) → **full-throttle batched transcript** (consecutive segments concatenated into ≤ 24 s whisper calls — ~6.5× lower RTF at better WER per the 2026-07-09 sweep) → summary. Opt back into per-segment ASR with `OfflinePipelineConfig(asr={"batch": False})`.
+- **Online** (`voh.Pipeline`) — live Pulse-Code Modulation (PCM) stream → live transcript + live summary. Each stage runs at its own cadence, decoupled by bounded queues. The Speech-to-Text (STT) stage warms up on start so the first caption doesn't stall on whisper's cold inference.
+- **Offline** (`voh.OfflinePipeline`) — full audio buffer → highest-quality diarization (pyannote 3.1 runs the whole meeting in one call — the 2026-07-14 offline map-reduce study found whole-buffer strictly best for Diarization Error Rate (DER); chunk-and-stitch survives only as a memory backstop past ~1 h) → **full-throttle batched transcript** (consecutive segments concatenated into ≤ 24 s whisper calls — ~6.5× lower Real-Time Factor (RTF) at better Word Error Rate (WER) per the 2026-07-09 sweep) → summary. Opt back into per-segment Automatic Speech Recognition (ASR) with `OfflinePipelineConfig(asr={"batch": False})`.
 
 ## Documentation
 
@@ -72,14 +72,14 @@ flowchart LR
     classDef llm    fill:#D4F5D9,stroke:#28CD41,stroke-width:2px,color:#144d1e,stroke-dasharray: 5 5
 ```
 
-No VAD in the offline path — the diarizer consumes the whole buffer
+No Voice Activity Detection (VAD) in the offline path — the diarizer consumes the whole buffer
 and does its own segmentation.
 
 | Stage | Backend | Notes |
 |---|---|---|
-| **VAD** *(online only)* | Silero v5 ONNX (CPU) | 32 ms window, `activity_threshold=0.5`, default `min_silence_ms=300`. |
+| **VAD** *(online only)* | Silero v5 ONNX (Central Processing Unit, CPU) | 32 ms window, `activity_threshold=0.5`, default `min_silence_ms=300`. |
 | **Online diarization** | `nvidia/titanet_large` (NeMo, default), `pyannote/embedding`, or `sherpa` (torch-free ONNX TitaNet) | Per-segment embedding + cosine-distance running-mean clustering, `join_threshold=0.30`. Default backend switched to NeMo by the 2026-06-30 embedding sweep (`studies/diar_embedding_backend.py`): TitaNet has **+76 % separability margin** (inter − intra median cosine = 0.354 vs pyannote 0.201) on AMI dev-slice, at 7× per-call latency (45 ms vs 6 ms — still negligible per voiced segment). Pass `backend='pyannote'` to skip the ~ 5 GB NeMo install, or `backend='sherpa'` for the torch-free path. |
-| **Offline diarization** | `pyannote/speaker-diarization-3.1` (default), `nvidia/diar_sortformer_v1` (NeMo), or `sherpa` (torch-free) | Whole-buffer call. Inputs longer than `ideal_duration_s` (**3600 s** for pyannote — effectively whole-buffer, chunking is a memory backstop only; **60 s** for NeMo, forced by its Sortformer 90 s cap) are auto-chunked with 10 s overlap and stitched by cosine AHC at `stitch_threshold=0.35`. The 2026-07-14 offline map-reduce study found whole-buffer strictly best for DER (0.143 vs 0.170 at 300 s). `sherpa` clusters the whole buffer internally (so `stitch_threshold` does not apply to it) — its clustering is tuned by `sherpa_cluster_threshold` (default `0.5`, from clean AMI) and `sherpa_num_clusters` (default `-1` auto), plumbed since **v0.7.0**. The 0.5 default over-segments noisy 2-party telephony into dozens of speakers; set `sherpa_num_clusters=2` when the count is known (see `doc/studies/diar-study.md` §12 in `pasdebonneoudemauvaisesituation`). **Which backend is picked is decided by the [router](#backend-router--the-aiguilleur) below.** |
+| **Offline diarization** | `pyannote/speaker-diarization-3.1` (default), `nvidia/diar_sortformer_v1` (NeMo), or `sherpa` (torch-free) | Whole-buffer call. Inputs longer than `ideal_duration_s` (**3600 s** for pyannote — effectively whole-buffer, chunking is a memory backstop only; **60 s** for NeMo, forced by its Sortformer 90 s cap) are auto-chunked with 10 s overlap and stitched by cosine AHC at `stitch_threshold=0.35`. The 2026-07-14 offline map-reduce study found whole-buffer strictly best for DER (0.143 vs 0.170 at 300 s). `sherpa` clusters the whole buffer internally, so `stitch_threshold` has no effect on it; its clustering is tuned instead by `sherpa_cluster_threshold` (default `0.5`, from clean AMI) and `sherpa_num_clusters` (default `-1` auto), both exposed since **v0.7.0**. The `0.5` default over-segments noisy 2-party telephony into dozens of speakers, so set `sherpa_num_clusters=2` when the count is known (see `doc/studies/diar-study.md` §12 in `pasdebonneoudemauvaisesituation`). **Which backend is picked is decided by the [router](#backend-router--the-aiguilleur) below.** |
 | **STT** | [`pywhispercpp`](https://github.com/abdeladim-s/pywhispercpp) turbo | `large-v3-turbo-q5_0` by default. Word timestamps on. Runs in a thread pool so the event loop never stalls. **Strongly recommended: supply `initial_prompt` (domain bias)** — cuts WER 15-25 pp and saves up to 39 % RTF per the 2026-06-30 sweep (`studies/whisper_prompt_lang_lock.py`). |
 | **LLM analyst** *(optional)* | Ollama-served Gemma 3 4b (`gemma3:4b`) | Rolling summary of everything **older than 60 s**. The recent 60 s window is kept verbatim. Summary refreshes every **60 s of evicted content** (`flush_every_s=60`). Default model `gemma3:4b` selected by the 2026-06-30 7-model Pareto sweep (`studies/llm_model_size_sweep.py`): it dominates `gemma4:e4b-mlx` on BOTH RTF (0.099 vs 0.313, **3× faster**) AND cos_sim (0.466 vs 0.420). Pareto front also exposes `gemma4:12b-mlx` (RTF 2.45, cos_sim 0.496) for offline-batch quality runs, and `qwen2.5:3b` (RTF 0.043) for tight RTF budgets. |
 
@@ -130,7 +130,7 @@ on both CLIs and `POST /pipeline`, so a file's real duration is probed and route
 > for a self-contained, copy-runnable cookbook of the common workflows
 > (live mic, URL replay, offline batch, subscribers, library + CLI usage).
 
-> **Running the heavy stack on a GPU?** See [TECHNICAL_STACK.md](https://github.com/warith-harchaoui/vocal-helper/blob/main/TECHNICAL_STACK.md)
+> **Running the heavy stack on a Graphics Processing Unit (GPU)?** See [TECHNICAL_STACK.md](https://github.com/warith-harchaoui/vocal-helper/blob/main/TECHNICAL_STACK.md)
 > for the full install recipe : CUDA + PyTorch, whisper.cpp with `GGML_CUDA=on`,
 > pyannote 3.1 on MPS/CUDA, local Ollama, expected RTFs per GPU, and a
 > reproducible install manifest covering the AI Helpers suite (os-helper,
@@ -303,11 +303,11 @@ to a remote service.
 
 | Surface | Entry point | Extra | Kind of use |
 |---|---|---|---|
-| Python library | `import vocal_helper as voh` | (none) | Compose the stages into your own app; full typed API. |
+| Python library | `import vocal_helper as voh` | (none) | Compose the stages into your own app; full typed Application Programming Interface (API). |
 | argparse CLI | `vocal-helper` | (none — ships with the base install) | Shell scripts, cron, headless CI, pipes to `jq`. |
 | click CLI | `vocal-helper-click` | `[cli]` | Rich `--help`, shell completion, **composable** sub-commands. |
 | FastAPI HTTP | `uvicorn vocal_helper.api:app` | `[api]` | A local HTTP surface — upload a file (or pass a `url`), get a transcript / event list; `GET /docs` for the Swagger UI. |
-| MCP tools | `vocal-helper-mcp` | `[api,mcp]` | Any MCP-aware host (agent runtimes, IDEs) — publishes `transcribe` + `pipeline` as local first-class tools. |
+| MCP tools | `vocal-helper-mcp` | `[api,mcp]` | Any Model Context Protocol (MCP)-aware host (agent runtimes, IDEs) — publishes `transcribe` + `pipeline` as local first-class tools. |
 | Transcript-viewer GUI | `GET /gui` (served by the API) | `[api]` | A build-step-free browser page: drop a file or paste a URL → **speaker colour-coded transcript + rolling summary**. `/` redirects to it. |
 
 ```bash
@@ -360,7 +360,7 @@ async for ev in pipeline.run():
     ...
 ```
 
-Useful for WebSocket / SSE relays, live UI updates, or JSONL persistence.
+Useful for WebSocket / SSE relays, live User Interface (UI) updates, or JSONL persistence.
 
 ## Diarization choice — why **online cosine clustering**
 

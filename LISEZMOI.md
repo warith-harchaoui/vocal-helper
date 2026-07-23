@@ -17,7 +17,7 @@
 
 **Local d'abord, par conception.** vocal-helper s'exécute entièrement sur votre machine — transcription, diarization et résumé se font localement (whisper.cpp / pyannote / NeMo / Ollama local) ; votre audio et vos transcriptions ne sont jamais envoyés à un service tiers, aucune télémétrie, aucun compte, aucun verrouillage propriétaire. Votre voix — et celle de toutes les personnes enregistrées — fait partie des données les plus personnelles qui soient, et une transcription est le compte rendu mot pour mot de ce qui a été dit et par qui ; garder les deux sur votre propre matériel, c'est ce qui rend cet outil sûr à pointer sur une vraie réunion, un entretien ou une séance. Fait partie de la suite [AI Helpers](https://github.com/warith-harchaoui/ai-helpers) : la souveraineté sur vos données grâce à l'Open Source local d'abord.
 
-Vocal Helper est un **pipeline producteur/consommateur asynchrone** qui transforme un flux audio PCM en direct en énoncés diarizés et transcrits — et, en option, en résumé glissant produit par un LLM.
+Vocal Helper est un **pipeline producteur/consommateur asynchrone** qui transforme un flux audio PCM (modulation d'impulsions codées) en direct en énoncés diarizés et transcrits — et, en option, en résumé glissant produit par un LLM (grand modèle de langue).
 
 ## Documentation
 
@@ -71,17 +71,17 @@ complet et fait sa propre segmentation.
 
 | Étage | Modèle | Notes |
 |---|---|---|
-| **VAD** | Silero v5 ONNX (CPU) | Fenêtre 32 ms, `activity_threshold=0.5`, `min_silence_ms=300` par défaut. |
+| **VAD** (détection d'activité vocale) | Silero v5 ONNX (CPU, processeur central) | Fenêtre 32 ms, `activity_threshold=0.5`, `min_silence_ms=300` par défaut. |
 | **Diarisation (online)** | `pyannote/embedding` (défaut) ou `nvidia/titanet_large` (NeMo) | Embedding par segment + clustering moyenne-mobile par distance cosinus, `join_threshold=0.30`. Calibré sur AMI dev-slice N=8 (2026-06-30). |
-| **STT** | [`pywhispercpp`](https://github.com/abdeladim-s/pywhispercpp) turbo | `large-v3-turbo-q5_0` par défaut, timestamps mots activés. Exécution en thread pool pour ne jamais bloquer la boucle async. |
+| **STT** (transcription de la parole) | [`pywhispercpp`](https://github.com/abdeladim-s/pywhispercpp) turbo | `large-v3-turbo-q5_0` par défaut, timestamps mots activés. Exécution en thread pool pour ne jamais bloquer la boucle async. |
 | **Analyste LLM** *(optionnel)* | Gemma 4 e4b servi par Ollama (`gemma4:e4b`) | Résumé glissant de tout ce qui est **plus vieux que 60 s**. La fenêtre récente de 60 s reste verbatim. La variante `-mlx` est auto-sélectionnée par Ollama sur Apple-Silicon. |
 
 ## Installation
 
-> **Déploiement sur un serveur GPU ?** Voir [TECHNICAL_STACK.md](TECHNICAL_STACK.md)
+> **Déploiement sur un serveur GPU (processeur graphique) ?** Voir [TECHNICAL_STACK.md](TECHNICAL_STACK.md)
 > pour la recette complète : CUDA + PyTorch, whisper.cpp compilé avec
 > `GGML_CUDA=on`, pyannote 3.1 sur MPS/CUDA, service systemd Ollama,
-> RTF attendus par GPU, et un manifest
+> RTF (facteur temps réel) attendus par GPU, et un manifest
 > d'installation reproductible en 10 étapes couvrant toute la suite
 > AI Helpers (os-helper, audio-helper, podcast-helper, youtube-helper,
 > vocal-helper, music-helper).
@@ -190,7 +190,7 @@ La source fichier respecte le tempo réel par défaut ; `--no-real-time` accél�
 
 ## Exposition multi-surface
 
-`vocal-helper` expose la même pipeline via des surfaces cohérentes — une bibliothèque Python, deux CLI, une API HTTP, un agent compatible MCP et une **interface web de lecture de transcription** — sans re-câbler la logique ailleurs.
+`vocal-helper` expose la même pipeline via des surfaces cohérentes — une bibliothèque Python, deux CLI, une API HTTP (interface de programmation), un agent compatible MCP (Model Context Protocol) et une **interface web de lecture de transcription** — sans re-câbler la logique ailleurs.
 
 | Surface | Point d'entrée | Extra | Usage |
 |---|---|---|---|
@@ -249,7 +249,7 @@ async for ev in pipeline.run():
     ...
 ```
 
-Pratique pour des relais WebSocket / SSE, du rendu UI live, ou une persistance JSONL.
+Pratique pour des relais WebSocket / SSE, du rendu UI (interface utilisateur) live, ou une persistance JSONL.
 
 ## Routeur de backend — l'*aiguilleur*
 
@@ -257,7 +257,7 @@ La diarisation est la seule étape à réel embranchement de backend, et il n'y 
 **aucun vainqueur unique** : le meilleur backend dépend du scénario.
 `vocal_helper.router` (`voh.select_diarization`) transforme ce compromis mesuré
 en **une** décision explicite et testée, pour que la CLI et votre code ne codent
-jamais un backend en dur — et il rapporte **qualité (DER) et vitesse (RTF)**, pas
+jamais un backend en dur — et il rapporte **qualité (DER, taux d'erreur de diarisation) et vitesse (RTF)**, pas
 seulement un nom. Les chiffres ont été **re-validés sur machine**
 (`studies/router_profile_validation.py`, `pyannote.metrics` collar 0.25, DER +
 RTF médians) contre la vérité terrain — bagarre (30 mixes courts) + AMI

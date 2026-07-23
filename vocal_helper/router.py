@@ -130,6 +130,12 @@ class BackendPlan:
     reason : str
         Human-readable justification citing the deciding measurement, surfaced
         to the operator so the choice is never a black box.
+    sherpa_num_clusters : int or None
+        When the backend is ``sherpa`` and the exact speaker count is known, the
+        count to pin its clustering to (``FastClusteringConfig(num_clusters=...)``).
+        ``None`` leaves sherpa on auto-clustering, so meeting-audio behaviour is
+        unchanged. This is the lever that collapses sherpa's 2-party telephony
+        over-segmentation (pdbms diar-study §12).
     """
 
     mode: str
@@ -137,9 +143,16 @@ class BackendPlan:
     expected_der: float
     expected_rtf: float
     reason: str
+    sherpa_num_clusters: int | None = None
+
+    @property
+    def rationale(self) -> str:
+        """Alias for :attr:`reason` (some callers log ``plan.rationale``)."""
+        return self.reason
 
 
-def _plan(mode: str, backend: str, reason: str) -> BackendPlan:
+def _plan(mode: str, backend: str, reason: str, *,
+          sherpa_num_clusters: int | None = None) -> BackendPlan:
     """Assemble a :class:`BackendPlan`, attaching quality + speed from ``_PROFILE``.
 
     Parameters
@@ -161,7 +174,8 @@ def _plan(mode: str, backend: str, reason: str) -> BackendPlan:
     # numbers at the call sites that could drift from the reason.
     der, rtf = _PROFILE[(mode, backend)]
     return BackendPlan(
-        mode=mode, backend=backend, expected_der=der, expected_rtf=rtf, reason=reason
+        mode=mode, backend=backend, expected_der=der, expected_rtf=rtf, reason=reason,
+        sherpa_num_clusters=sherpa_num_clusters,
     )
 
 
@@ -170,6 +184,7 @@ def select_diarization(
     live: bool,
     duration_s: float | None = None,
     max_speakers: int | None = None,
+    num_speakers: int | None = None,
     torch_free: bool = False,
     pyannote_available: bool = True,
     nemo_available: bool = True,
@@ -195,6 +210,13 @@ def select_diarization(
         with more than :data:`SORTFORMER_MAX_SPEAKERS` speakers off NeMo
         Sortformer (its hard 4-speaker cap). ``None`` = unknown. Default
         ``None``.
+    num_speakers : int or None, optional
+        Exact known speaker count (distinct from the ``max_speakers`` ceiling).
+        When the router picks ``sherpa`` and this is set, the plan carries it as
+        ``sherpa_num_clusters`` to pin sherpa's clustering — the fix for its
+        2-party telephony over-segmentation (pdbms diar-study §12.1). Leaving it
+        ``None`` keeps sherpa on auto-clustering, so meeting behaviour is
+        unchanged. Default ``None``.
     torch_free : bool, optional
         ``True`` when the deployment cannot install PyTorch — routes to the
         ``sherpa`` onnxruntime backend regardless of length. Default ``False``.
@@ -226,6 +248,12 @@ def select_diarization(
     >>> # a short clip still routes to pyannote when the nemo extra is absent
     >>> select_diarization(live=False, duration_s=45.0, nemo_available=False).backend
     'pyannote'
+    >>> # torch-free with a known 2-party count pins sherpa's clustering
+    >>> select_diarization(live=False, torch_free=True, num_speakers=2).sherpa_num_clusters
+    2
+    >>> # without a known count, sherpa stays on auto-clustering (meeting default)
+    >>> select_diarization(live=False, torch_free=True).sherpa_num_clusters is None
+    True
 
     Notes
     -----
@@ -243,13 +271,20 @@ def select_diarization(
     #    periodic offline re-diarization (ADR 0002: per-segment online sherpa is
     #    a dead end), which is why online sherpa carries the offline DER 0.174.
     if torch_free:
+        pin = (
+            f"; speaker count known ({num_speakers}) → pinned clustering "
+            "(collapses 2-party over-segmentation, pdbms §12.1)"
+            if num_speakers is not None else ""
+        )
         return _plan(
             mode,
             "sherpa",
             "torch-free deployment → sherpa (onnxruntime TitaNet-large, no PyTorch); "
             "DER 0.174 ES2011a / 0.148 held-out IS1008a, beats NeMo Sortformer 0.267, "
             "FR+EN validated (ADR 0002)"
-            + ("; streaming = periodic offline re-diarization" if live else ""),
+            + ("; streaming = periodic offline re-diarization" if live else "")
+            + pin,
+            sherpa_num_clusters=num_speakers,
         )
 
     # 2. STREAMING → nemo, always. vocal-helper's OnlineDiarStage is a
@@ -312,9 +347,14 @@ def select_diarization(
     # 5. pyannote was the right call but is not installed/bundled — fall back to
     #    the torch-free sherpa rather than an unrunnable backend. (nemo is unsafe
     #    here: this branch is exactly the long/many-speaker case it fails on.)
+    pin = (
+        f"; speaker count known ({num_speakers}) → pinned clustering (pdbms §12.1)"
+        if num_speakers is not None else ""
+    )
     return _plan(
         "offline",
         "sherpa",
         "pyannote unavailable on the long-form/robust branch → sherpa "
-        "(onnxruntime TitaNet); nemo is unsafe past ~25 min / >4 speakers",
+        "(onnxruntime TitaNet); nemo is unsafe past ~25 min / >4 speakers" + pin,
+        sherpa_num_clusters=num_speakers,
     )

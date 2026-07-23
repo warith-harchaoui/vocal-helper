@@ -150,18 +150,20 @@ Le chemin NeMo Sortformer reste opt-in : il domine sur les clips
 ≤ 60 s mais hang au-delà de son cap d'entraînement à 90 s, donc
 vocal-helper ne l'expose pas en défaut.
 
-Le backend `sherpa` sans torch clusterise tout le buffer dans un seul
-appel `sherpa-onnx`, donc `stitch_threshold` ne s'y applique pas. Son
-clustering était figé en dur — seuil `FastClustering` `0.5` et nombre
-de locuteurs `-1` (auto). Le `0.5` a été réglé sur l'audio de réunion
-AMI propre ; sur la téléphonie 2-parties bruitée et expurgée il
-sur-segmente en ~36 locuteurs. Depuis **v0.7.0**, `OfflineDiarStage`
-plumbe `sherpa_cluster_threshold` et `sherpa_num_clusters` jusqu'à cette
-config (défauts inchangés). Un sweep du 2026-07-23 contre une vérité
-terrain silver pyannoteAI a montré que relever le seuil ne réduit cela
-que lentement (~30 locuteurs à `0.6`), tandis que `sherpa_num_clusters=2`
-ramène la téléphonie au bon compte proprement — la valeur à utiliser
-quand le nombre de locuteurs est connu (appels 2-parties).
+Le backend `sherpa` sans torch regroupe tout le buffer dans un seul
+appel `sherpa-onnx`, si bien que `stitch_threshold` ne s'y applique
+pas. Son clustering était auparavant figé en dur, avec un seuil
+`FastClustering` de `0.5` et un nombre de locuteurs de `-1` (auto). Ce
+`0.5` a été réglé sur l'audio de réunion AMI propre ; sur la
+téléphonie à deux parties, bruitée et expurgée, il sur-segmente en ~36
+locuteurs. Depuis la **v0.7.0**, `OfflineDiarStage` transmet
+`sherpa_cluster_threshold` et `sherpa_num_clusters` à cette
+configuration (défauts inchangés). Un sweep du 2026-07-23 contre une
+vérité terrain silver pyannoteAI a montré que relever le seuil ne
+corrige le problème que lentement (~30 locuteurs à `0.6`). Fixer
+`sherpa_num_clusters=2` ramène la téléphonie au bon compte : c'est la
+valeur à utiliser quand le nombre de locuteurs est connu (appels à
+deux parties).
 
 ## 3.4 STT — pywhispercpp turbo avec bias prompt
 

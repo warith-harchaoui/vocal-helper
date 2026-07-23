@@ -9,9 +9,10 @@ bibliography: refs.bib
 # Abstract
 
 `vocal-helper` is an asynchronous **producer / consumer voice
-pipeline** for `Python ≥ 3.10`. It turns a live or recorded PCM
+pipeline** for `Python ≥ 3.10`. It turns a live or recorded
+Pulse-Code Modulation (PCM)
 stream into diarized, transcribed utterances and (optionally) a
-rolling LLM summary of the conversation. Two pipelines ship :
+rolling Large Language Model (LLM) summary of the conversation. Two pipelines ship :
 `Pipeline` for streaming use cases (microphone, URL, podcast feed),
 and `OfflinePipeline` for batch use cases (meeting recordings,
 voicemail archives). Every default in this report is justified by
@@ -30,14 +31,16 @@ upstream research codebase is `pdbms` [@pdbms]).
   cloud round-trip in the default path.
 - **Offline batch** on a meeting recording — highest-quality
   diarization (`pyannote/speaker-diarization-3.1`
-  [@pyannotediarization], auto-chunk + stitch past 300 s) → ASR
+  [@pyannotediarization], auto-chunk + stitch past 300 s) →
+  Automatic Speech Recognition (ASR)
   → optional summary.
 - **Empirically justified defaults.** Every knob is backed by a
   reproducible study on the AMI Meeting Corpus
   [@carletta2007unleashing] dev-slice. No marketing-blog defaults.
 - **Producer / consumer queues** between stages so each stage runs
-  at its own cadence — the LLM analyst stays at RTF ≈ 0.1 while
-  the VAD runs at RTF ≈ 1e-5.
+  at its own cadence — the LLM analyst stays at Real-Time Factor
+  (RTF) ≈ 0.1 while
+  the Voice Activity Detection (VAD) stage runs at RTF ≈ 1e-5.
 
 ## 1.2 Non-goals
 
@@ -45,7 +48,7 @@ upstream research codebase is `pdbms` [@pdbms]).
   within a session ; never persisted to a named identity across
   sessions. Industrial-deployment compliance constraint.
 - No token / character-streaming LLM output. Every LLM call returns
-  the full response when ready. UX preference.
+  the full response when ready. User Experience (UX) preference.
 - No WebRTC / multi-participant transport in v0.x. Use
   `livekit-agents` [@livekitagents] for that.
 - No TTS for v0.1.0 (added optionally in v0.2.0 via
@@ -148,16 +151,16 @@ expose it as the default.
 
 The torch-free `sherpa` backend clusters the whole buffer inside one
 `sherpa-onnx` call, so `stitch_threshold` never applies to it. Its
-clustering was previously hardcoded — `FastClustering` threshold `0.5`
-and speaker count `-1` (auto). `0.5` was tuned on clean AMI meeting
-audio; on noisy, PII-redacted 2-party telephony it over-segments into
-~36 speakers. Since **v0.7.0**, `OfflineDiarStage` plumbs
-`sherpa_cluster_threshold` and `sherpa_num_clusters` through to that
+clustering used to be hardcoded, with a `FastClustering` threshold of
+`0.5` and a speaker count of `-1` (auto). `0.5` was tuned on clean AMI
+meeting audio; on noisy, PII-redacted 2-party telephony it
+over-segments into ~36 speakers. Since **v0.7.0**, `OfflineDiarStage`
+forwards `sherpa_cluster_threshold` and `sherpa_num_clusters` to that
 config (defaults unchanged). A 2026-07-23 sweep against a pyannoteAI
-silver ground truth showed raising the threshold reduces this only
-slowly (~30 speakers at `0.6`), whereas `sherpa_num_clusters=2`
-collapses telephony to the correct count cleanly — the value to use
-when the speaker count is known (2-party calls).
+silver ground truth showed that raising the threshold helps only
+slowly (~30 speakers at `0.6`). Setting `sherpa_num_clusters=2` brings
+telephony back to the right count, so that is the value to use when
+the speaker count is known (2-party calls).
 
 ## 3.4 STT — pywhispercpp turbo with bias prompt
 
