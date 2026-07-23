@@ -6,6 +6,27 @@ stability policy: **breaking behaviour and default changes land only in MINOR
 releases; PATCH releases are bug-fixes and docs only.** The public API is the
 names exported from `vocal_helper.__all__` plus the documented CLI flags.
 
+## [0.7.0] - 2026-07-23
+
+### Added
+
+- **`OfflineDiarStage` now plumbs sherpa's clustering knobs.** Two new
+  backward-compatible parameters — `sherpa_cluster_threshold` (default `0.5`) and
+  `sherpa_num_clusters` (default `-1`, auto) — are forwarded into sherpa-onnx's
+  `FastClusteringConfig`. They were previously hardcoded, so `stitch_threshold` was
+  a silent no-op on the sherpa backend and its clustering could not be tuned.
+
+### Fixed
+
+- **Sherpa over-segmentation on noisy telephony is now controllable.** The
+  hardcoded threshold `0.5` (tuned on clean AMI meeting audio) over-segments real,
+  noisy, PII-redacted phone calls into dozens of speakers (measured ~36 speakers on
+  2-party calls). A 2026-07-23 sweep against a pyannoteAI silver ground truth showed
+  raising `sherpa_cluster_threshold` reduces this but slowly (still ~30 speakers at
+  0.6); when the speaker count is known — e.g. 2-party telephony — setting
+  `sherpa_num_clusters=2` collapses it to the correct count cleanly. Defaults are
+  unchanged, so existing (meeting-audio) behaviour is preserved.
+
 ## [0.6.1] - 2026-07-21
 
 ### Fixed

@@ -54,6 +54,24 @@ def test_sherpa_stage_wiring_and_backend_contract() -> None:
     assert diar.threshold == 0.5
 
 
+def test_sherpa_clustering_knobs_plumb_through() -> None:
+    """The clustering threshold + fixed speaker count reach the sherpa backend.
+
+    Sherpa clusters the whole buffer internally, so ``stitch_threshold`` never
+    applies — its clustering is controlled by ``sherpa_cluster_threshold`` (auto
+    speaker count) and ``sherpa_num_clusters`` (fixed count, e.g. 2 for telephony).
+    Both were previously hardcoded (0.5 / -1), which over-segmented noisy telephony
+    into dozens of speakers; they must now be caller-tunable end to end.
+    """
+    stage = OfflineDiarStage(backend="sherpa", sherpa_cluster_threshold=0.7, sherpa_num_clusters=2)
+    assert stage.sherpa_cluster_threshold == 0.7
+    assert stage.sherpa_num_clusters == 2
+    # The backend object honours the same knobs (what the stage forwards at load).
+    diar = _SherpaOfflineDiar(threshold=0.7, num_clusters=2)
+    assert diar.threshold == 0.7
+    assert diar.num_clusters == 2
+
+
 def test_resolve_sherpa_models_env_override_wins_then_bundle(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
