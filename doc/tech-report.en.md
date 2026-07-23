@@ -146,6 +146,19 @@ NeMo Sortformer path remains opt-in : it dominates on ≤ 60 s clips
 but hangs past its 90 s training cap, so vocal-helper does not
 expose it as the default.
 
+The torch-free `sherpa` backend clusters the whole buffer inside one
+`sherpa-onnx` call, so `stitch_threshold` never applies to it. Its
+clustering was previously hardcoded — `FastClustering` threshold `0.5`
+and speaker count `-1` (auto). `0.5` was tuned on clean AMI meeting
+audio; on noisy, PII-redacted 2-party telephony it over-segments into
+~36 speakers. Since **v0.7.0**, `OfflineDiarStage` plumbs
+`sherpa_cluster_threshold` and `sherpa_num_clusters` through to that
+config (defaults unchanged). A 2026-07-23 sweep against a pyannoteAI
+silver ground truth showed raising the threshold reduces this only
+slowly (~30 speakers at `0.6`), whereas `sherpa_num_clusters=2`
+collapses telephony to the correct count cleanly — the value to use
+when the speaker count is known (2-party calls).
+
 ## 3.4 STT — pywhispercpp turbo with bias prompt
 
 `WhisperStage(model="large-v3-turbo-q5_0", language="auto",
