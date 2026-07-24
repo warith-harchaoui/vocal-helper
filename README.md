@@ -30,7 +30,11 @@ Vocal Helper is an **async producer/consumer pipeline** turning audio into diari
 
 [💻 Documentation](https://harchaoui.org/warith/ai-helpers/docs/vocal-helper-doc/)
 
+[🗺️ Landscape](https://github.com/warith-harchaoui/vocal-helper/blob/main/LANDSCAPE.md)
+
 [📋 Examples](https://github.com/warith-harchaoui/vocal-helper/blob/main/EXAMPLES.md)
+
+[🗺️ Landscape](https://github.com/warith-harchaoui/vocal-helper/blob/main/LANDSCAPE.md) — how `vocal-helper` compares to related speech stacks, with a positioning map.
 
 ## Pipelines
 

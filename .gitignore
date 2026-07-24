@@ -52,3 +52,7 @@ todo.md
 
 # Local-only strategy note (not shipped)
 claude-skill.md
+
+# Generated landscape/positioning CSVs (rebuilt from LANDSCAPE.md / PAYSAGE.md)
+assets/landscape.csv
+assets/paysage.csv

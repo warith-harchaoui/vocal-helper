@@ -1,8 +1,10 @@
-# LANDSCAPE
+# Landscape
+
+[🇫🇷 PAYSAGE.md](https://github.com/warith-harchaoui/vocal-helper/blob/main/PAYSAGE.md) · 🇬🇧 English
 
 Related and competing Python / OSS projects in the "live speech →
 speaker-labelled text → summary" space, benchmarked against
-`vocal-helper`. Ratings are `⭐️` (1) to `⭐️⭐️⭐️⭐️⭐️` (5), scored on
+`vocal-helper`. Ratings are ⭐ (1) to ⭐⭐⭐⭐⭐ (5), scored on
 `vocal-helper`'s intended job — an **async producer/consumer pipeline
 turning a live PCM stream (mic, URL, or file) into diarized,
 transcribed utterances plus an optional rolling LLM summary**. A
@@ -12,19 +14,27 @@ non-streaming diarization, general-purpose LLM chat) is not penalised
 
 ## At a glance
 
-| Library / project | Live streaming (frame-by-frame) | Online speaker diarization | Local-only STT (no cloud) | Rolling LLM summary (built-in) | Multi-source (mic + URL + file) | Ergonomic Python API (async, `dict` events) | Multi-surface exposure (CLI + HTTP + MCP) |
+| Live Transcription | Live streaming | Online diarization | Local-only STT | Rolling LLM summary | Multi-source | Ergonomic Python API | Multi-surface |
 | --- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| **vocal-helper** *(this project)* | ⭐️⭐️⭐️⭐️⭐️ | ⭐️⭐️⭐️⭐️ (pyannote / NeMo, online clustering) | ⭐️⭐️⭐️⭐️⭐️ (pywhispercpp turbo) | ⭐️⭐️⭐️⭐️ (Gemma via Ollama, 60 s window) | ⭐️⭐️⭐️⭐️⭐️ | ⭐️⭐️⭐️⭐️⭐️ | ⭐️⭐️⭐️⭐️⭐️ (argparse + click + FastAPI + MCP) |
-| pyannote.audio | ⭐️⭐️ (streaming demos, no default pipeline) | ⭐️⭐️⭐️⭐️⭐️ (SotA offline, 3.x online mode) | n/a (diar only) | n/a | ⭐️⭐️ | ⭐️⭐️⭐️ | ⭐️ |
-| NVIDIA NeMo (ASR + Sortformer) | ⭐️⭐️⭐️ (streaming ASR ; Sortformer diar batch) | ⭐️⭐️⭐️⭐️ (Sortformer, batch by default) | ⭐️⭐️⭐️⭐️ | n/a | ⭐️⭐️⭐️ | ⭐️⭐️ (torch tensors, heavy) | ⭐️ |
-| whisper.cpp (upstream) | ⭐️⭐️⭐️ (chunked-stream helper) | ⭐️ (no diar) | ⭐️⭐️⭐️⭐️⭐️ | ⭐️ | ⭐️⭐️ (CLI + file) | ⭐️⭐️ (C library) | ⭐️⭐️ (CLI-first) |
-| faster-whisper | ⭐️⭐️⭐️ (chunk-loop patterns in the wild) | ⭐️ | ⭐️⭐️⭐️⭐️⭐️ | ⭐️ | ⭐️⭐️ | ⭐️⭐️⭐️⭐️ | ⭐️⭐️ |
-| whisper-live | ⭐️⭐️⭐️⭐️ (WebSocket streaming server) | ⭐️ (optional pyannote adapter) | ⭐️⭐️⭐️⭐️⭐️ | ⭐️ | ⭐️⭐️⭐️ | ⭐️⭐️⭐️ | ⭐️⭐️⭐️ (WebSocket surface) |
-| RealtimeSTT | ⭐️⭐️⭐️⭐️⭐️ (built for it) | ⭐️ | ⭐️⭐️⭐️⭐️ | ⭐️ | ⭐️⭐️⭐️ (mic + file) | ⭐️⭐️⭐️⭐️ | ⭐️⭐️ |
-| LiveKit Agents (voice) | ⭐️⭐️⭐️⭐️⭐️ (SFU-native) | ⭐️⭐️⭐️ | ⭐️⭐️⭐️ (multi-provider incl. local) | ⭐️⭐️⭐️⭐️⭐️ (agent framework) | ⭐️⭐️⭐️⭐️ | ⭐️⭐️⭐️⭐️ | ⭐️⭐️⭐️⭐️ (framework-native) |
-| Pipecat | ⭐️⭐️⭐️⭐️ | ⭐️⭐️ | ⭐️⭐️⭐️ | ⭐️⭐️⭐️⭐️ (agent-shaped) | ⭐️⭐️⭐️⭐️ | ⭐️⭐️⭐️⭐️ | ⭐️⭐️⭐️ |
-| OpenAI Whisper (upstream) | ⭐️ | ⭐️ | ⭐️⭐️⭐️⭐️⭐️ (but heavy) | ⭐️ | ⭐️ | ⭐️⭐️⭐️ | ⭐️⭐️ |
-| AssemblyAI (streaming) | ⭐️⭐️⭐️⭐️⭐️ | ⭐️⭐️⭐️⭐️ | ⭐️ (cloud API) | ⭐️⭐️⭐️ (LeMUR) | ⭐️⭐️⭐️ | ⭐️⭐️⭐️⭐️ | ⭐️⭐️⭐️ (HTTP + WebSocket) |
+| **vocal-helper** | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ |
+| pyannote.audio | ⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐ | ⭐ | ⭐⭐ | ⭐⭐⭐ | ⭐ |
+| NVIDIA NeMo | ⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐ | ⭐⭐⭐ | ⭐⭐ | ⭐ |
+| whisper.cpp | ⭐⭐⭐ | ⭐ | ⭐⭐⭐⭐⭐ | ⭐ | ⭐⭐ | ⭐⭐ | ⭐⭐ |
+| faster-whisper | ⭐⭐⭐ | ⭐ | ⭐⭐⭐⭐⭐ | ⭐ | ⭐⭐ | ⭐⭐⭐⭐ | ⭐⭐ |
+| whisper-live | ⭐⭐⭐⭐ | ⭐ | ⭐⭐⭐⭐⭐ | ⭐ | ⭐⭐⭐ | ⭐⭐⭐ | ⭐⭐⭐ |
+| RealtimeSTT | ⭐⭐⭐⭐⭐ | ⭐ | ⭐⭐⭐⭐ | ⭐ | ⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐⭐ |
+| LiveKit Agents | ⭐⭐⭐⭐⭐ | ⭐⭐⭐ | ⭐⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐⭐⭐⭐ |
+| Pipecat | ⭐⭐⭐⭐ | ⭐⭐ | ⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐⭐⭐ |
+| OpenAI Whisper | ⭐ | ⭐ | ⭐⭐⭐⭐⭐ | ⭐ | ⭐ | ⭐⭐⭐ | ⭐⭐ |
+| AssemblyAI | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐ | ⭐⭐⭐ | ⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐⭐⭐ |
+
+## Positioning map
+
+2D representation of the table above.
+
+![Positioning map](https://raw.githubusercontent.com/warith-harchaoui/vocal-helper/main/assets/landscape.png)
+
+The map is a 2-D summary of the seven criteria, so read it as a shape, not a scoreboard. `vocal-helper` is at the top-right corner. The axes read **Horizontal — Local ↔ Diarization** and **Vertical — Rolling ↔ Surface**.
 
 ## Positioning
 
@@ -38,9 +48,18 @@ individually swappable (any custom stage can be dropped in as a
 coroutine), and it exposes the composition through four coherent
 surfaces: argparse CLI, click CLI, FastAPI HTTP, MCP tools. That
 trade-off is the main differentiator against a bare pyannote
-notebook (no streaming), whisper.cpp (no diar), or an agent framework
-like LiveKit Agents / Pipecat (requires a lot of assembly for
-local-only deployments).
+notebook (no streaming), whisper.cpp (no diarization), or an agent
+framework like LiveKit Agents / Pipecat (requires a lot of assembly
+for local-only deployments).
+
+Two nuances behind the stars are worth spelling out. Online
+diarization is `vocal-helper`'s hardest constraint: it runs pyannote /
+NeMo under an online clustering strategy, where `pyannote.audio`
+itself scores highest offline but ships no default streaming pipeline.
+The rolling LLM summary — Gemma via Ollama over a 60 s window — is a
+built-in stage most ASR stacks simply do not have, which is why only
+the agent frameworks (LiveKit Agents, Pipecat) come close on that
+column.
 
 ## When to pick what
 
