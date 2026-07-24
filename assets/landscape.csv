@@ -1,0 +1,12 @@
+Live Transcription,Live streaming,Online diarization,Local-only STT,Rolling LLM summary,Multi-source,Ergonomic Python API,Multi-surface
+vocal-helper,5,4,5,4,5,5,5
+pyannote.audio,2,5,1,1,2,3,1
+NVIDIA NeMo,3,4,4,1,3,2,1
+whisper.cpp,3,1,5,1,2,2,2
+faster-whisper,3,1,5,1,2,4,2
+whisper-live,4,1,5,1,3,3,3
+RealtimeSTT,5,1,4,1,3,4,2
+LiveKit Agents,5,3,3,5,4,4,4
+Pipecat,4,2,3,4,4,4,3
+OpenAI Whisper,1,1,5,1,1,3,2
+AssemblyAI,5,4,1,3,3,4,3

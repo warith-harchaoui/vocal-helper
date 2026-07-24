@@ -14,6 +14,7 @@ non-streaming diarization, general-purpose LLM chat) is not penalised
 
 ## At a glance
 
+<!-- TABLE:START -->
 | Live Transcription | Live streaming | Online diarization | Local-only STT | Rolling LLM summary | Multi-source | Ergonomic Python API | Multi-surface |
 | --- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
 | **vocal-helper** | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ |
@@ -27,14 +28,17 @@ non-streaming diarization, general-purpose LLM chat) is not penalised
 | Pipecat | ⭐⭐⭐⭐ | ⭐⭐ | ⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐⭐⭐ |
 | OpenAI Whisper | ⭐ | ⭐ | ⭐⭐⭐⭐⭐ | ⭐ | ⭐ | ⭐⭐⭐ | ⭐⭐ |
 | AssemblyAI | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐ | ⭐⭐⭐ | ⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐⭐⭐ |
+<!-- TABLE:END -->
 
 ## Positioning map
 
+<!-- FIGURE:START -->
 2D representation of the table above.
 
 ![Positioning map](https://raw.githubusercontent.com/warith-harchaoui/vocal-helper/main/assets/landscape.png)
 
-The map is a 2-D summary of the seven criteria, so read it as a shape, not a scoreboard. `vocal-helper` is at the top-right corner. The axes read **Horizontal — Local ↔ Diarization** and **Vertical — Rolling ↔ Surface**.
+The map is a 2-D summary of the seven criteria, so read it as a shape, not a scoreboard. `vocal-helper` is at the top-right corner. The axes read **Horizontal — Self-reliant ↔ Integrated** and **Vertical — Contextual ↔ Versatile**.
+<!-- FIGURE:END -->
 
 ## Positioning
 
