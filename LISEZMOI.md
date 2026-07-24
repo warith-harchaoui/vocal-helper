@@ -15,9 +15,9 @@
 
 ## La promesse
 
-**Local d'abord, par conception.** vocal-helper s'exécute entièrement sur votre machine — transcription, diarization et résumé se font localement (whisper.cpp / pyannote / NeMo / Ollama local) ; votre audio et vos transcriptions ne sont jamais envoyés à un service tiers, aucune télémétrie, aucun compte, aucun verrouillage propriétaire. Votre voix — et celle de toutes les personnes enregistrées — fait partie des données les plus personnelles qui soient, et une transcription est le compte rendu mot pour mot de ce qui a été dit et par qui ; garder les deux sur votre propre matériel, c'est ce qui rend cet outil sûr à pointer sur une vraie réunion, un entretien ou une séance. Fait partie de la suite [AI Helpers](https://github.com/warith-harchaoui/ai-helpers) : la souveraineté sur vos données grâce à l'Open Source local d'abord.
+**Local d'abord, par conception.** vocal-helper tourne entièrement sur votre machine : transcription, diarisation et résumé se font en local (whisper.cpp / pyannote / NeMo / Ollama). Votre audio et vos transcriptions ne partent jamais vers un service tiers, aucune télémétrie, aucun compte, aucun verrouillage propriétaire. Votre voix — et celle de toutes les personnes enregistrées — compte parmi les données les plus personnelles qui soient, et une transcription est le compte rendu mot pour mot de ce qui a été dit, et par qui. Garder les deux sur votre propre matériel, c'est ce qui rend l'outil sûr à pointer sur une vraie réunion, un entretien ou une séance. Fait partie de la suite [AI Helpers](https://github.com/warith-harchaoui/ai-helpers) : la souveraineté sur vos données par l'Open Source local d'abord.
 
-Vocal Helper est un **pipeline producteur/consommateur asynchrone** qui transforme un flux audio PCM (modulation d'impulsions codées) en direct en énoncés diarizés et transcrits — et, en option, en résumé glissant produit par un LLM (grand modèle de langue).
+Vocal Helper est un **pipeline producteur/consommateur asynchrone** qui transforme un flux audio PCM (modulation d'impulsions codées) en direct en énoncés diarisés et transcrits — et, en option, en résumé glissant produit par un LLM (grand modèle de langue).
 
 ## Documentation
 
@@ -223,7 +223,7 @@ vocal-helper-mcp
 
 Une page unique autonome (HTML + Tailwind CDN + JS vanilla, sans build) servie
 en **same-origin** par l'API. Déposez un fichier audio **ou collez une URL**,
-lancez la transcription diarizée localement, et lisez une **transcription
+lancez la transcription diarisée localement, et lisez une **transcription
 étiquetée et colorée par locuteur** (une couleur stable par locuteur) à côté du
 résumé glissant. Elle appelle le même endpoint `/pipeline` — aucune logique
 serveur supplémentaire — et ne contacte que le serveur local : votre audio ne
@@ -255,7 +255,7 @@ Pratique pour des relais WebSocket / SSE, du rendu UI (interface utilisateur) li
 
 ## Routeur de backend — l'*aiguilleur*
 
-La diarisation est la seule étape à réel embranchement de backend, et il n'y a
+La diarisation est la seule étape où le choix du backend se pose vraiment, et il n'y a
 **aucun vainqueur unique** : le meilleur backend dépend du scénario.
 `vocal_helper.router` (`voh.select_diarization`) transforme ce compromis mesuré
 en **une** décision explicite et testée, pour que la CLI et votre code ne codent

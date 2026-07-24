@@ -81,7 +81,7 @@ online` (opt-in, §3.5).
 ## 2.3 Arêtes
 
 Chaque flèche est une `asyncio.Queue` bornée à `qsize_pcm = 200`
-(4 s d'audio en flight à 20 ms/trame) ou `qsize_seg = 32`. La
+(4 s d'audio en transit à 20 ms/trame) ou `qsize_seg = 32`. La
 sentinelle `None` se propage proprement à travers chaque étage en
 shutdown. Les abonnés (`subscribe_voiced` / `subscribe_diarized`
 / `subscribe_utterances`) font fan-out vers des consommateurs
@@ -104,8 +104,8 @@ les humains répondent naturellement après 200-300 ms.
 ## 3.2 Diarisation online — embeddings TitaNet (défaut)
 
 `OnlineDiarStage` consomme les événements `VoicedSegment` du VAD,
-embede chacun une fois, et fait tourner un clusterer cosinus à
-moyenne mobile par segment sur la liste globale des locuteurs.
+calcule un embedding par segment, et fait tourner un clusterer cosinus à
+moyenne mobile sur la liste globale des locuteurs.
 Trois backends d'embedding sont câblés :
 
 - `backend='nemo'` — NVIDIA TitaNet [@titanet] via NeMo [@nemo].
@@ -129,8 +129,8 @@ backend d'embedding Été 2026
 
 La marge de séparabilité de TitaNet est **76 % plus large**, au
 prix d'une latence par appel ×7 — négligeable par segment voisé
-dans un workload streaming. Le coût est l'install footprint :
-NeMo + torch font ~ 5 GB ; passer `backend='pyannote'` pour s'en
+dans une charge streaming. Le vrai coût est l'empreinte d'installation :
+NeMo + torch pèsent ~ 5 GB ; passer à `backend='pyannote'` pour s'en
 passer.
 
 `join_threshold = 0.30` et `ema_alpha = 0.1` ont été hérités du
@@ -148,8 +148,8 @@ pyannote, 60 s pour l'alternative NeMo Sortformer [@sortformer]),
 l'audio est chunké avec `overlap_s = 10 s` et stitché via AHC
 cosinus à `stitch_threshold = 0.35` (le centre du plateau pdbms).
 Le chemin NeMo Sortformer reste opt-in : il domine sur les clips
-≤ 60 s mais hang au-delà de son cap d'entraînement à 90 s, donc
-vocal-helper ne l'expose pas en défaut.
+≤ 60 s mais se fige au-delà de son plafond d'entraînement à 90 s, donc
+vocal-helper ne l'expose pas par défaut.
 
 Le backend `sherpa` sans torch regroupe tout le buffer dans un seul
 appel `sherpa-onnx`, si bien que `stitch_threshold` ne s'y applique
@@ -207,13 +207,13 @@ raison forte de production.
 
 `pywhispercpp` est **~ 10× plus rapide** sur Apple Silicon
 (inférence Metal native) à WER équivalent sur la réunion propre,
-mais **hallucine catastrophiquement sur ES2011a** (WER 1.398 =
-émet plus de texte que la référence). `faster-whisper` est plus
+mais **hallucine gravement sur ES2011a** (WER 1.398 =
+il émet plus de texte que la référence). `faster-whisper` est plus
 lent (chemin CPU de CTranslate2) mais plus robuste. Le défaut
-reste `pywhispercpp` pour l'avantage RTF en streaming ; le travail
-futur devrait ajouter une détection d'hallucination (seuil de
-perplexité de token) avec un fallback `faster-whisper` plutôt que
-de swap les moteurs entièrement.
+reste `pywhispercpp` pour l'avantage RTF en streaming ; à terme,
+mieux vaudrait ajouter une détection d'hallucination (seuil de
+perplexité de token) avec un fallback `faster-whisper`, plutôt que
+de remplacer le moteur en bloc.
 
 ## 3.5 Fin de tour sémantique — opt-in
 
@@ -272,7 +272,7 @@ du sweep 7-modèles Été 2026
 | qwen3:8b [@qwen3] | 1.628 | 0.350 |
 | llama3.2:3b [@llama32] | 0.066 | 0.367 |
 
-![Analyste LLM — Pareto 7-modèles sur AMI IS1008a (gemma3:4b en opérage choisi)](figures/fig-llm-model-pareto.svg)
+![Analyste LLM — Pareto 7-modèles sur AMI IS1008a (gemma3:4b au point de fonctionnement retenu)](figures/fig-llm-model-pareto.svg)
 
 `gemma3:4b` **domine l'ancien défaut sur les deux axes** : RTF
 3 × plus rapide ET cos_sim supérieur vs résumé de référence
@@ -293,7 +293,7 @@ deux sweeps complémentaires :
   inter-meeting (cos_sim varie de 0.279 à 0.471 pour le même
   config), et t=60s est 25 % plus rapide.
 
-![Cadence LLM — Pareto mono-meeting vs multi-meeting (t=60s en opérage choisi)](figures/fig-llm-cadence.svg)
+![Cadence LLM — Pareto mono-meeting vs multi-meeting (t=60s au point de fonctionnement retenu)](figures/fig-llm-cadence.svg)
 
 ## 3.7 Moteur de service LLM — Ollama (défaut), avec politique adaptative
 
@@ -308,7 +308,7 @@ La roadmap envisage une politique d'auto-détection : Ollama avec
 poids tagués MLX sur macOS, vLLM sur Linux + CUDA, llama.cpp /
 Ollama avec gguf en fallback universel. Le levier n'est pas
 implémenté en v0.1.0 — les callers peuvent surcharger via
-`GemmaAnalystStage.host` ou en swappant le `model` tag.
+`GemmaAnalystStage.host` ou en changeant le tag `model`.
 
 ## 3.8 TTS — Piper (opt-in)
 
