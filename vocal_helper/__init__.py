@@ -24,8 +24,8 @@ Stages, all stitched by :class:`Pipeline` :
    (``large-v3-turbo-q5_0``), threads default 6, word timestamps on.
    Runs in :func:`asyncio.to_thread` so the loop is never blocked.
 5. **LLM analyst** (optional) — :class:`GemmaAnalystStage`. Ollama
-   serves ``gemma4:e4b`` (auto-selects the ``-mlx`` variant on
-   Apple-Silicon) ; the stage keeps a rolling summary of everything
+   serves the suite LLM (``qwen2.5vl:7b``, from
+   :func:`os_helper.llm_model`) ; the stage keeps a rolling summary of everything
    older than ``recent_window_s = 60`` seconds and emits a fresh
    :class:`SummarySnapshot` after every accepted utterance.
 
@@ -39,7 +39,7 @@ Quickstart
 ...         source=lambda: voh.sources.from_microphone(),
 ...         config=voh.PipelineConfig(
 ...             diar={"backend": "pyannote"},
-...             llm={"model": "gemma4:e4b"},
+...             llm={"model": "qwen2.5vl:7b"},
 ...         ),
 ...     )
 ...     async for ev in pipeline.run():

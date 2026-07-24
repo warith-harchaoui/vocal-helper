@@ -105,4 +105,4 @@ class SummarySnapshot(TypedDict):
     t0: float  # snapshot time (= newest utterance's t1)
     summary: str  # rolling digest, older than recent window
     recent: str  # verbatim recent transcript
-    model: str  # ollama model name (e.g. "gemma3:4b")
+    model: str  # ollama model name (e.g. "qwen2.5vl:7b")

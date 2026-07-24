@@ -238,7 +238,7 @@ async def from_url(
     ...         ),
     ...         config=voh.PipelineConfig(
     ...             diar={"backend": "pyannote"},
-    ...             llm={"model": "gemma4:e4b"},
+    ...             llm={"model": "qwen2.5vl:7b"},
     ...         ),
     ...     )
     ...     async for ev in pipeline.run():

@@ -39,6 +39,8 @@ from collections.abc import AsyncIterator, Callable, Mapping
 from pathlib import Path
 from typing import Any
 
+import os_helper as osh
+
 try:
     import click
 except ImportError as exc:  # pragma: no cover
@@ -213,7 +215,7 @@ def _common_options(func: Callable[..., object]) -> Callable[..., object]:
     func = click.option(
         "--eot-model",
         default=None,
-        help="Ollama model for the EOT completeness classifier (default qwen2.5:3b).",
+        help="Ollama model for the EOT completeness classifier (default: the suite LLM, qwen2.5vl:7b).",
     )(func)
     func = click.option(
         "--eot",
@@ -235,9 +237,9 @@ def _common_options(func: Callable[..., object]) -> Callable[..., object]:
     )(func)
     func = click.option(
         "--llm-model",
-        default="gemma3:4b",
+        default=osh.llm_model(),
         show_default=True,
-        help="Ollama model tag (Pareto sweet spot of the 2026-06-30 sweep).",
+        help="Ollama model tag (default: the suite LLM, qwen2.5vl:7b).",
     )(func)
     func = click.option(
         "--llm", is_flag=True, default=False, help="Enable the Gemma analyst stage."

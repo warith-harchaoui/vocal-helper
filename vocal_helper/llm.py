@@ -57,27 +57,11 @@ def _extract_response_text(resp: object) -> str:
     return str(resp).strip()
 
 
-# Default selected by the 2026-06-30 7-model Pareto sweep
-# (``studies/llm_model_size_sweep.py``, cadence ``flush_every_s=60``)
-# on AMI IS1008a. Each model evaluated against its OWN single-shot
-# offline-on-full-transcript summary :
-#
-#   model                RTF    cos_sim
-#   gemma4:e2b-mlx     0.193    0.456
-#   gemma4:e4b-mlx     0.313    0.420   ← initial default, now superseded
-#   gemma4:12b-mlx     2.453    0.496   (Pareto on quality, too slow)
-#   gemma3:4b          0.099    0.466   ← Pareto sweet spot, NEW DEFAULT
-#   qwen2.5:3b         0.043    0.399   (Pareto on RTF, lower quality)
-#   qwen3:8b           1.628    0.350   (dominated)
-#   llama3.2:3b        0.066    0.367   (dominated)
-#
-# ``gemma3:4b`` dominates the prior default on BOTH axes simultaneously :
-# 3 × faster (RTF 0.099 vs 0.313) AND higher cos_sim (0.466 vs 0.420).
-# ``gemma4:12b-mlx`` is the absolute quality champion if the caller
-# can afford RTF 2.45 (batch / offline use). ``qwen2.5:3b`` is the
-# minimum-RTF pick at 0.043 — useful when running alongside a heavy
-# TTS or on a constrained box.
-DEFAULT_MODEL = "gemma3:4b"
+# The suite pins a single LLM for the whole AI Helpers family via
+# ``os_helper.llm_model()`` (the suite LLM, ``qwen2.5vl:7b``, overridable
+# through the ``AI_HELPERS_LLM_MODEL`` env var). The analyst stage reads
+# that one source of truth so it never drifts from the rest of the suite.
+DEFAULT_MODEL = osh.llm_model()
 DEFAULT_RECENT_WINDOW_S = 60.0
 # ``flush_every_n`` is the count-based fallback — refresh the summary
 # every N evicted utterances. Used only when ``flush_every_s`` is
@@ -137,10 +121,9 @@ class GemmaAnalystStage:
     Parameters
     ----------
     model : str
-        Ollama model tag. Default ``"gemma4:e4b"`` — Gemma 4 4B
-        effective, the canonical light analyst across the AI Helpers
-        suite. On Apple-Silicon, ``ollama`` resolves the ``-mlx``
-        variant automatically when present.
+        Ollama model tag. Default: the suite LLM (``qwen2.5vl:7b``),
+        read from ``os_helper.llm_model()`` so the analyst never drifts
+        from the rest of the AI Helpers suite.
     recent_window_s : float
         How many seconds of verbatim transcript to keep before
         folding into the summary. Default 60 s.
@@ -176,8 +159,8 @@ class GemmaAnalystStage:
         Parameters
         ----------
         model : str
-            Ollama model tag used for summarisation (see the Pareto-sweep
-            note on :data:`DEFAULT_MODEL`).
+            Ollama model tag used for summarisation (defaults to the suite
+            LLM via :data:`DEFAULT_MODEL`).
         recent_window_s : float
             Utterances newer than this many seconds stay in the verbatim
             ``recent`` buffer ; older ones are evicted into the summary.

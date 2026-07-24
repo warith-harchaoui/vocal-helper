@@ -161,7 +161,7 @@ class Pipeline:
     ...         config=voh.PipelineConfig(
     ...             diar={"backend": "pyannote"},
     ...             asr={"model": "large-v3-turbo-q5_0"},
-    ...             llm={"model": "gemma4:e4b"},
+    ...             llm={"model": "qwen2.5vl:7b"},
     ...         ),
     ...     )
     ...     async for event in pipeline.run():
@@ -489,7 +489,7 @@ class OfflinePipeline:
     ...         config=voh.OfflinePipelineConfig(
     ...             diar={"backend": "pyannote"},
     ...             asr={"language": "en"},
-    ...             llm={"model": "gemma4:e4b"},
+    ...             llm={"model": "qwen2.5vl:7b"},
     ...         ),
     ...     )
     ...     async for ev in pipeline.run():

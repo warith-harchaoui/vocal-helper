@@ -52,6 +52,8 @@ import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+import os_helper as osh
+
 # ``numpy`` is imported lazily inside the request path (it is a heavy import
 # and the meta / health endpoints never touch it). Under ``TYPE_CHECKING``
 # we still pull the array types so annotations resolve for type-checkers
@@ -430,7 +432,7 @@ def pipeline(
         "by duration (short→nemo, long→pyannote), reporting DER + RTF.",
     ),
     llm: bool = Form(False, description="Enable the Gemma analyst stage."),
-    llm_model: str = Form("gemma4:e4b"),
+    llm_model: str = Form(osh.llm_model()),
     llm_recent_window_s: float = Form(60.0),
 ) -> JSONResponse:
     """Run the full OfflinePipeline on the uploaded file and return the events."""

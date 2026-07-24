@@ -31,9 +31,8 @@ it :
 1. Runs a fast STT pass (whisper.cpp turbo, same model the downstream
    :class:`WhisperStage` uses — kept in a thread pool to avoid
    stalling the loop).
-2. Asks a small classifier LLM (``qwen2.5:3b`` by default — close
-   enough in capability to LiveKit's distilled 0.5B target, already
-   available via Ollama on the user's machine) whether the partial
+2. Asks a classifier LLM (the suite LLM, ``qwen2.5vl:7b``, by default,
+   served via Ollama on the user's machine) whether the partial
    transcript is a complete thought.
 3. If complete → emit the segment immediately.
 4. If incomplete → buffer it, wait for the next segment, then merge
@@ -57,11 +56,12 @@ from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
+import os_helper as osh
 from numpy.typing import NDArray
 
 from vocal_helper.types import VoicedSegment
 
-DEFAULT_EOT_MODEL = "qwen2.5:3b"
+DEFAULT_EOT_MODEL = osh.llm_model()
 DEFAULT_STT_MODEL = "large-v3-turbo-q5_0"
 DEFAULT_MAX_MERGE_S = 4.0
 DEFAULT_MIN_INCOMPLETE_MS = 800
@@ -93,10 +93,8 @@ class SemanticEOTStage:
     Parameters
     ----------
     eot_model : str
-        Ollama model used as the EOT classifier. Default ``qwen2.5:3b``
-        — small enough to run at ~ 50 ms / classification on Apple
-        Silicon while broadly equivalent in capability to the LiveKit
-        turn-detector's 0.5B target.
+        Ollama model used as the EOT classifier. Default: the suite LLM
+        (``qwen2.5vl:7b``), served via Ollama on the user's machine.
     stt_model : str
         pywhispercpp model used for the partial transcript pass.
         Default ``large-v3-turbo-q5_0`` — same as the downstream

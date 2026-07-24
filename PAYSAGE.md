@@ -38,7 +38,7 @@ Représentation 2D du tableau ci-dessus.
 
 ![Carte de positionnement](https://raw.githubusercontent.com/warith-harchaoui/vocal-helper/main/assets/paysage.png)
 
-La carte est un résumé en 2D des 7 critères : à lire comme une forme, pas comme un classement. « vocal-helper » se situe dans le coin en haut à droite. Les axes se lisent **Horizontal — Traitement Local ↔ Flexibilité** et **Vertical — Réalisation en Temps ↔ Polyvalence**.
+La carte est un résumé en 2D des 7 critères : à lire comme une forme, pas comme un classement. « vocal-helper » se situe dans le coin en haut à droite. Les axes se lisent **Horizontal — Précision ↔ Flexibilité** et **Vertical — Évolutivité ↔ Intuitivité**.
 <!-- FIGURE:END -->
 
 ## Positionnement

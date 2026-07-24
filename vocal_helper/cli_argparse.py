@@ -41,6 +41,8 @@ from collections.abc import AsyncIterator, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
+import os_helper as osh
+
 from vocal_helper.pipeline import (
     OfflinePipeline,
     OfflinePipelineConfig,
@@ -479,9 +481,8 @@ def _add_common_flags(sp: argparse.ArgumentParser) -> None:
     )
     sp.add_argument(
         "--llm-model",
-        default="gemma3:4b",
-        help="Ollama model tag (default gemma3:4b — Pareto sweet spot of "
-        "the 2026-06-30 7-model sweep).",
+        default=osh.llm_model(),
+        help="Ollama model tag (default: the suite LLM, qwen2.5vl:7b).",
     )
     sp.add_argument(
         "--llm-recent-window-s",
@@ -505,7 +506,7 @@ def _add_common_flags(sp: argparse.ArgumentParser) -> None:
     sp.add_argument(
         "--eot-model",
         default=None,
-        help="Ollama model for the EOT completeness classifier (default qwen2.5:3b).",
+        help="Ollama model for the EOT completeness classifier (default: the suite LLM, qwen2.5vl:7b).",
     )
     sp.add_argument(
         "--jsonl",

@@ -37,7 +37,7 @@ non-streaming diarization, general-purpose LLM chat) is not penalised
 
 ![Positioning map](https://raw.githubusercontent.com/warith-harchaoui/vocal-helper/main/assets/landscape.png)
 
-The map is a 2-D summary of the seven criteria, so read it as a shape, not a scoreboard. `vocal-helper` is at the top-right corner. The axes read **Horizontal — Self-reliant ↔ Integrated** and **Vertical — Contextual ↔ Versatile**.
+The map is a 2-D summary of the seven criteria, so read it as a shape, not a scoreboard. `vocal-helper` is at the top-right corner. The axes read **Horizontal — Offline Accuracy ↔ Real-time Interaction** and **Vertical — Cloud Integration ↔ Local Efficiency**.
 <!-- FIGURE:END -->
 
 ## Positioning
