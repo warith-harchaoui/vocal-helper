@@ -27,8 +27,6 @@ Vocal Helper est un **pipeline producteur/consommateur asynchrone** qui transfor
 
 [📋 Exemples](https://github.com/warith-harchaoui/vocal-helper/blob/main/EXAMPLES.md)
 
-[🗺️ Paysage](https://github.com/warith-harchaoui/vocal-helper/blob/main/PAYSAGE.md) — comment `vocal-helper` se compare aux piles vocales voisines, avec une carte de positionnement.
-
 ## Pipeline
 
 Toutes les frontières entre étages sont des `asyncio.Queue` bornées ;

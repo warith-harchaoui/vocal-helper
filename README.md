@@ -34,8 +34,6 @@ Vocal Helper is an **async producer/consumer pipeline** turning audio into diari
 
 [📋 Examples](https://github.com/warith-harchaoui/vocal-helper/blob/main/EXAMPLES.md)
 
-[🗺️ Landscape](https://github.com/warith-harchaoui/vocal-helper/blob/main/LANDSCAPE.md) — how `vocal-helper` compares to related speech stacks, with a positioning map.
-
 ## Pipelines
 
 Every edge is a bounded `asyncio.Queue` ; every stage is its own
