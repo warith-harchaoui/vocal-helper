@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "vocal-helper"
-version = "0.7.1"
-description = "Vocal Helper — async producer/consumer pipeline turning a live PCM stream into diarized, transcribed utterances and (optionally) a rolling LLM summary. Stages: Voice Activity Detection → online speaker diarization (Hungarian-style cosine clustering on backend embeddings) → STT (pywhispercpp turbo) → optional analyst (Gemma 3 4b via Ollama)."
+version = "0.8.0"
+description = "Vocal Helper — async producer/consumer pipeline turning a live PCM stream into diarized, transcribed utterances and (optionally) a rolling LLM summary. Stages: Voice Activity Detection → online speaker diarization (Hungarian-style cosine clustering on backend embeddings) → STT (pywhispercpp turbo) → optional analyst (a local Ollama model, picked by best-engine-ai-helper)."
 readme = "README.md"
 requires-python = ">=3.10,<3.14"
 license = {text = "BSD-3-Clause"}
@@ -15,7 +15,7 @@ authors = [
 keywords = [
     "voice", "speech", "asr", "diarization", "vad", "whisper",
     "pywhispercpp", "silero", "streaming", "producer-consumer",
-    "asyncio", "ollama", "gemma", "live",
+    "asyncio", "ollama", "llm", "live",
 ]
 classifiers = [
     "Development Status :: 4 - Beta",
@@ -41,11 +41,18 @@ classifiers = [
 #   ``window_s`` (default 20 s, the operating point validated at
 #   pdbms-canonical N=2089 — see vocal-helper README "Diarization choice").
 # - ASR : pywhispercpp turbo (``large-v3-turbo-q5_0`` by default).
-# - LLM analyst : Ollama-served Gemma 4 e4b with a rolling summary
-#   buffer ; everything older than ``recent_window_s`` (default 60 s)
-#   gets folded into the summary.
+# - LLM analyst : Ollama-served local model (picked by
+#   best-engine-ai-helper) with a rolling summary buffer ; everything
+#   older than ``recent_window_s`` (default 60 s) gets folded into the
+#   summary.
 dependencies = [
     "os-helper>=1.8.0",
+    # best-engine-ai-helper is the suite's model picker: the analyst (llm.py)
+    # and EOT (eot.py) stages read its text_model() resolver at import time
+    # to get the tag selected for this machine — or a safe default — instead
+    # of a hard-coded model. Light deps (click/psutil/pyyaml/requests). Core
+    # dep, like os-helper, since GemmaAnalystStage is imported unconditionally.
+    "best-engine-ai-helper>=0.3.0,<1",
     "audio-helper>=1.5.5",
     "numpy>=1.24",
     "scipy>=1.15",

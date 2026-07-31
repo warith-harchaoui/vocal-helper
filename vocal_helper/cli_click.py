@@ -39,7 +39,7 @@ from collections.abc import AsyncIterator, Callable, Mapping
 from pathlib import Path
 from typing import Any
 
-import os_helper as osh
+import best_engine_ai_helper as beh
 
 try:
     import click
@@ -237,13 +237,13 @@ def _common_options(func: Callable[..., object]) -> Callable[..., object]:
     )(func)
     func = click.option(
         "--llm-model",
-        default=osh.llm_model(),
+        default=beh.text_model(),
         show_default=True,
-        help="Ollama model tag (default: the suite LLM, qwen2.5vl:7b).",
+        help="Ollama model tag (default: the model chosen by best-engine-ai-helper).",
     )(func)
-    func = click.option(
-        "--llm", is_flag=True, default=False, help="Enable the Gemma analyst stage."
-    )(func)
+    func = click.option("--llm", is_flag=True, default=False, help="Enable the LLM analyst stage.")(
+        func
+    )
     func = click.option(
         "--join-threshold",
         type=float,

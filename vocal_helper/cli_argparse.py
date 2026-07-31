@@ -41,7 +41,7 @@ from collections.abc import AsyncIterator, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
-import os_helper as osh
+import best_engine_ai_helper as beh
 
 from vocal_helper.pipeline import (
     OfflinePipeline,
@@ -477,12 +477,12 @@ def _add_common_flags(sp: argparse.ArgumentParser) -> None:
         help="Cosine-distance join threshold for the online diarizer (default 0.30).",
     )
     sp.add_argument(
-        "--llm", action="store_true", help="Enable the Gemma analyst stage (rolling summary)."
+        "--llm", action="store_true", help="Enable the LLM analyst stage (rolling summary)."
     )
     sp.add_argument(
         "--llm-model",
-        default=osh.llm_model(),
-        help="Ollama model tag (default: the suite LLM, qwen2.5vl:7b).",
+        default=beh.text_model(),
+        help="Ollama model tag (default: the model chosen by best-engine-ai-helper).",
     )
     sp.add_argument(
         "--llm-recent-window-s",

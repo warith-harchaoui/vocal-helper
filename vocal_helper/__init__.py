@@ -24,10 +24,10 @@ Stages, all stitched by :class:`Pipeline` :
    (``large-v3-turbo-q5_0``), threads default 6, word timestamps on.
    Runs in :func:`asyncio.to_thread` so the loop is never blocked.
 5. **LLM analyst** (optional) — :class:`GemmaAnalystStage`. Ollama
-   serves the suite LLM (``qwen2.5vl:7b``, from
-   :func:`os_helper.llm_model`) ; the stage keeps a rolling summary of everything
-   older than ``recent_window_s = 60`` seconds and emits a fresh
-   :class:`SummarySnapshot` after every accepted utterance.
+   serves the model chosen by the suite's model picker
+   (:func:`best_engine_ai_helper.text_model`) ; the stage keeps a rolling
+   summary of everything older than ``recent_window_s = 60`` seconds and
+   emits a fresh :class:`SummarySnapshot` after every accepted utterance.
 
 Quickstart
 ----------
@@ -176,4 +176,4 @@ __all__ = [
 
 __author__ = "Warith Harchaoui, Ph.D."
 __email__ = "warith@deraison.ai"
-__version__ = "0.7.1"
+__version__ = "0.8.0"

@@ -31,8 +31,8 @@ it :
 1. Runs a fast STT pass (whisper.cpp turbo, same model the downstream
    :class:`WhisperStage` uses — kept in a thread pool to avoid
    stalling the loop).
-2. Asks a classifier LLM (the suite LLM, ``qwen2.5vl:7b``, by default,
-   served via Ollama on the user's machine) whether the partial
+2. Asks a classifier LLM (the model chosen by ``best-engine-ai-helper``
+   for the user's machine, served via Ollama) whether the partial
    transcript is a complete thought.
 3. If complete → emit the segment immediately.
 4. If incomplete → buffer it, wait for the next segment, then merge
@@ -51,17 +51,31 @@ Warith HARCHAOUI — https://linkedin.com/in/warith-harchaoui
 from __future__ import annotations
 
 import asyncio
+import os
 import time
 from dataclasses import dataclass
 from typing import Any
 
+import best_engine_ai_helper as beh
 import numpy as np
-import os_helper as osh
 from numpy.typing import NDArray
 
 from vocal_helper.types import VoicedSegment
 
-DEFAULT_EOT_MODEL = osh.llm_model()
+
+def _default_eot_model() -> str:
+    """Return the EOT classifier's text model tag.
+
+    Honours ``VOCAL_HELPER_EOT_MODEL`` first; otherwise defers to the suite's
+    model picker, ``best_engine_ai_helper.text_model()``.
+    """
+    override = os.environ.get("VOCAL_HELPER_EOT_MODEL")
+    if override:
+        return override
+    return beh.text_model()
+
+
+DEFAULT_EOT_MODEL = _default_eot_model()
 DEFAULT_STT_MODEL = "large-v3-turbo-q5_0"
 DEFAULT_MAX_MERGE_S = 4.0
 DEFAULT_MIN_INCOMPLETE_MS = 800

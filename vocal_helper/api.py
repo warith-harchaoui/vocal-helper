@@ -52,7 +52,7 @@ import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-import os_helper as osh
+import best_engine_ai_helper as beh
 
 # ``numpy`` is imported lazily inside the request path (it is a heavy import
 # and the meta / health endpoints never touch it). Under ``TYPE_CHECKING``
@@ -431,8 +431,8 @@ def pipeline(
         description="auto | pyannote | nemo | sherpa. 'auto' lets the router pick "
         "by duration (short→nemo, long→pyannote), reporting DER + RTF.",
     ),
-    llm: bool = Form(False, description="Enable the Gemma analyst stage."),
-    llm_model: str = Form(osh.llm_model()),
+    llm: bool = Form(False, description="Enable the LLM analyst stage."),
+    llm_model: str = Form(beh.text_model()),
     llm_recent_window_s: float = Form(60.0),
 ) -> JSONResponse:
     """Run the full OfflinePipeline on the uploaded file and return the events."""

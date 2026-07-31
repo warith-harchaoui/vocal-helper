@@ -32,10 +32,12 @@ Warith HARCHAOUI — https://linkedin.com/in/warith-harchaoui
 from __future__ import annotations
 
 import asyncio
+import os
 from collections import deque
 from dataclasses import dataclass, field
 from typing import Any
 
+import best_engine_ai_helper as beh
 import os_helper as osh
 
 from vocal_helper.types import SummarySnapshot, Utterance
@@ -57,11 +59,20 @@ def _extract_response_text(resp: object) -> str:
     return str(resp).strip()
 
 
-# The suite pins a single LLM for the whole AI Helpers family via
-# ``os_helper.llm_model()`` (the suite LLM, ``qwen2.5vl:7b``, overridable
-# through the ``AI_HELPERS_LLM_MODEL`` env var). The analyst stage reads
-# that one source of truth so it never drifts from the rest of the suite.
-DEFAULT_MODEL = osh.llm_model()
+def _default_analyst_model() -> str:
+    """Return the analyst stage's text model tag.
+
+    Honours ``VOCAL_HELPER_LLM_MODEL`` first; otherwise defers to the suite's
+    model picker, ``best_engine_ai_helper.text_model()`` (the tag selected for
+    this machine by ``best-engine-ai-helper pull``, or a safe default).
+    """
+    override = os.environ.get("VOCAL_HELPER_LLM_MODEL")
+    if override:
+        return override
+    return beh.text_model()
+
+
+DEFAULT_MODEL = _default_analyst_model()
 DEFAULT_RECENT_WINDOW_S = 60.0
 # ``flush_every_n`` is the count-based fallback — refresh the summary
 # every N evicted utterances. Used only when ``flush_every_s`` is
@@ -121,9 +132,8 @@ class GemmaAnalystStage:
     Parameters
     ----------
     model : str
-        Ollama model tag. Default: the suite LLM (``qwen2.5vl:7b``),
-        read from ``os_helper.llm_model()`` so the analyst never drifts
-        from the rest of the AI Helpers suite.
+        Ollama model tag. Default: the model chosen for this machine by
+        ``best_engine_ai_helper.text_model()``, the suite's model picker.
     recent_window_s : float
         How many seconds of verbatim transcript to keep before
         folding into the summary. Default 60 s.

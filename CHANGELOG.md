@@ -6,6 +6,28 @@ stability policy: **breaking behaviour and default changes land only in MINOR
 releases; PATCH releases are bug-fixes and docs only.** The public API is the
 names exported from `vocal_helper.__all__` plus the documented CLI flags.
 
+## [0.8.0] - 2026-08-01
+
+### Changed
+
+- **Model choice is delegated to the suite's model picker,
+  `best-engine-ai-helper`.** The analyst stage (`GemmaAnalystStage`, `llm.py`)
+  and the semantic end-of-turn classifier (`eot.py`) now read
+  `best_engine_ai_helper.text_model()` for their default model tag, instead of
+  the now-removed `os_helper.llm_model()`. `--llm-model` / `llm_model=` CLI
+  and API defaults (argparse, click, FastAPI) follow the same resolver.
+  `VOCAL_HELPER_LLM_MODEL` (analyst) and `VOCAL_HELPER_EOT_MODEL` (EOT)
+  override it explicitly, same precedence as before.
+- **Dependencies.** Added `best-engine-ai-helper>=0.3.0,<1` as a core
+  dependency (`GemmaAnalystStage` is imported unconditionally by
+  `vocal_helper.__init__`, so this mirrors how `os-helper` was core). Light
+  deps (click/psutil/pyyaml/requests).
+- Breaking default: the analyst/EOT default model tag is no longer the fixed
+  suite constant (`qwen2.5vl:7b`) — it now tracks whatever
+  `best-engine-ai-helper` selects for the current machine (or its own safe
+  default). Pin `VOCAL_HELPER_LLM_MODEL`/`VOCAL_HELPER_EOT_MODEL` if you
+  depend on a specific tag.
+
 ## [0.7.1] - 2026-07-23
 
 ### Added

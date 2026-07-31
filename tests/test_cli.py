@@ -230,7 +230,7 @@ def test_click_cli_surface() -> None:
 # This is the builder wired into the shipped ``vocal-helper`` entry point, so
 # its defaults are what users actually get. Driving it through the real parser
 # catches drift between flag defaults and library defaults (auto backend,
-# gemma3:4b analyst, initial_prompt, EOT).
+# the best-engine-ai-helper-picked analyst, initial_prompt, EOT).
 # ---------------------------------------------------------------------------
 
 
@@ -240,18 +240,21 @@ def test_argparse_file_config_end_to_end() -> None:
     One scenario spanning every derived field of the shipped config: the bare
     ``mic`` run defaults the backend to ``auto`` (router-resolved), leaves the
     ASR ``initial_prompt`` empty, and attaches no EOT stage; ``--llm`` defaults
-    to the Pareto-best ``gemma3:4b`` analyst; ``--initial-prompt`` threads into
-    the ASR whisper-bias config; and ``--eot`` opts into an EOT block keyed by
-    ``eot_model``.
+    to the analyst model picked by ``best-engine-ai-helper`` for this machine;
+    ``--initial-prompt`` threads into the ASR whisper-bias config; and
+    ``--eot`` opts into an EOT block keyed by ``eot_model``.
     """
+    import best_engine_ai_helper as beh
+
     base = _argparse_config(["mic"])
     assert base.diar["backend"] == "auto"  # router decides at run time
     assert base.asr["initial_prompt"] == ""  # generic transcription by default
     assert base.eot is None  # one extra LLM hop is opt-in, not free
 
-    # --llm defaults to the gemma3:4b analyst with a 60 s recency window.
+    # --llm defaults to the suite-picked analyst model (not hard-coded here,
+    # so the assertion tracks the machine's selection or a safe default).
     assert _argparse_config(["mic", "--llm"]).llm == {
-        "model": "gemma3:4b",
+        "model": beh.text_model(),
         "recent_window_s": 60.0,
     }
 
