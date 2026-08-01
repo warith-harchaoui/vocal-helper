@@ -26,7 +26,10 @@ jobs:
           cache-dependency-path: pyproject.toml
 
       - name: Install ruff
-        run: pip install ruff
+        # Pinned: an unpinned install let ruff 0.16 make Markdown code-fence
+        # formatting the default, silently breaking format-check on doc examples.
+        # Bump this deliberately, not by surprise.
+        run: pip install "ruff==0.15.21"
 
       # ``ruff.toml`` exclusions are defined in pyproject.toml — keep the
       # CI invocation aligned with the local ``ruff check .`` developers run.
