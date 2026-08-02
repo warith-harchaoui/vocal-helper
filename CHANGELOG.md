@@ -6,6 +6,34 @@ stability policy: **breaking behaviour and default changes land only in MINOR
 releases; PATCH releases are bug-fixes and docs only.** The public API is the
 names exported from `vocal_helper.__all__` plus the documented CLI flags.
 
+## [0.9.0] - 2026-08-02
+
+### Added
+
+- **Diarization / speaker-embedding models are now fetched from the shared
+  ai-helpers mirror** via the new `vocal_helper.models` registry
+  (`ensure_model(name, *, allow_noncommercial=False)`, mirroring
+  `video_helper.faces.models`). The registry lists the ONNX weights the
+  torch-free `sherpa` path uses — `sherpa-titanet-large`
+  (`nemo_en_titanet_large.onnx`), `sherpa-titanet-small`, `community1-segmentation`
+  and `pyannote-segmentation-3` — and resolves each from
+  `AI_HELPERS_MODEL_BASE_URL` (default
+  `https://harchaoui.org/warith/ai-helpers/models/`), caching under the shared
+  `~/.cache/ai-helpers/models` (override: `VOCAL_HELPER_MODEL_DIR`). No
+  HuggingFace, no token.
+
+### Changed
+
+- **`sherpa` diarization no longer requires the ~750 MB diarization-engines
+  bundle.** `_SherpaEmbedder` fetches TitaNet-large through
+  `models.ensure_model("sherpa-titanet-large")` when no explicit `model_path`
+  is given, and `_resolve_sherpa_models` gained a third resolution tier — the
+  mirror — after the `$VH_SHERPA_*` env overrides and the bundle. Both
+  overrides and the bundle keep working unchanged and still win; the mirror is
+  a pure fallback, so this is fully backward compatible. `ensure_model` returns
+  `None` on any failure, so a missing mirror still surfaces the existing clear
+  error rather than crashing.
+
 ## [0.8.0] - 2026-08-01
 
 ### Changed

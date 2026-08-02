@@ -122,14 +122,53 @@ def test_resolve_sherpa_models_env_override_wins_then_bundle(
 def test_resolve_sherpa_models_raises_when_unconfigured(monkeypatch: pytest.MonkeyPatch) -> None:
     """A clear ``RuntimeError`` is raised when no models can be found.
 
+    Env overrides cleared and the bundle pointed at a non-existent path, so
+    tiers 1-2 miss. The mirror tier (3) is stubbed to return ``None`` (as if the
+    mirror were unreachable) so the resolver stays offline and still surfaces
+    the clear ``RuntimeError`` rather than swallowing the miss.
+
     Parameters
     ----------
     monkeypatch : pytest.MonkeyPatch
-        Clears the env overrides and points the bundle resolver at a
-        non-existent path so it resolves to ``None`` (no download attempted).
+        Clears the env overrides, points the bundle resolver at a non-existent
+        path, and stubs ``vocal_helper.models.ensure_model`` to ``None``.
     """
+    import vocal_helper.models as vh_models
+
     monkeypatch.delenv("VH_SHERPA_SEGMENTATION", raising=False)
     monkeypatch.delenv("VH_SHERPA_EMBEDDING", raising=False)
     monkeypatch.setenv("VH_DIARIZATION_ENGINES", "/nope/does/not/exist")
+    monkeypatch.setattr(vh_models, "ensure_model", lambda *a, **k: None)
     with pytest.raises(RuntimeError, match="segmentation ONNX"):
         _resolve_sherpa_models()
+
+
+def test_resolve_sherpa_models_falls_back_to_mirror(monkeypatch: pytest.MonkeyPatch) -> None:
+    """With env + bundle empty, the resolver fetches both ONNX from the mirror.
+
+    Tier 3: when neither the ``$VH_SHERPA_*`` overrides nor the bundle provide
+    the weights, ``_resolve_sherpa_models`` obtains them through
+    ``vocal_helper.models.ensure_model`` (the shared ai-helpers mirror). The
+    fetch is stubbed here — no network — but the wiring (which registry key maps
+    to which returned path) is asserted.
+
+    Parameters
+    ----------
+    monkeypatch : pytest.MonkeyPatch
+        Clears the overrides, points the bundle at a non-existent path, and
+        stubs ``ensure_model`` to return deterministic fake paths per key.
+    """
+    import vocal_helper.models as vh_models
+
+    monkeypatch.delenv("VH_SHERPA_SEGMENTATION", raising=False)
+    monkeypatch.delenv("VH_SHERPA_EMBEDDING", raising=False)
+    monkeypatch.setenv("VH_DIARIZATION_ENGINES", "/nope/does/not/exist")
+    fetched = {
+        "community1-segmentation": "/cache/community1-segmentation.onnx",
+        "sherpa-titanet-large": "/cache/nemo_en_titanet_large.onnx",
+    }
+    monkeypatch.setattr(vh_models, "ensure_model", lambda name, **k: fetched[name])
+
+    seg, emb = _resolve_sherpa_models()
+    assert seg == "/cache/community1-segmentation.onnx"
+    assert emb == "/cache/nemo_en_titanet_large.onnx"

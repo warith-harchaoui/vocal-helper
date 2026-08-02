@@ -938,10 +938,18 @@ class _SherpaEmbedder:
                 "backend='sherpa' requires the sherpa extra. "
                 "Install with `pip install vocal-helper[sherpa]`."
             ) from e
+        # No explicit path → fetch TitaNet-large from the shared ai-helpers
+        # mirror (cached under ~/.cache/ai-helpers/models). An explicit
+        # ``model_path`` still wins, so operator overrides stay honoured.
+        if not self._model_path:
+            from vocal_helper.models import ensure_model
+
+            self._model_path = ensure_model("sherpa-titanet-large")
         if not self._model_path:
             raise ValueError(
                 "backend='sherpa' needs a TitaNet-large embedding ONNX path "
-                "(pass model_path / sherpa_model_path)."
+                "(pass model_path / sherpa_model_path, or let vocal_helper.models "
+                "fetch it from the ai-helpers mirror)."
             )
         self._extractor = sherpa_onnx.SpeakerEmbeddingExtractor(
             sherpa_onnx.SpeakerEmbeddingExtractorConfig(model=self._model_path)
@@ -1710,8 +1718,13 @@ def _resolve_sherpa_models() -> tuple[str, str]:
        under a ``sherpa/`` subdirectory: the community-1 ONNX export
        (``community1-segmentation.onnx``, our sovereign export) or the
        ``segmentation-3.0`` drop-in, plus the TitaNet-large embedding ONNX.
+    3. The shared ai-helpers mirror via :func:`vocal_helper.models.ensure_model`
+       (``community1-segmentation`` + ``sherpa-titanet-large``), cached under
+       ``~/.cache/ai-helpers/models``. This lets the portable ``sherpa`` path
+       run without downloading the full ~750 MB diarization-engines bundle.
 
-    Both are plain ONNX — no torch, no HuggingFace token, no network at runtime.
+    Every source is plain ONNX — no torch, no HuggingFace token. Only tier 3
+    touches the network, once, on first use.
 
     Returns
     -------
@@ -1754,6 +1767,19 @@ def _resolve_sherpa_models() -> tuple[str, str]:
                     if (sdir / name).exists():
                         emb = str(sdir / name)
                         break
+
+    # Tier 3 — shared ai-helpers mirror. Only reached when env + bundle miss;
+    # fetches (and caches) the sovereign ONNX exports so the portable sherpa
+    # path works without the full diarization-engines bundle. ``ensure_model``
+    # returns None on any failure, so a missing mirror still falls through to
+    # the clear RuntimeError below rather than crashing.
+    if seg is None or emb is None:
+        from vocal_helper.models import ensure_model
+
+        if seg is None:
+            seg = ensure_model("community1-segmentation")
+        if emb is None:
+            emb = ensure_model("sherpa-titanet-large")
 
     if not seg or not emb:
         raise RuntimeError(
