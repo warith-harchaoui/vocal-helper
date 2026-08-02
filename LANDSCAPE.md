@@ -15,19 +15,21 @@ non-streaming diarization, general-purpose LLM chat) is not penalised
 ## At a glance
 
 <!-- TABLE:START -->
-| Live Transcription | Live streaming | Online diarization | Local-only STT | Rolling LLM summary | Multi-source | Ergonomic Python API | Multi-surface |
-| --- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| **vocal-helper** | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ |
-| pyannote.audio | ⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐ | ⭐ | ⭐⭐ | ⭐⭐⭐ | ⭐ |
-| NVIDIA NeMo | ⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐ | ⭐⭐⭐ | ⭐⭐ | ⭐ |
-| whisper.cpp | ⭐⭐⭐ | ⭐ | ⭐⭐⭐⭐⭐ | ⭐ | ⭐⭐ | ⭐⭐ | ⭐⭐ |
-| faster-whisper | ⭐⭐⭐ | ⭐ | ⭐⭐⭐⭐⭐ | ⭐ | ⭐⭐ | ⭐⭐⭐⭐ | ⭐⭐ |
-| whisper-live | ⭐⭐⭐⭐ | ⭐ | ⭐⭐⭐⭐⭐ | ⭐ | ⭐⭐⭐ | ⭐⭐⭐ | ⭐⭐⭐ |
-| RealtimeSTT | ⭐⭐⭐⭐⭐ | ⭐ | ⭐⭐⭐⭐ | ⭐ | ⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐⭐ |
-| LiveKit Agents | ⭐⭐⭐⭐⭐ | ⭐⭐⭐ | ⭐⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐⭐⭐⭐ |
-| Pipecat | ⭐⭐⭐⭐ | ⭐⭐ | ⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐⭐⭐ |
-| OpenAI Whisper | ⭐ | ⭐ | ⭐⭐⭐⭐⭐ | ⭐ | ⭐ | ⭐⭐⭐ | ⭐⭐ |
-| AssemblyAI | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐ | ⭐⭐⭐ | ⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐⭐⭐ |
+| Live Transcription | Live streaming | Online diarization | Local-only STT | Rolling LLM summary | Multi-source | Ergonomic Python API | Multi-surface | Offline |
+| --- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| **vocal-helper** | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ |
+| whisper.cpp | ⭐⭐⭐ | ⭐ | ⭐⭐⭐⭐⭐ | ⭐ | ⭐⭐ | ⭐⭐ | ⭐⭐ | ⭐⭐⭐⭐⭐ |
+| openai-whisper | ⭐ | ⭐ | ⭐⭐⭐⭐⭐ | ⭐ | ⭐⭐ | ⭐⭐⭐ | ⭐⭐ | ⭐⭐⭐⭐⭐ |
+| faster-whisper | ⭐⭐ | ⭐ | ⭐⭐⭐⭐⭐ | ⭐ | ⭐⭐ | ⭐⭐⭐⭐ | ⭐⭐ | ⭐⭐⭐⭐⭐ |
+| WhisperX | ⭐ | ⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐ | ⭐⭐ | ⭐⭐⭐ | ⭐⭐ | ⭐⭐⭐⭐⭐ |
+| whisper_streaming | ⭐⭐⭐⭐⭐ | ⭐ | ⭐⭐⭐⭐⭐ | ⭐ | ⭐⭐⭐ | ⭐⭐⭐ | ⭐⭐⭐ | ⭐⭐⭐ |
+| pyannote.audio | ⭐⭐ | ⭐⭐⭐⭐ | ⭐ | ⭐ | ⭐⭐ | ⭐⭐⭐ | ⭐ | ⭐⭐⭐⭐⭐ |
+| NVIDIA NeMo | ⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐ | ⭐⭐⭐ | ⭐⭐ | ⭐ | ⭐⭐⭐⭐⭐ |
+| SpeechBrain | ⭐⭐ | ⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐ | ⭐⭐ | ⭐⭐⭐ | ⭐⭐ | ⭐⭐⭐⭐⭐ |
+| vosk | ⭐⭐⭐⭐ | ⭐ | ⭐⭐⭐⭐⭐ | ⭐ | ⭐⭐⭐ | ⭐⭐⭐ | ⭐⭐⭐ | ⭐⭐⭐⭐⭐ |
+| AssemblyAI | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐ | ⭐⭐⭐ | ⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐⭐⭐ | ⭐ |
+| Deepgram | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐ | ⭐⭐ | ⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐⭐⭐ | ⭐ |
+| Otter.ai | ⭐⭐⭐⭐⭐ | ⭐⭐⭐ | ⭐ | ⭐⭐⭐ | ⭐⭐ | ⭐ | ⭐⭐ | ⭐ |
 <!-- TABLE:END -->
 
 ## Positioning map
@@ -37,7 +39,7 @@ non-streaming diarization, general-purpose LLM chat) is not penalised
 
 ![Positioning map](https://raw.githubusercontent.com/warith-harchaoui/vocal-helper/main/assets/landscape.png)
 
-The map is a 2-D summary of the seven criteria, so read it as a shape, not a scoreboard. `vocal-helper` is at the top-right corner. The axes read **Horizontal — Offline Accuracy ↔ Real-time Interaction** and **Vertical — Cloud Integration ↔ Local Efficiency**.
+The map is a 2-D summary of the eight criteria, so read it as a shape, not a scoreboard. `vocal-helper` is at the top-right corner. The axes read **Horizontal — Offline ↔ Interactive** and **Vertical — Real-time ↔ Versatile**.
 <!-- FIGURE:END -->
 
 ## Positioning
@@ -52,9 +54,11 @@ individually swappable (any custom stage can be dropped in as a
 coroutine), and it exposes the composition through four coherent
 surfaces: argparse CLI, click CLI, FastAPI HTTP, MCP tools. That
 trade-off is the main differentiator against a bare pyannote
-notebook (no streaming), whisper.cpp (no diarization), or an agent
-framework like LiveKit Agents / Pipecat (requires a lot of assembly
-for local-only deployments).
+notebook (no streaming), the local Whisper family — whisper.cpp,
+openai-whisper, faster-whisper, WhisperX, whisper_streaming (ASR only,
+no diarization) — or a cloud service like AssemblyAI / Deepgram /
+Otter.ai (fully managed, but off-device, scoring low on Local-only STT
+and Offline).
 
 Two nuances behind the stars are worth spelling out. Online
 diarization is `vocal-helper`'s hardest constraint: it runs pyannote /
@@ -62,8 +66,8 @@ NeMo under an online clustering strategy, where `pyannote.audio`
 itself scores highest offline but ships no default streaming pipeline.
 The rolling LLM summary — Gemma via Ollama over a 60 s window — is a
 built-in stage most ASR stacks simply do not have, which is why only
-the agent frameworks (LiveKit Agents, Pipecat) come close on that
-column.
+the cloud services (AssemblyAI, Deepgram) come close on that column —
+and only by shipping your audio off-device.
 
 ## When to pick what
 
@@ -78,13 +82,14 @@ column.
   Sortformer / TitaNet tightly coupled to your GPU serving layer.
 - **`whisper.cpp` / `faster-whisper`** — you only need ASR, no
   diarization, no analyst; latency is not the tightest constraint.
-- **`whisper-live` / `RealtimeSTT`** — you need a plug-and-play
-  streaming ASR server without diarization or LLM stages.
-- **`LiveKit Agents` / `Pipecat`** — you are building a voice AGENT
-  (turn-based, TTS-out, tool-calling) and need SFU integration, not
-  just an analyst.
-- **`OpenAI Whisper` (upstream)** — you want the exact reference
-  implementation for a benchmark; latency and streaming are not on
-  the table.
-- **`AssemblyAI` / hosted APIs** — you accept cloud dependency and
-  want a fully-managed SLA rather than a local pipeline.
+- **`openai-whisper` / `WhisperX`** — you want the exact reference
+  Whisper implementation for a benchmark (`openai-whisper`), or
+  word-level alignment plus batch diarization on recordings
+  (`WhisperX`); streaming is not on the table.
+- **`whisper_streaming`** — you need a plug-and-play streaming ASR
+  server without diarization or LLM stages.
+- **`vosk` / `SpeechBrain`** — you want a small-footprint or
+  research-friendly local ASR toolkit, no diarization analyst layer.
+- **`AssemblyAI` / `Deepgram` / `Otter.ai`** — you accept cloud
+  dependency (they score low on Local-only STT / Offline) and want a
+  fully-managed SLA rather than a local pipeline.
