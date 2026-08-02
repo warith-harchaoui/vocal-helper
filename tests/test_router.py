@@ -214,8 +214,9 @@ def test_known_count_pins_sherpa_clustering() -> None:
     assert auto.sherpa_num_clusters is None
 
     # The count also rides the pyannote-unavailable → sherpa fallback.
-    fallback = select_diarization(live=False, duration_s=5000.0,
-                                  pyannote_available=False, num_speakers=2)
+    fallback = select_diarization(
+        live=False, duration_s=5000.0, pyannote_available=False, num_speakers=2
+    )
     assert fallback.backend == "sherpa"
     assert fallback.sherpa_num_clusters == 2
 

@@ -1,10 +1,40 @@
 # Changelog
 
 All notable changes to this project will be documented in this file.
-This project adheres to [Semantic Versioning](https://semver.org). Pre-1.0
-stability policy: **breaking behaviour and default changes land only in MINOR
-releases; PATCH releases are bug-fixes and docs only.** The public API is the
+This project adheres to [Semantic Versioning](https://semver.org): from 1.0.0
+on, **breaking behaviour and default changes land only in MAJOR releases; MINOR
+adds features compatibly; PATCH is bug-fixes and docs.** The public API is the
 names exported from `vocal_helper.__all__` plus the documented CLI flags.
+
+## [1.0.0] - 2026-08-02
+
+First stable release. The async VAD → diarization → STT → optional-analyst
+pipeline and its `vocal_helper.__all__` API have been stable across the 0.x
+line; 1.0.0 commits to them on the 2.x suite foundation.
+
+### Changed
+
+- **Adopts the 2.x / 1.x suite majors:** `os-helper>=2.0.0,<3` (was `>=1.8.0`),
+  `audio-helper>=2.0.0,<3` (was `>=1.5.5`), `best-engine-ai-helper>=1.0.0,<2`
+  (was `>=0.3.0,<1` — the old `<1` cap locked out best-engine's first stable
+  release), and the optional extras `capture-helper>=1.0.0,<2` (mic) and
+  `podcast-helper>=1.0.0,<2` (stream).
+- Development status promoted to Production/Stable.
+- **CI adopts `ruff format` as a real gate.** The format check dropped its
+  `continue-on-error: true` (it was informational) and now blocks like the rest
+  of the suite; the test matrix is trimmed to a single Python (the full sweep
+  runs locally before push).
+
+### Fixed
+
+- README / LISEZMOI install commands no longer self-pin to a git tag (`@v0.5.2`);
+  they use `pip install vocal-helper`, which always resolves to the latest
+  published release.
+
+### Added
+
+- `tests/test_readme_install_pin.py` guards against the stale git self-pin ever
+  returning to any Markdown file.
 
 ## [0.9.0] - 2026-08-02
 

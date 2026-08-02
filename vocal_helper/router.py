@@ -151,8 +151,9 @@ class BackendPlan:
         return self.reason
 
 
-def _plan(mode: str, backend: str, reason: str, *,
-          sherpa_num_clusters: int | None = None) -> BackendPlan:
+def _plan(
+    mode: str, backend: str, reason: str, *, sherpa_num_clusters: int | None = None
+) -> BackendPlan:
     """Assemble a :class:`BackendPlan`, attaching quality + speed from ``_PROFILE``.
 
     Parameters
@@ -174,7 +175,11 @@ def _plan(mode: str, backend: str, reason: str, *,
     # numbers at the call sites that could drift from the reason.
     der, rtf = _PROFILE[(mode, backend)]
     return BackendPlan(
-        mode=mode, backend=backend, expected_der=der, expected_rtf=rtf, reason=reason,
+        mode=mode,
+        backend=backend,
+        expected_der=der,
+        expected_rtf=rtf,
+        reason=reason,
         sherpa_num_clusters=sherpa_num_clusters,
     )
 
@@ -274,7 +279,8 @@ def select_diarization(
         pin = (
             f"; speaker count known ({num_speakers}) → pinned clustering "
             "(collapses 2-party over-segmentation, pdbms §12.1)"
-            if num_speakers is not None else ""
+            if num_speakers is not None
+            else ""
         )
         return _plan(
             mode,
@@ -349,7 +355,8 @@ def select_diarization(
     #    here: this branch is exactly the long/many-speaker case it fails on.)
     pin = (
         f"; speaker count known ({num_speakers}) → pinned clustering (pdbms §12.1)"
-        if num_speakers is not None else ""
+        if num_speakers is not None
+        else ""
     )
     return _plan(
         "offline",

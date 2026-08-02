@@ -1,12 +1,12 @@
 # Vocal Helper
 
-[🇫🇷](LISEZMOI.md) · [🇬🇧](README.md)
+[🇫🇷](https://github.com/warith-harchaoui/vocal-helper/blob/main/LISEZMOI.md) · [🇬🇧](https://github.com/warith-harchaoui/vocal-helper/blob/main/README.md)
 
 [![CI](https://github.com/warith-harchaoui/vocal-helper/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/warith-harchaoui/vocal-helper/actions/workflows/ci.yml)
-[![License: BSD-3-Clause](https://img.shields.io/badge/License-BSD%203--Clause-blue.svg)](LICENSE)
+[![License: BSD-3-Clause](https://img.shields.io/badge/License-BSD%203--Clause-blue.svg)](https://github.com/warith-harchaoui/vocal-helper/blob/main/LICENSE)
 [![Python](https://img.shields.io/badge/python-3.10%E2%80%933.13-blue.svg)](#)
 [![Code style: ruff](https://img.shields.io/badge/code%20style-ruff-000000.svg)](https://github.com/astral-sh/ruff)
-[![PRs bienvenues](https://img.shields.io/badge/PRs-bienvenues-brightgreen.svg)](.github/PULL_REQUEST_TEMPLATE.md)
+[![PRs bienvenues](https://img.shields.io/badge/PRs-bienvenues-brightgreen.svg)](https://github.com/warith-harchaoui/vocal-helper/blob/main/.github/PULL_REQUEST_TEMPLATE.md)
 [![Local-first](https://img.shields.io/badge/privacy-local--first-2f6f5e.svg)](#la-promesse)
 
 `Vocal Helper` fait partie de la collection `AI Helpers` — des bibliothèques Python pensées pour bâtir des outils d'intelligence artificielle.
@@ -80,7 +80,7 @@ complet et fait sa propre segmentation.
 
 ## Installation
 
-> **Déploiement sur un serveur GPU (processeur graphique) ?** Voir [TECHNICAL_STACK.md](TECHNICAL_STACK.md)
+> **Déploiement sur un serveur GPU (processeur graphique) ?** Voir [TECHNICAL_STACK.md](https://github.com/warith-harchaoui/vocal-helper/blob/main/TECHNICAL_STACK.md)
 > pour la recette complète : CUDA + PyTorch, whisper.cpp compilé avec
 > `GGML_CUDA=on`, pyannote 3.1 sur MPS/CUDA, service systemd Ollama,
 > RTF (facteur temps réel) attendus par GPU, et un manifest
@@ -105,7 +105,7 @@ pip install 'vocal-helper[all]'
 ### Depuis les sources (sans PyPI)
 
 ```bash
-pip install 'vocal-helper[all] @ git+https://github.com/warith-harchaoui/vocal-helper.git@v0.5.2'
+pip install "vocal-helper[all]"
 ```
 
 L'extra `[all]` installe la source micro, pyannote et Ollama. À la carte si tout n'est pas nécessaire :
@@ -232,9 +232,9 @@ quitte jamais la machine.
 ### En tant que skill d'agent
 
 `skills/vocal-helper/` empaquette vocal-helper comme **skill Claude** *et* skill
-**OpenCode**. Voir [`skills/README.md`](skills/README.md) pour l'installer
+**OpenCode**. Voir [`skills/README.md`](https://github.com/warith-harchaoui/vocal-helper/blob/main/skills/README.md) pour l'installer
 (liens symboliques vers `~/.claude/skills/` et `~/.opencode/skills/`) et
-[`TRIGGERS.md`](TRIGGERS.md) pour le catalogue exhaustif des déclencheurs.
+[`TRIGGERS.md`](https://github.com/warith-harchaoui/vocal-helper/blob/main/TRIGGERS.md) pour le catalogue exhaustif des déclencheurs.
 
 ## Abonnés — fan-out sans posséder la boucle
 
@@ -362,4 +362,4 @@ et
 
 ## Licence
 
-Ce projet est distribué sous licence BSD-3-Clause — voir le fichier [LICENSE](LICENSE) pour les détails.
+Ce projet est distribué sous licence BSD-3-Clause — voir le fichier [LICENSE](https://github.com/warith-harchaoui/vocal-helper/blob/main/LICENSE) pour les détails.

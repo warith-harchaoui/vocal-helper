@@ -3,10 +3,10 @@
 [🇫🇷](https://github.com/warith-harchaoui/vocal-helper/blob/main/LISEZMOI.md) · [🇬🇧](https://github.com/warith-harchaoui/vocal-helper/blob/main/README.md)
 
 [![CI](https://github.com/warith-harchaoui/vocal-helper/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/warith-harchaoui/vocal-helper/actions/workflows/ci.yml)
-[![License: BSD-3-Clause](https://img.shields.io/badge/License-BSD%203--Clause-blue.svg)](LICENSE)
+[![License: BSD-3-Clause](https://img.shields.io/badge/License-BSD%203--Clause-blue.svg)](https://github.com/warith-harchaoui/vocal-helper/blob/main/LICENSE)
 [![Python](https://img.shields.io/badge/python-3.10%E2%80%933.13-blue.svg)](#)
 [![Code style: ruff](https://img.shields.io/badge/code%20style-ruff-000000.svg)](https://github.com/astral-sh/ruff)
-[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](.github/PULL_REQUEST_TEMPLATE.md)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/warith-harchaoui/vocal-helper/blob/main/.github/PULL_REQUEST_TEMPLATE.md)
 [![Local-first](https://img.shields.io/badge/privacy-local--first-2f6f5e.svg)](#the-promise)
 
 
@@ -162,7 +162,7 @@ pip install 'vocal-helper[all]'
 ### From source (no PyPI)
 
 ```bash
-pip install 'vocal-helper[all] @ git+https://github.com/warith-harchaoui/vocal-helper.git@v0.5.2'
+pip install "vocal-helper[all]"
 ```
 
 The `[all]` extra brings the mic source, both diarization backends (NeMo — the default — and pyannote), and Ollama. Pick à la carte if you don't need everything :
@@ -343,9 +343,9 @@ progressively (motion-guarded) so a long transcript reads as if it streams in.
 
 `skills/vocal-helper/` packages vocal-helper as a **Claude Skill** *and* an
 **OpenCode skill** so an agent can transcribe / diarize / summarise on your
-behalf. See [`skills/README.md`](skills/README.md) to install (symlink into
+behalf. See [`skills/README.md`](https://github.com/warith-harchaoui/vocal-helper/blob/main/skills/README.md) to install (symlink into
 `~/.claude/skills/` and `~/.opencode/skills/`), and
-[`TRIGGERS.md`](TRIGGERS.md) for the exhaustive catalogue of what invokes it.
+[`TRIGGERS.md`](https://github.com/warith-harchaoui/vocal-helper/blob/main/TRIGGERS.md) for the exhaustive catalogue of what invokes it.
 
 ## Subscribers — fan-out without owning the loop
 
@@ -453,4 +453,4 @@ and
 
 ## License
 
-This project is licensed under the BSD-3-Clause License — see the [LICENSE](LICENSE) file for details.
+This project is licensed under the BSD-3-Clause License — see the [LICENSE](https://github.com/warith-harchaoui/vocal-helper/blob/main/LICENSE) file for details.
