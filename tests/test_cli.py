@@ -19,6 +19,23 @@ import pytest
 
 from vocal_helper import cli
 
+# A resolved engine descriptor, as ``resolve_engine`` (best-engine-ai-helper)
+# would return. The CLI threads this into the LLM/EOT stage configs. Tests patch
+# ``resolve_engine`` to hand this back so no hardware detection / engine
+# resolution runs — the model is never a CLI flag any more.
+FAKE_ENGINE = {
+    "backend": "ollama",
+    "base_url": "http://localhost:11434",
+    "llm": {"model": "test-model:latest"},
+}
+
+
+def _patch_engine(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Make the argparse config builder resolve to :data:`FAKE_ENGINE`."""
+    import vocal_helper.cli_argparse as cli_argparse
+
+    monkeypatch.setattr(cli_argparse, "resolve_engine", lambda **_: FAKE_ENGINE)
+
 
 def _ns(**overrides: object) -> argparse.Namespace:
     """Build a minimal Namespace matching ``add_common`` defaults.
@@ -40,9 +57,8 @@ def _ns(**overrides: object) -> argparse.Namespace:
         "diar_backend": "pyannote",
         "join_threshold": None,
         "llm": False,
-        "llm_model": "gemma4:e4b",
         "llm_recent_window_s": 60.0,
-        "ollama_host": None,
+        "endpoint": None,
         "jsonl": False,
     }
     base.update(overrides)
@@ -112,22 +128,18 @@ def test_build_config_end_to_end(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_build_config_llm_block(monkeypatch: pytest.MonkeyPatch) -> None:
-    """``--llm`` builds the LLM block; ``host`` is present only when supplied.
+    """``--llm`` builds the LLM block carrying the resolved engine, not a model tag.
 
-    Covers both LLM shapes in one scenario: with ``--ollama-host`` the block
-    carries the full three keys, and without it the ``host`` key is *omitted*
-    (not set to ``None``), so downstream Ollama defaults apply.
+    The model is never a flag: best-engine-ai-helper resolves it from the
+    committed brief. The builder threads that engine descriptor into the LLM
+    stage config alongside the verbatim window; no ``model`` / ``host`` keys.
     """
-    cfg_host = cli._build_config(_ns(llm=True, ollama_host="http://localhost:11434"))
-    assert cfg_host.llm == {
-        "model": "gemma4:e4b",
-        "recent_window_s": 60.0,
-        "host": "http://localhost:11434",
-    }
+    _patch_engine(monkeypatch)
 
-    cfg_nohost = cli._build_config(_ns(llm=True))
-    assert cfg_nohost.llm == {"model": "gemma4:e4b", "recent_window_s": 60.0}
-    assert "host" not in cfg_nohost.llm  # omitted, not None
+    cfg = cli._build_config(_ns(llm=True))
+    assert cfg.llm == {"engine": FAKE_ENGINE, "recent_window_s": 60.0}
+    assert "model" not in cfg.llm  # model lives in the engine, not the block
+    assert "host" not in cfg.llm
 
 
 # ---------------------------------------------------------------------------
@@ -234,27 +246,26 @@ def test_click_cli_surface() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_argparse_file_config_end_to_end() -> None:
+def test_argparse_file_config_end_to_end(monkeypatch: pytest.MonkeyPatch) -> None:
     """The shipped builder wires backend/LLM/prompt/EOT defaults and opt-ins correctly.
 
     One scenario spanning every derived field of the shipped config: the bare
     ``mic`` run defaults the backend to ``auto`` (router-resolved), leaves the
-    ASR ``initial_prompt`` empty, and attaches no EOT stage; ``--llm`` defaults
-    to the analyst model picked by ``best-engine-ai-helper`` for this machine;
-    ``--initial-prompt`` threads into the ASR whisper-bias config; and
-    ``--eot`` opts into an EOT block keyed by ``eot_model``.
+    ASR ``initial_prompt`` empty, and attaches no EOT stage; ``--llm`` carries
+    the resolved engine (model comes from the brief, never a flag);
+    ``--initial-prompt`` threads into the ASR whisper-bias config; and ``--eot``
+    opts into an EOT block carrying the same resolved engine.
     """
-    import best_engine_ai_helper as beh
+    _patch_engine(monkeypatch)
 
     base = _argparse_config(["mic"])
     assert base.diar["backend"] == "auto"  # router decides at run time
     assert base.asr["initial_prompt"] == ""  # generic transcription by default
     assert base.eot is None  # one extra LLM hop is opt-in, not free
 
-    # --llm defaults to the suite-picked analyst model (not hard-coded here,
-    # so the assertion tracks the machine's selection or a safe default).
+    # --llm attaches the analyst with the resolved engine; no model tag flag.
     assert _argparse_config(["mic", "--llm"]).llm == {
-        "model": beh.text_model(),
+        "engine": FAKE_ENGINE,
         "recent_window_s": 60.0,
     }
 
@@ -262,9 +273,9 @@ def test_argparse_file_config_end_to_end() -> None:
     prompted = _argparse_config(["mic", "--initial-prompt", "telemedicine consult"])
     assert prompted.asr["initial_prompt"] == "telemedicine consult"
 
-    # --eot opts in; --eot-model is stored under the SemanticEOTStage key.
-    eot = _argparse_config(["mic", "--eot", "--eot-model", "qwen2.5:3b"])
-    assert eot.eot == {"eot_model": "qwen2.5:3b"}
+    # --eot opts in; the resolved engine is threaded into the SemanticEOTStage.
+    eot = _argparse_config(["mic", "--eot"])
+    assert eot.eot == {"engine": FAKE_ENGINE}
 
 
 def test_router_backend_resolution() -> None:

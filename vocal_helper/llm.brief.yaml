@@ -1,0 +1,22 @@
+# vocal-helper — LLM usage brief (committed, hardware-independent).
+#
+# best-engine-ai-helper resolves this, per machine, into a gitignored
+# llm.engine.yaml naming the backend + model to serve. No DEFAULT_MODEL
+# constant lives in the package: the model is read only from that engine
+# file (resolve with: best-engine-ai-helper resolve --brief llm.brief.yaml
+# --out llm.engine.yaml, or on first use via best_engine_ai_helper.ensure).
+
+mode: local              # local | cloud — only local is supported today
+kind: llm                # this repo needs a text LLM only (no VLM)
+headroom: 0.5            # max fraction of usable accelerator memory (clamped to 0.5)
+min_tps: 15             # comfort throughput floor (tokens/s)
+structured_output: false # summaries + a one-word EOT verdict are free-form text
+task: >-
+  Meeting note-taker for a live conversation. Maintain a concise rolling
+  summary of a running transcript: fold each batch of new utterances into
+  at most six bullet points, preserve speaker attributions, drop small talk,
+  and write in the speakers' own language. Also act as a lightweight
+  end-of-turn classifier — given the latest snippet of a single speaker,
+  decide whether that speaker has finished their turn. Outputs are short and
+  the model runs online alongside VAD / diarization / ASR, so low latency and
+  a small footprint matter more than raw model size.

@@ -53,4 +53,8 @@ todo.md
 # Local-only strategy note (not shipped)
 claude-skill.md
 
+# best-engine-ai-helper: the resolved engine descriptor is machine-specific
+# (the brief, llm.brief.yaml, stays committed; the engine file is derived).
+vocal_helper/llm.engine.yaml
+
 # Generated landscape/positioning CSVs (rebuilt from LANDSCAPE.md / PAYSAGE.md)
