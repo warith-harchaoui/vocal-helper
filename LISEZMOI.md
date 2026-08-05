@@ -41,7 +41,7 @@ flowchart LR
       --> V[VAD<br/><i>Silero v5 ONNX</i>]:::vad
       --> D[Diar en ligne<br/><i>TitaNet · clustering cosinus</i>]:::diar
       --> A[STT<br/><i>whisper.cpp turbo</i>]:::asr
-      -.-> L[Analyste LLM<br/><i>gemma3:4b · résumé glissant</i>]:::llm
+      -.-> L[Analyste LLM<br/><i>modèle best-engine · résumé glissant</i>]:::llm
 
     classDef source fill:#CCE4FF,stroke:#007AFF,stroke-width:2px,color:#0b3d91
     classDef vad    fill:#00ffef,stroke:#79dbdc,stroke-width:2px,color:#003b3c
@@ -60,7 +60,7 @@ flowchart LR
     S([Source<br/><i>buffer PCM complet</i>]):::source
       --> D[Diar offline<br/><i>pyannote 3.1<br/>buffer entier</i>]:::diar
       --> A[STT<br/><i>whisper.cpp turbo</i>]:::asr
-      -.-> L[Analyste LLM<br/><i>gemma3:4b · résumé glissant</i>]:::llm
+      -.-> L[Analyste LLM<br/><i>modèle best-engine · résumé glissant</i>]:::llm
 
     classDef source fill:#CCE4FF,stroke:#007AFF,stroke-width:2px,color:#0b3d91
     classDef diar   fill:#EFDCF8,stroke:#AF52DE,stroke-width:2px,color:#4a1063
@@ -76,7 +76,7 @@ complet et fait sa propre segmentation.
 | **VAD** (détection d'activité vocale) | Silero v5 ONNX (CPU, processeur central) | Fenêtre 32 ms, `activity_threshold=0.5`, `min_silence_ms=300` par défaut. |
 | **Diarisation (online)** | `pyannote/embedding` (défaut) ou `nvidia/titanet_large` (NeMo) | Embedding par segment + clustering moyenne-mobile par distance cosinus, `join_threshold=0.30`. Calibré sur AMI dev-slice N=8 (2026-06-30). |
 | **STT** (transcription de la parole) | [`pywhispercpp`](https://github.com/abdeladim-s/pywhispercpp) turbo | `large-v3-turbo-q5_0` par défaut, timestamps mots activés. Exécution en thread pool pour ne jamais bloquer la boucle async. |
-| **Analyste LLM** *(optionnel)* | Gemma 4 e4b servi par Ollama (`gemma4:e4b`) | Résumé glissant de tout ce qui est **plus vieux que 60 s**. La fenêtre récente de 60 s reste verbatim. La variante `-mlx` est auto-sélectionnée par Ollama sur Apple-Silicon. |
+| **Analyste LLM** *(optionnel)* | Modèle résolu via **best-engine-ai-helper** depuis le brief versionné `vocal_helper/llm.brief.yaml`, servi par Ollama ou vLLM | Résumé glissant de tout ce qui est **plus vieux que 60 s**. La fenêtre récente de 60 s reste verbatim. Aucun tag de modèle n'est codé en dur : `best-engine-ai-helper` résout le brief en un `llm.engine.yaml` spécifique à la machine (gitignoré) qui nomme le backend + le modèle, et chaque requête passe par `best_engine_ai_helper.llm.chat`. |
 
 ## Installation
 
@@ -117,14 +117,20 @@ L'extra `[all]` installe la source micro, pyannote et Ollama. À la carte si tou
 | `[pyannote]` | `pyannote.audio` | `diar={'backend': 'pyannote'}` (défaut) |
 | `[nemo]` | `torch`, `nemo-toolkit[asr]` | `diar={'backend': 'nemo'}` |
 | `[sherpa]` | `sherpa-onnx` | `diar={'backend': 'sherpa'}` — le même TitaNet via onnxruntime, **sans PyTorch** et léger |
-| `[llm]` | `ollama` | `llm={'model': 'gemma4:e4b'}` |
+| `[llm]` | `best-engine-ai-helper` (dép. cœur ; pas de client `ollama`) | `llm={'engine': voh.resolve_engine()}` |
 | `[all]` | Tout ce qui précède | Installation en une ligne |
 
-[Ollama](https://ollama.com) doit également tourner en local si l'analyste LLM est activé :
+Si l'analyste LLM est activé, résolvez l'engine une fois (par machine) puis
+démarrez le backend choisi. `best-engine-ai-helper` lit le brief versionné
+`vocal_helper/llm.brief.yaml`, choisit le backend + le modèle pour votre matériel
+(Ollama sur macOS / CPU, vLLM sur GPU discret) et écrit un
+`vocal_helper/llm.engine.yaml` gitignoré. `voh.resolve_engine()` le fait à la
+première utilisation, ou explicitement :
 
 ```bash
-ollama pull gemma4:e4b
-ollama serve
+# Depuis le dossier du paquet vocal_helper (qui contient llm.brief.yaml) :
+best-engine-ai-helper resolve --brief llm.brief.yaml --out llm.engine.yaml
+ollama serve   # la ligne `serve:` de l'engine nomme le `ollama pull …` exact
 ```
 
 ### Poids des modèles — aucun HuggingFace requis
@@ -170,7 +176,7 @@ async def main():
         config=voh.PipelineConfig(
             diar={"backend": "pyannote"},
             asr={"model": "large-v3-turbo-q5_0", "language": "auto"},  # découverte depuis l'audio
-            llm={"model": "gemma4:e4b"},   # retirer pour désactiver
+            llm={"engine": voh.resolve_engine()},   # retirer pour désactiver
         ),
     )
     async for ev in pipeline.run():

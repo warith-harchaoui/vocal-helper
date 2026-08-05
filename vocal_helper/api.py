@@ -52,8 +52,6 @@ import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-import best_engine_ai_helper as beh
-
 # ``numpy`` is imported lazily inside the request path (it is a heavy import
 # and the meta / health endpoints never touch it). Under ``TYPE_CHECKING``
 # we still pull the array types so annotations resolve for type-checkers
@@ -432,15 +430,19 @@ def pipeline(
         "by duration (short→nemo, long→pyannote), reporting DER + RTF.",
     ),
     llm: bool = Form(False, description="Enable the LLM analyst stage."),
-    llm_model: str = Form(beh.text_model()),
     llm_recent_window_s: float = Form(60.0),
+    endpoint: str = Form(
+        "",
+        description="Override the LLM serving base URL passed to best-engine-ai-helper "
+        "(e.g. a remote Ollama / vLLM host). Empty = the backend's local default.",
+    ),
 ) -> JSONResponse:
     """Run the full OfflinePipeline on the uploaded file and return the events."""
     # Local imports so ``pip install vocal-helper[api]`` alone (without the
     # pyannote / nemo extras) still boots the server for /health probes.
     import numpy as np
 
-    from vocal_helper.pipeline import OfflinePipeline, OfflinePipelineConfig
+    from vocal_helper.pipeline import OfflinePipeline, OfflinePipelineConfig, resolve_engine
     from vocal_helper.sources import from_numpy_array
 
     # Exactly one source: an uploaded file (primary) or a URL the LOCAL server
@@ -464,10 +466,13 @@ def pipeline(
         # (settings.yaml ``engines.diarization_url``) — no HuggingFace token.
         diar_cfg: dict = {"backend": resolved_backend}
         # The LLM analyst stage is opt-in : only attach its config when the
-        # caller asked for it, otherwise leave it ``None`` (stage skipped).
+        # caller asked for it, otherwise leave it ``None`` (stage skipped). The
+        # model is never a form field — best-engine-ai-helper resolves it (per
+        # machine) from the committed ``llm.brief.yaml``.
         llm_cfg: dict | None = None
         if llm:
-            llm_cfg = {"model": llm_model, "recent_window_s": llm_recent_window_s}
+            engine = resolve_engine(endpoint=endpoint.strip() or None)
+            llm_cfg = {"engine": engine, "recent_window_s": llm_recent_window_s}
         cfg = OfflinePipelineConfig(diar=diar_cfg, asr=asr_cfg, llm=llm_cfg)
 
         def factory() -> AsyncIterator[PcmFrame]:

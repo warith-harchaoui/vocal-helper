@@ -23,11 +23,12 @@ Stages, all stitched by :class:`Pipeline` :
 4. **STT** — :class:`WhisperStage`. pywhispercpp turbo
    (``large-v3-turbo-q5_0``), threads default 6, word timestamps on.
    Runs in :func:`asyncio.to_thread` so the loop is never blocked.
-5. **LLM analyst** (optional) — :class:`GemmaAnalystStage`. Ollama
-   serves the model chosen by the suite's model picker
-   (:func:`best_engine_ai_helper.text_model`) ; the stage keeps a rolling
-   summary of everything older than ``recent_window_s = 60`` seconds and
-   emits a fresh :class:`SummarySnapshot` after every accepted utterance.
+5. **LLM analyst** (optional) — :class:`GemmaAnalystStage`. The model is
+   resolved by ``best-engine-ai-helper`` from the committed
+   ``vocal_helper/llm.brief.yaml`` (via :func:`resolve_engine`) and served
+   over Ollama or vLLM ; the stage keeps a rolling summary of everything
+   older than ``recent_window_s = 60`` seconds and emits a fresh
+   :class:`SummarySnapshot` after every accepted utterance.
 
 Quickstart
 ----------
@@ -39,7 +40,7 @@ Quickstart
 ...         source=lambda: voh.sources.from_microphone(),
 ...         config=voh.PipelineConfig(
 ...             diar={"backend": "pyannote"},
-...             llm={"model": "qwen2.5vl:7b"},
+...             llm={"engine": voh.resolve_engine()},
 ...         ),
 ...     )
 ...     async for ev in pipeline.run():
@@ -89,6 +90,7 @@ from vocal_helper.pipeline import (
     OfflinePipelineConfig,
     Pipeline,
     PipelineConfig,
+    resolve_engine,
 )
 from vocal_helper.router import BackendPlan, select_diarization
 from vocal_helper.types import (
@@ -140,6 +142,7 @@ __all__ = [
     "PipelineConfig",
     "OfflinePipeline",
     "OfflinePipelineConfig",
+    "resolve_engine",
     "SileroVADStage",
     "OnlineDiarStage",
     "OfflineDiarStage",

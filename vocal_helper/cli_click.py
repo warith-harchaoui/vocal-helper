@@ -39,8 +39,6 @@ from collections.abc import AsyncIterator, Callable, Mapping
 from pathlib import Path
 from typing import Any
 
-import best_engine_ai_helper as beh
-
 try:
     import click
 except ImportError as exc:  # pragma: no cover
@@ -53,6 +51,7 @@ from vocal_helper.pipeline import (
     OfflinePipelineConfig,
     Pipeline,
     PipelineConfig,
+    resolve_engine,
 )
 from vocal_helper.types import PcmFrame
 
@@ -72,11 +71,9 @@ def _pipeline_config(
     diar_backend: str,
     join_threshold: float | None,
     llm: bool,
-    llm_model: str,
     llm_recent_window_s: float,
-    ollama_host: str | None,
+    endpoint: str | None,
     eot: bool,
-    eot_model: str | None,
 ) -> PipelineConfig:
     """Build a :class:`PipelineConfig` from the shared click options."""
     # ASR dict passed straight through to WhisperStage.__init__ — keys mirror
@@ -95,22 +92,19 @@ def _pipeline_config(
     # the diarizer keep its tuned 0.30 default rather than pinning it here.
     if join_threshold is not None:
         diar_cfg["join_threshold"] = join_threshold
-    # LLM analyst is opt-in — leave it None unless ``--llm`` was passed.
+    # LLM analyst and semantic-EOT stages are opt-in and both need an LLM. The
+    # model is never a flag — best-engine-ai-helper resolves it (per machine)
+    # from the committed ``llm.brief.yaml``. Resolve once, thread the same
+    # engine descriptor into whichever stage(s) are enabled.
     llm_cfg: dict | None = None
-    if llm:
-        llm_cfg = {"model": llm_model, "recent_window_s": llm_recent_window_s}
-        # Only forward the host override when the user set one ; otherwise the
-        # stage falls back to $OLLAMA_HOST / the localhost default itself.
-        if ollama_host:
-            llm_cfg["host"] = ollama_host
-    # Keys must match SemanticEOTStage.__init__ (``eot_model`` / ``host``).
     eot_cfg: dict | None = None
-    if eot:
-        eot_cfg = {}
-        if eot_model:
-            eot_cfg["eot_model"] = eot_model
-        if ollama_host:
-            eot_cfg["host"] = ollama_host
+    if llm or eot:
+        engine = resolve_engine(endpoint=endpoint)
+        if llm:
+            llm_cfg = {"engine": engine, "recent_window_s": llm_recent_window_s}
+        # Keys must match SemanticEOTStage.__init__ (``engine``).
+        if eot:
+            eot_cfg = {"engine": engine}
     return PipelineConfig(diar=diar_cfg, asr=asr_cfg, llm=llm_cfg, eot=eot_cfg)
 
 
@@ -213,11 +207,6 @@ def _common_options(func: Callable[..., object]) -> Callable[..., object]:
         "--jsonl", is_flag=True, default=False, help="Emit one JSON event per line."
     )(func)
     func = click.option(
-        "--eot-model",
-        default=None,
-        help="Ollama model for the EOT completeness classifier (default: the suite LLM, qwen2.5vl:7b).",
-    )(func)
-    func = click.option(
         "--eot",
         is_flag=True,
         default=False,
@@ -225,21 +214,18 @@ def _common_options(func: Callable[..., object]) -> Callable[..., object]:
         "detector). Reduces mid-sentence cuts at the cost of "
         "one extra LLM hop per voiced segment.",
     )(func)
-    func = click.option("--ollama-host", default=None, help="Override for the Ollama server host.")(
-        func
-    )
+    func = click.option(
+        "--endpoint",
+        default=None,
+        help="Override the LLM serving base URL passed to best-engine-ai-helper "
+        "(e.g. a remote Ollama / vLLM host).",
+    )(func)
     func = click.option(
         "--llm-recent-window-s",
         type=float,
         default=60.0,
         show_default=True,
         help="Verbatim window (seconds) kept out of the summary.",
-    )(func)
-    func = click.option(
-        "--llm-model",
-        default=beh.text_model(),
-        show_default=True,
-        help="Ollama model tag (default: the model chosen by best-engine-ai-helper).",
     )(func)
     func = click.option("--llm", is_flag=True, default=False, help="Enable the LLM analyst stage.")(
         func
@@ -315,11 +301,9 @@ def mic(
     diar_backend: str,
     join_threshold: float | None,
     llm: bool,
-    llm_model: str,
     llm_recent_window_s: float,
-    ollama_host: str | None,
+    endpoint: str | None,
     eot: bool,
-    eot_model: str | None,
     jsonl: bool,
     device: str | None,
 ) -> None:
@@ -334,11 +318,9 @@ def mic(
         diar_backend=diar_backend,
         join_threshold=join_threshold,
         llm=llm,
-        llm_model=llm_model,
         llm_recent_window_s=llm_recent_window_s,
-        ollama_host=ollama_host,
+        endpoint=endpoint,
         eot=eot,
-        eot_model=eot_model,
     )
 
     def factory() -> AsyncIterator[PcmFrame]:
@@ -396,11 +378,9 @@ def file(
     diar_backend: str,
     join_threshold: float | None,
     llm: bool,
-    llm_model: str,
     llm_recent_window_s: float,
-    ollama_host: str | None,
+    endpoint: str | None,
     eot: bool,
-    eot_model: str | None,
     jsonl: bool,
     path: str,
     no_real_time: bool,
@@ -419,11 +399,9 @@ def file(
         diar_backend=diar_backend,
         join_threshold=join_threshold,
         llm=llm,
-        llm_model=llm_model,
         llm_recent_window_s=llm_recent_window_s,
-        ollama_host=ollama_host,
+        endpoint=endpoint,
         eot=eot,
-        eot_model=eot_model,
     )
 
     def factory() -> AsyncIterator[PcmFrame]:
@@ -476,11 +454,9 @@ def url(
     diar_backend: str,
     join_threshold: float | None,
     llm: bool,
-    llm_model: str,
     llm_recent_window_s: float,
-    ollama_host: str | None,
+    endpoint: str | None,
     eot: bool,
-    eot_model: str | None,
     jsonl: bool,
     url: str,
 ) -> None:
@@ -495,11 +471,9 @@ def url(
         diar_backend=diar_backend,
         join_threshold=join_threshold,
         llm=llm,
-        llm_model=llm_model,
         llm_recent_window_s=llm_recent_window_s,
-        ollama_host=ollama_host,
+        endpoint=endpoint,
         eot=eot,
-        eot_model=eot_model,
     )
 
     def factory() -> AsyncIterator[PcmFrame]:

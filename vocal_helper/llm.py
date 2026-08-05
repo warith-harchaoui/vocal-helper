@@ -19,7 +19,13 @@ Algorithm
   - Emit a :class:`SummarySnapshot` with the current
     ``(summary, recent)`` pair.
 
-The LLM call runs in a worker thread (Ollama's HTTP client blocks).
+The model is never hard-coded here. The stage receives a resolved
+**engine descriptor** (from ``best_engine_ai_helper.ensure`` on the
+package's ``llm.brief.yaml``) and routes every request through
+``best_engine_ai_helper.llm.chat`` — which dispatches to Ollama or vLLM
+per the descriptor. ``chat`` is synchronous, so the call is offloaded to
+a worker thread to keep the event loop responsive.
+
 If the LLM is unreachable, the stage logs a warning and emits a
 :class:`SummarySnapshot` with the previous ``summary`` unchanged,
 so downstream consumers never miss an event.
@@ -32,47 +38,15 @@ Warith HARCHAOUI — https://linkedin.com/in/warith-harchaoui
 from __future__ import annotations
 
 import asyncio
-import os
 from collections import deque
 from dataclasses import dataclass, field
 from typing import Any
 
-import best_engine_ai_helper as beh
 import os_helper as osh
+from best_engine_ai_helper import llm
 
 from vocal_helper.types import SummarySnapshot, Utterance
 
-
-def _extract_response_text(resp: object) -> str:
-    """Pull the response text out of an Ollama ``generate`` reply.
-
-    Different ``ollama`` package versions return either a plain dict
-    or a Pydantic ``GenerateResponse``. Both have a ``"response"`` key
-    or ``.response`` attribute.
-    """
-    if isinstance(resp, dict):
-        return str(resp.get("response", "")).strip()
-    text = getattr(resp, "response", None)
-    if text is not None:
-        return str(text).strip()
-    # Last-resort fallback — the model dump.
-    return str(resp).strip()
-
-
-def _default_analyst_model() -> str:
-    """Return the analyst stage's text model tag.
-
-    Honours ``VOCAL_HELPER_LLM_MODEL`` first; otherwise defers to the suite's
-    model picker, ``best_engine_ai_helper.text_model()`` (the tag selected for
-    this machine by ``best-engine-ai-helper pull``, or a safe default).
-    """
-    override = os.environ.get("VOCAL_HELPER_LLM_MODEL")
-    if override:
-        return override
-    return beh.text_model()
-
-
-DEFAULT_MODEL = _default_analyst_model()
 DEFAULT_RECENT_WINDOW_S = 60.0
 # ``flush_every_n`` is the count-based fallback — refresh the summary
 # every N evicted utterances. Used only when ``flush_every_s`` is
@@ -131,18 +105,17 @@ class GemmaAnalystStage:
 
     Parameters
     ----------
-    model : str
-        Ollama model tag. Default: the model chosen for this machine by
-        ``best_engine_ai_helper.text_model()``, the suite's model picker.
+    engine : dict
+        Resolved engine descriptor from
+        ``best_engine_ai_helper.ensure(<vocal_helper package dir>)`` —
+        it names the backend (Ollama / vLLM), the base URL, and the
+        text model to serve. No default model is baked in here.
     recent_window_s : float
         How many seconds of verbatim transcript to keep before
         folding into the summary. Default 60 s.
     flush_every_n : int
         Update the summary every ``flush_every_n`` new utterances
         that crossed the recent window. Default 5.
-    host : str, optional
-        Ollama host URL. Defaults to the ``OLLAMA_HOST`` env var or
-        ``http://localhost:11434``.
     prompt_template : str
         Override the canonical summarisation prompt. Two
         placeholders : ``{summary}`` (current digest) and
@@ -153,24 +126,23 @@ class GemmaAnalystStage:
     def __init__(
         self,
         *,
-        model: str = DEFAULT_MODEL,
+        engine: dict[str, Any],
         recent_window_s: float = DEFAULT_RECENT_WINDOW_S,
         flush_every_n: int = DEFAULT_FLUSH_EVERY_N,
         flush_every_s: float | None = DEFAULT_FLUSH_EVERY_S,
-        host: str | None = None,
         prompt_template: str = DEFAULT_SUMMARY_PROMPT,
     ) -> None:
         """Configure the analyst stage without touching the network.
 
-        The Ollama client is created lazily in :meth:`_ensure_client` so
-        constructing the stage stays cheap and import-safe ; nothing here
-        can fail on a box without the ``llm`` extra installed.
+        Nothing here reaches the model — ``engine`` is a plain descriptor and
+        every request is issued later through :func:`llm.chat`. Constructing
+        the stage stays cheap and import-safe.
 
         Parameters
         ----------
-        model : str
-            Ollama model tag used for summarisation (defaults to the suite
-            LLM via :data:`DEFAULT_MODEL`).
+        engine : dict
+            Resolved engine descriptor (see the class docstring). The model
+            tag surfaced on each :class:`SummarySnapshot` is read from it.
         recent_window_s : float
             Utterances newer than this many seconds stay in the verbatim
             ``recent`` buffer ; older ones are evicted into the summary.
@@ -181,53 +153,23 @@ class GemmaAnalystStage:
         flush_every_s : float | None
             Duration-based cadence — refresh once the evicted block spans
             this many seconds. Takes precedence over ``flush_every_n``.
-        host : str | None
-            Ollama host URL ; ``None`` lets the client use its default.
         prompt_template : str
             Summarisation prompt with ``{summary}`` / ``{new_block}``
             placeholders.
         """
-        self.model = model
+        self._engine = engine
+        # Model tag stamped on each snapshot (read from the resolved engine,
+        # never a hard-coded constant). Falls back to the empty string if the
+        # descriptor has no llm section.
+        self.model = str(engine.get("llm", {}).get("model", "")) if isinstance(engine, dict) else ""
         self.recent_window_s = recent_window_s
         self.flush_every_n = flush_every_n
         self.flush_every_s = flush_every_s
-        self.host = host
         self.prompt_template = prompt_template
-        self._client: Any = None
         self._buf = _Buffer()
         # Track the t0 of the oldest pending-for-summary utterance so
         # the time-based cadence can fire on duration accumulated.
         self._oldest_pending_t0: float | None = None
-
-    # ----- lifecycle ------------------------------------------------------
-
-    def _ensure_client(self) -> None:
-        """Lazily construct the Ollama client on first use.
-
-        Idempotent : a second call is a no-op once the client exists.
-        The ``ollama`` import is deferred to here so the stage can be
-        imported and configured on a machine without the optional
-        ``llm`` extra ; only actually *running* the stage requires it.
-
-        Raises
-        ------
-        ImportError
-            When the ``ollama`` package is not installed, with a hint to
-            install the ``vocal-helper[llm]`` extra.
-        """
-        if self._client is not None:
-            return
-        try:
-            import ollama  # type: ignore
-        except ImportError as e:  # noqa: BLE001
-            raise ImportError(
-                "GemmaAnalystStage requires ollama. Install with `pip install vocal-helper[llm]`."
-            ) from e
-        # The newer ollama package exposes a ``Client`` constructor.
-        if self.host:
-            self._client = ollama.Client(host=self.host)
-        else:
-            self._client = ollama.Client()
 
     # ----- public coroutine ----------------------------------------------
 
@@ -237,7 +179,6 @@ class GemmaAnalystStage:
         outbox: asyncio.Queue,
     ) -> None:
         """Consume :class:`Utterance` from ``inbox``, push :class:`SummarySnapshot`."""
-        self._ensure_client()
         while True:
             item = await inbox.get()
             if item is None:
@@ -317,8 +258,8 @@ class GemmaAnalystStage:
     def _summarise(self) -> str:
         """Fold the pending block into the running summary via one LLM call.
 
-        Blocks on Ollama's HTTP client, so callers invoke it through
-        :func:`asyncio.to_thread` to keep the event loop responsive.
+        ``llm.chat`` is synchronous (blocks on ``requests``), so callers invoke
+        this through :func:`asyncio.to_thread` to keep the event loop responsive.
 
         Returns
         -------
@@ -339,18 +280,15 @@ class GemmaAnalystStage:
             new_block=new_block,
         )
         try:
-            resp = self._client.generate(model=self.model, prompt=prompt, stream=False)
+            text = llm.chat(prompt, engine=self._engine, kind="llm")
         except Exception as exc:  # noqa: BLE001
             # Network or model error — keep old summary, drop the block
             # so we don't infinitely retry the same poisoned batch.
-            osh.warning(
-                f"GemmaAnalystStage: ollama call failed ({exc!r}); keeping previous summary"
-            )
+            osh.warning(f"GemmaAnalystStage: llm.chat failed ({exc!r}); keeping previous summary")
             self._buf.pending_for_summary.clear()
             return self._buf.summary
-        text = _extract_response_text(resp)
         self._buf.pending_for_summary.clear()
-        return text
+        return str(text).strip()
 
     def _snapshot(self, item_t: float | None) -> SummarySnapshot | None:
         """Build a :class:`SummarySnapshot` from the current buffer state.

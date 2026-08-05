@@ -6,6 +6,47 @@ on, **breaking behaviour and default changes land only in MAJOR releases; MINOR
 adds features compatibly; PATCH is bug-fixes and docs.** The public API is the
 names exported from `vocal_helper.__all__` plus the documented CLI flags.
 
+## [Unreleased]
+
+### Changed
+
+- **LLM analyst + semantic-EOT now follow the suite brief→engine contract.**
+  The model is no longer resolved by `best_engine_ai_helper.text_model()` at
+  import time and is no longer a hard-coded tag. A committed
+  `vocal_helper/llm.brief.yaml` describes the job (a low-latency meeting
+  note-taker + lightweight end-of-turn classifier); `best-engine-ai-helper`
+  resolves it, per machine, into a gitignored `vocal_helper/llm.engine.yaml`
+  naming the backend (Ollama or vLLM) and model. `GemmaAnalystStage` and
+  `SemanticEOTStage` now take an `engine=` descriptor (from the new
+  `vocal_helper.resolve_engine()` / `best_engine_ai_helper.ensure`) and route
+  every request through the synchronous `best_engine_ai_helper.llm.chat`,
+  replacing the direct `ollama.Client().generate(...)` calls.
+- **Entry points** (`cli_argparse`, `cli_click`, `api`) resolve the engine once
+  and thread it into both stages.
+
+### Removed
+
+- **No more model tags or model env-vars.** Dropped `DEFAULT_MODEL` /
+  `_default_analyst_model` / `_extract_response_text` / `_ensure_client` (llm.py)
+  and `DEFAULT_EOT_MODEL` / `_default_eot_model` (eot.py), the
+  `VOCAL_HELPER_LLM_MODEL` and `VOCAL_HELPER_EOT_MODEL` overrides, and the
+  `import ollama` client path in both stages.
+- **CLI/API flags** `--llm-model`, `--eot-model`, and `--ollama-host` are gone;
+  the model comes only from the resolved engine. A new `--endpoint` (CLI) /
+  `endpoint` (API form field) overrides the serving base URL, passed through to
+  `best_engine_ai_helper.ensure(..., endpoint=…)`.
+- **`ollama` dropped from the `[llm]` extra** (which now just re-lists the core
+  `best-engine-ai-helper`); requests go over HTTP via `llm.chat`, so no client
+  library is needed. A new **`[studies]` extra** carries `ollama` for the
+  benchmark scripts under `studies/` that call the Ollama/vLLM clients directly.
+
+### Added
+
+- `vocal_helper.resolve_engine(endpoint=None)` — resolves (and caches, per
+  machine) the LLM engine descriptor from the package's `llm.brief.yaml`.
+- `vocal_helper/llm.brief.yaml` (committed); `vocal_helper/llm.engine.yaml`
+  gitignored.
+
 ## [1.0.0] - 2026-08-02
 
 First stable release. The async VAD → diarization → STT → optional-analyst

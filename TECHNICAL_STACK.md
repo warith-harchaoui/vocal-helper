@@ -295,10 +295,16 @@ Ollama's llama.cpp is compiled with CUDA by default on Linux — it will
 grab the GPU automatically. Verify with `nvidia-smi` while Ollama is
 generating.
 
-**Model choice** :
-- `gemma4:e4b` — the vocal-helper default. ~ 5 GB, ~ 50 tok/s on RTX 4090.
-- `qwen3:8b` — 15 % better summaries in the 2026-06-30 sweep, but ~ 8 GB.
-- `qwen3:0.6b` — for cheap-and-fast EOT gating (Warith's WIP `SemanticEOTStage`).
+**Model choice.** vocal-helper no longer pins a model tag. The analyst and
+EOT stages resolve the committed `vocal_helper/llm.brief.yaml` through
+`best-engine-ai-helper`, which picks the backend + model for the current
+machine (writing a gitignored `llm.engine.yaml`) and prints the exact
+`ollama pull …` in its `serve:` line. Tune the pick via the brief's
+`min_tps` / `headroom` knobs, not a hard-coded tag. Reference points from the
+2026-06-30 sweep the brief is calibrated against:
+- `gemma4:e4b` / `gemma3:4b` — small, low-RTF, comfortable on ~ 5 GB.
+- `qwen3:8b` — ~ 15 % better summaries but ~ 8 GB.
+- `qwen3:0.6b` / `qwen2.5:3b` — cheap-and-fast, good for EOT gating.
 
 ## Configuration
 

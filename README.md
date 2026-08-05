@@ -48,7 +48,7 @@ flowchart LR
       --> V[VAD<br/><i>Silero v5 ONNX</i>]:::vad
       --> D[Online Diar<br/><i>TitaNet · cosine clustering</i>]:::diar
       --> A[STT<br/><i>whisper.cpp turbo</i>]:::asr
-      -.-> L[LLM analyst<br/><i>gemma3:4b · rolling summary</i>]:::llm
+      -.-> L[LLM analyst<br/><i>best-engine model · rolling summary</i>]:::llm
 
     classDef source fill:#CCE4FF,stroke:#007AFF,stroke-width:2px,color:#0b3d91
     classDef vad    fill:#00ffef,stroke:#79dbdc,stroke-width:2px,color:#003b3c
@@ -66,7 +66,7 @@ flowchart LR
     S([Source<br/><i>full PCM buffer</i>]):::source
       --> D[Offline Diar<br/><i>pyannote 3.1<br/>whole-buffer</i>]:::diar
       --> A[STT<br/><i>whisper.cpp turbo</i>]:::asr
-      -.-> L[LLM analyst<br/><i>gemma3:4b · rolling summary</i>]:::llm
+      -.-> L[LLM analyst<br/><i>best-engine model · rolling summary</i>]:::llm
 
     classDef source fill:#CCE4FF,stroke:#007AFF,stroke-width:2px,color:#0b3d91
     classDef diar   fill:#EFDCF8,stroke:#AF52DE,stroke-width:2px,color:#4a1063
@@ -83,7 +83,7 @@ and does its own segmentation.
 | **Online diarization** | `nvidia/titanet_large` (NeMo, default), `pyannote/embedding`, or `sherpa` (torch-free ONNX TitaNet) | Per-segment embedding + cosine-distance running-mean clustering, `join_threshold=0.30`. Default backend switched to NeMo by the 2026-06-30 embedding sweep (`studies/diar_embedding_backend.py`): TitaNet has **+76 % separability margin** (inter − intra median cosine = 0.354 vs pyannote 0.201) on AMI dev-slice, at 7× per-call latency (45 ms vs 6 ms — still negligible per voiced segment). Pass `backend='pyannote'` to skip the ~ 5 GB NeMo install, or `backend='sherpa'` for the torch-free path. |
 | **Offline diarization** | `pyannote/speaker-diarization-3.1` (default), `nvidia/diar_sortformer_v1` (NeMo), or `sherpa` (torch-free) | Whole-buffer call. Inputs longer than `ideal_duration_s` (**3600 s** for pyannote — effectively whole-buffer, chunking is a memory backstop only; **60 s** for NeMo, forced by its Sortformer 90 s cap) are auto-chunked with 10 s overlap and stitched by cosine AHC at `stitch_threshold=0.35`. The 2026-07-14 offline map-reduce study found whole-buffer strictly best for DER (0.143 vs 0.170 at 300 s). `sherpa` clusters the whole buffer internally, so `stitch_threshold` has no effect on it; its clustering is tuned instead by `sherpa_cluster_threshold` (default `0.5`, from clean AMI) and `sherpa_num_clusters` (default `-1` auto), both exposed since **v0.7.0**. The `0.5` default over-segments noisy 2-party telephony into dozens of speakers, so set `sherpa_num_clusters=2` when the count is known (see `doc/studies/diar-study.md` §12 in `pasdebonneoudemauvaisesituation`). **Which backend is picked is decided by the [router](#backend-router--the-aiguilleur) below.** |
 | **STT** | [`pywhispercpp`](https://github.com/abdeladim-s/pywhispercpp) turbo | `large-v3-turbo-q5_0` by default. Word timestamps on. Runs in a thread pool so the event loop never stalls. **Strongly recommended: supply `initial_prompt` (domain bias)** — cuts WER 15-25 pp and saves up to 39 % RTF per the 2026-06-30 sweep (`studies/whisper_prompt_lang_lock.py`). |
-| **LLM analyst** *(optional)* | Ollama-served Gemma 3 4b (`gemma3:4b`) | Rolling summary of everything **older than 60 s**. The recent 60 s window is kept verbatim. Summary refreshes every **60 s of evicted content** (`flush_every_s=60`). Default model `gemma3:4b` selected by the 2026-06-30 7-model Pareto sweep (`studies/llm_model_size_sweep.py`): it dominates `gemma4:e4b-mlx` on BOTH RTF (0.099 vs 0.313, **3× faster**) AND cos_sim (0.466 vs 0.420). Pareto front also exposes `gemma4:12b-mlx` (RTF 2.45, cos_sim 0.496) for offline-batch quality runs, and `qwen2.5:3b` (RTF 0.043) for tight RTF budgets. |
+| **LLM analyst** *(optional)* | Model resolved via **best-engine-ai-helper** from the committed `vocal_helper/llm.brief.yaml`, served over Ollama or vLLM | Rolling summary of everything **older than 60 s**. The recent 60 s window is kept verbatim. Summary refreshes every **60 s of evicted content** (`flush_every_s=60`). No model tag is hard-coded here: `best-engine-ai-helper` resolves the brief into a machine-specific `llm.engine.yaml` (gitignored) naming the backend + model, and the stage routes every request through `best_engine_ai_helper.llm.chat`. The historical 2026-06-30 7-model Pareto sweep (`studies/llm_model_size_sweep.py`) — which surfaced small low-RTF models like `gemma3:4b` / `qwen2.5:3b` and `gemma4:12b-mlx` for offline quality — now informs the brief's `min_tps` / `headroom` knobs rather than a pinned tag. |
 
 ## Backend router — the *aiguilleur*
 
@@ -174,14 +174,20 @@ The `[all]` extra brings the mic source, both diarization backends (NeMo — the
 | `[pyannote]` | `pyannote.audio` | `diar={'backend': 'pyannote'}` (lighter ~500 MB fallback) |
 | `[nemo]` | `torch`, `nemo-toolkit[asr]` | `diar={'backend': 'nemo'}` (default — TitaNet, ~5 GB) |
 | `[sherpa]` | `sherpa-onnx` | `diar={'backend': 'sherpa'}` — the same TitaNet through onnxruntime, **torch-free** and light |
-| `[llm]` | `ollama` | `llm={'model': 'gemma3:4b'}` (default) |
+| `[llm]` | `best-engine-ai-helper` (core dep; no `ollama` client) | `llm={'engine': voh.resolve_engine()}` |
 | `[all]` | All of the above | One-line install |
 
-You also need [Ollama](https://ollama.com) running locally if you enable the LLM analyst :
+If you enable the LLM analyst, resolve the engine once (per machine) and start the
+serving backend it picked. `best-engine-ai-helper` reads the committed
+`vocal_helper/llm.brief.yaml`, chooses the backend + model for your hardware
+(Ollama on macOS / CPU, vLLM on a discrete GPU), and writes a gitignored
+`vocal_helper/llm.engine.yaml`. `voh.resolve_engine()` does this on first use, or run it explicitly:
 
 ```bash
-ollama pull gemma3:4b   # default (or gemma4:12b-mlx for max quality, qwen2.5:3b for min RTF)
-ollama serve   # usually launched at install time
+# From the vocal_helper package directory (holds llm.brief.yaml):
+best-engine-ai-helper resolve --brief llm.brief.yaml --out llm.engine.yaml
+# then start the resolved backend, e.g. on macOS:
+ollama serve   # the engine file's `serve:` line names the exact `ollama pull …`
 ```
 
 ### Model weights — no HuggingFace needed
@@ -242,7 +248,7 @@ async def main():
         config=voh.PipelineConfig(
             diar={"backend": "pyannote"},
             asr={"model": "large-v3-turbo-q5_0", "language": "auto"},  # discovered from the audio
-            llm={"model": "gemma3:4b"},   # remove to disable
+            llm={"engine": voh.resolve_engine()},   # remove to disable
         ),
     )
     async for ev in pipeline.run():
@@ -275,7 +281,7 @@ async def main():
         config=voh.OfflinePipelineConfig(
             diar={"backend": "pyannote"},   # or "nemo" for ≤ 60 s clips
             asr={"language": "auto"},       # discovered from the audio — no default
-            llm={"model": "gemma3:4b"},    # remove to disable
+            llm={"engine": voh.resolve_engine()},    # remove to disable
         ),
     )
     async for ev in pipeline.run():

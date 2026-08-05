@@ -124,7 +124,7 @@ GUI_HTML: str = r"""<!doctype html>
       </div>
       <div class="col-span-2 flex items-center gap-2">
         <input id="llm" type="checkbox" class="h-4 w-4" />
-        <label for="llm" class="text-sm">Add a local Gemma rolling summary</label>
+        <label for="llm" class="text-sm">Add a local LLM rolling summary</label>
       </div>
     </section>
 

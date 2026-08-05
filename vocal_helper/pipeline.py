@@ -30,6 +30,10 @@ import asyncio
 import logging
 from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any
+
+import best_engine_ai_helper as beh
 
 from vocal_helper.asr import WhisperStage
 from vocal_helper.diar import OfflineDiarStage, OnlineDiarStage
@@ -59,6 +63,36 @@ from vocal_helper.vad import SileroVADStage
 # cannot express this named-logger-with-traceback contract ; stdlib logging is
 # the right tool here.
 logger = logging.getLogger(__name__)
+
+# The vocal_helper package directory — where the committed ``llm.brief.yaml``
+# lives and where ``best-engine-ai-helper`` writes the gitignored
+# ``llm.engine.yaml`` it resolves from it.
+_PACKAGE_DIR = Path(__file__).resolve().parent
+
+
+def resolve_engine(*, endpoint: str | None = None) -> dict[str, Any]:
+    """Resolve vocal_helper's LLM engine descriptor via best-engine-ai-helper.
+
+    Loads ``vocal_helper/llm.engine.yaml`` if present, else resolves it from the
+    committed ``vocal_helper/llm.brief.yaml`` on first use (and writes it). The
+    returned descriptor names the backend (Ollama / vLLM), base URL, and text
+    model; it is what the LLM analyst and the semantic-EOT stage consume via
+    ``best_engine_ai_helper.llm.chat``. No default model constant is involved —
+    the model is read only from this resolved engine. Entry points call this
+    once and thread the result into both stages.
+
+    Parameters
+    ----------
+    endpoint : str or None
+        Override the serving base URL passed to ``best_engine_ai_helper.ensure``
+        (e.g. a remote Ollama / vLLM host). ``None`` uses the backend default.
+
+    Returns
+    -------
+    dict
+        The resolved engine descriptor.
+    """
+    return beh.ensure(_PACKAGE_DIR, endpoint=endpoint)
 
 
 async def _await_task_swallow(t: asyncio.Task) -> None:
@@ -137,11 +171,16 @@ class PipelineConfig:
     # enable :class:`SemanticEOTStage` between VAD and diarization
     # (cuts ~ 39 % of mid-sentence breaks per the LiveKit turn-detector
     # white paper, at the cost of one extra LLM hop per voiced segment).
+    # Splatted into :class:`SemanticEOTStage` — so an enabled EOT block must
+    # carry a resolved ``engine`` (from :func:`resolve_engine`), e.g.
+    # ``eot={"engine": resolve_engine()}``.
     eot: dict | None = None
     diar: dict = field(default_factory=dict)
     asr: dict = field(default_factory=dict)
     # ``None`` disables the LLM analyst — useful when you only need
-    # the transcript without summarisation.
+    # the transcript without summarisation. When set, the dict is splatted
+    # into :class:`GemmaAnalystStage` and must carry a resolved ``engine``
+    # (from :func:`resolve_engine`), e.g. ``llm={"engine": resolve_engine()}``.
     llm: dict | None = None
     qsize_pcm: int = _DEFAULT_QSIZE_PCM
     qsize_seg: int = _DEFAULT_QSIZE_SEG
@@ -161,7 +200,7 @@ class Pipeline:
     ...         config=voh.PipelineConfig(
     ...             diar={"backend": "pyannote"},
     ...             asr={"model": "large-v3-turbo-q5_0"},
-    ...             llm={"model": "qwen2.5vl:7b"},
+    ...             llm={"engine": voh.resolve_engine()},
     ...         ),
     ...     )
     ...     async for event in pipeline.run():
@@ -489,7 +528,7 @@ class OfflinePipeline:
     ...         config=voh.OfflinePipelineConfig(
     ...             diar={"backend": "pyannote"},
     ...             asr={"language": "en"},
-    ...             llm={"model": "qwen2.5vl:7b"},
+    ...             llm={"engine": voh.resolve_engine()},
     ...         ),
     ...     )
     ...     async for ev in pipeline.run():

@@ -41,14 +41,13 @@ from collections.abc import AsyncIterator, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
-import best_engine_ai_helper as beh
-
 from vocal_helper.pipeline import (
     OfflinePipeline,
     OfflinePipelineConfig,
     Pipeline,
     PipelineConfig,
     SourceFactory,
+    resolve_engine,
 )
 from vocal_helper.router import select_diarization
 from vocal_helper.types import PcmFrame
@@ -91,26 +90,20 @@ def _build_pipeline_config(args: argparse.Namespace) -> PipelineConfig:
     diar_cfg: dict = {"backend": args.diar_backend}
     if args.join_threshold is not None:
         diar_cfg["join_threshold"] = args.join_threshold
-    # LLM stage is opt-in — omitting --llm leaves it disabled.
+    # LLM analyst and semantic-EOT stages are both opt-in and both need an LLM.
+    # The model is never a flag — best-engine-ai-helper resolves it (per machine)
+    # from the committed ``llm.brief.yaml``. Resolve once and thread the same
+    # engine descriptor into whichever stage(s) are enabled.
     llm_cfg: dict | None = None
-    if args.llm:
-        llm_cfg = {
-            "model": args.llm_model,
-            "recent_window_s": args.llm_recent_window_s,
-        }
-        if args.ollama_host:
-            llm_cfg["host"] = args.ollama_host
-    # SemanticEOTStage is opt-in — enabling it activates the LiveKit-style
-    # turn detector that holds back VAD segments that look mid-thought. The
-    # keys must match :class:`vocal_helper.eot.SemanticEOTStage.__init__`
-    # (``eot_model`` / ``host``), since the pipeline splats this dict.
     eot_cfg: dict | None = None
-    if getattr(args, "eot", False):
-        eot_cfg = {}
-        if getattr(args, "eot_model", None):
-            eot_cfg["eot_model"] = args.eot_model
-        if args.ollama_host:
-            eot_cfg["host"] = args.ollama_host
+    if args.llm or getattr(args, "eot", False):
+        engine = resolve_engine(endpoint=getattr(args, "endpoint", None))
+        if args.llm:
+            llm_cfg = {"engine": engine, "recent_window_s": args.llm_recent_window_s}
+        # SemanticEOTStage — the LiveKit-style turn detector that holds back VAD
+        # segments that look mid-thought. Keys must match its ``__init__``.
+        if getattr(args, "eot", False):
+            eot_cfg = {"engine": engine}
     return PipelineConfig(diar=diar_cfg, asr=asr_cfg, llm=llm_cfg, eot=eot_cfg)
 
 
@@ -480,20 +473,16 @@ def _add_common_flags(sp: argparse.ArgumentParser) -> None:
         "--llm", action="store_true", help="Enable the LLM analyst stage (rolling summary)."
     )
     sp.add_argument(
-        "--llm-model",
-        default=beh.text_model(),
-        help="Ollama model tag (default: the model chosen by best-engine-ai-helper).",
-    )
-    sp.add_argument(
         "--llm-recent-window-s",
         type=float,
         default=60.0,
         help="Verbatim window (seconds) kept out of the summary (default 60).",
     )
     sp.add_argument(
-        "--ollama-host",
+        "--endpoint",
         default=None,
-        help="Override for the Ollama server host (default 127.0.0.1:11434).",
+        help="Override the LLM serving base URL passed to best-engine-ai-helper "
+        "(e.g. a remote Ollama / vLLM host). Default: the backend's local URL.",
     )
     sp.add_argument(
         "--eot",
@@ -502,11 +491,6 @@ def _add_common_flags(sp: argparse.ArgumentParser) -> None:
         "Holds back VAD segments that look mid-thought and merges "
         "them with their successor, reducing mid-sentence cuts at the "
         "cost of one extra LLM hop per voiced segment.",
-    )
-    sp.add_argument(
-        "--eot-model",
-        default=None,
-        help="Ollama model for the EOT completeness classifier (default: the suite LLM, qwen2.5vl:7b).",
     )
     sp.add_argument(
         "--jsonl",

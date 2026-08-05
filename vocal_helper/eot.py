@@ -31,9 +31,10 @@ it :
 1. Runs a fast STT pass (whisper.cpp turbo, same model the downstream
    :class:`WhisperStage` uses — kept in a thread pool to avoid
    stalling the loop).
-2. Asks a classifier LLM (the model chosen by ``best-engine-ai-helper``
-   for the user's machine, served via Ollama) whether the partial
-   transcript is a complete thought.
+2. Asks a classifier LLM (the model resolved by ``best-engine-ai-helper``
+   from ``llm.brief.yaml`` for the user's machine, routed through
+   ``best_engine_ai_helper.llm.chat``) whether the partial transcript is
+   a complete thought.
 3. If complete → emit the segment immediately.
 4. If incomplete → buffer it, wait for the next segment, then merge
    and re-evaluate. After ``max_merge_s`` seconds of accumulation
@@ -51,31 +52,16 @@ Warith HARCHAOUI — https://linkedin.com/in/warith-harchaoui
 from __future__ import annotations
 
 import asyncio
-import os
 import time
 from dataclasses import dataclass
 from typing import Any
 
-import best_engine_ai_helper as beh
 import numpy as np
+from best_engine_ai_helper import llm
 from numpy.typing import NDArray
 
 from vocal_helper.types import VoicedSegment
 
-
-def _default_eot_model() -> str:
-    """Return the EOT classifier's text model tag.
-
-    Honours ``VOCAL_HELPER_EOT_MODEL`` first; otherwise defers to the suite's
-    model picker, ``best_engine_ai_helper.text_model()``.
-    """
-    override = os.environ.get("VOCAL_HELPER_EOT_MODEL")
-    if override:
-        return override
-    return beh.text_model()
-
-
-DEFAULT_EOT_MODEL = _default_eot_model()
 DEFAULT_STT_MODEL = "large-v3-turbo-q5_0"
 DEFAULT_MAX_MERGE_S = 4.0
 DEFAULT_MIN_INCOMPLETE_MS = 800
@@ -106,9 +92,11 @@ class SemanticEOTStage:
 
     Parameters
     ----------
-    eot_model : str
-        Ollama model used as the EOT classifier. Default: the suite LLM
-        (``qwen2.5vl:7b``), served via Ollama on the user's machine.
+    engine : dict
+        Resolved engine descriptor from
+        ``best_engine_ai_helper.ensure(<vocal_helper package dir>)`` —
+        names the backend (Ollama / vLLM), the base URL, and the text
+        model used as the EOT classifier. No default model is baked in.
     stt_model : str
         pywhispercpp model used for the partial transcript pass.
         Default ``large-v3-turbo-q5_0`` — same as the downstream
@@ -121,29 +109,23 @@ class SemanticEOTStage:
         Segments shorter than this are presumed back-channels (acks /
         breaths) and gated by the classifier ; longer segments are
         emitted directly without an LLM call (cheap heuristic).
-    host : str, optional
-        Ollama host URL. Defaults to the ``OLLAMA_HOST`` env var or
-        ``http://localhost:11434``.
     """
 
     def __init__(
         self,
         *,
-        eot_model: str = DEFAULT_EOT_MODEL,
+        engine: dict[str, Any],
         stt_model: str = DEFAULT_STT_MODEL,
         max_merge_s: float = DEFAULT_MAX_MERGE_S,
         min_incomplete_ms: int = DEFAULT_MIN_INCOMPLETE_MS,
-        host: str | None = None,
     ) -> None:
-        """Store the EOT-gating knobs ; defer all model loads to first ``run``."""
-        self.eot_model = eot_model
+        """Store the EOT-gating knobs ; defer the whisper model load to first ``run``."""
+        self._engine = engine
         self.stt_model = stt_model
         self.max_merge_s = max_merge_s
         self.min_incomplete_ms = min_incomplete_ms
-        self.host = host
-        # Clients are lazy — an EOT-disabled pipeline must never import ollama /
+        # Whisper is lazy — an EOT-disabled pipeline must never import
         # pywhispercpp just by being constructed. Populated by ``_ensure_clients``.
-        self._ollama: Any = None
         self._whisper: Any = None
         # At most one segment is held back at a time — the merge chain is linear.
         self._pending: _PendingSegment | None = None
@@ -151,22 +133,13 @@ class SemanticEOTStage:
     # ----- lifecycle ------------------------------------------------------
 
     def _ensure_clients(self) -> None:
-        """Lazily construct the Ollama classifier client and the whisper STT model.
+        """Lazily load the whisper STT model used for the partial-transcript pass.
 
-        Idempotent — safe to call on every ``run`` ; the heavy imports and the
-        model load happen exactly once, on the first invocation.
+        Idempotent — safe to call on every ``run`` ; the heavy import and the
+        model load happen exactly once, on the first invocation. The LLM
+        classifier needs no client: :func:`llm.chat` issues each request from
+        the resolved engine descriptor directly.
         """
-        # Ollama client — routed to an explicit host if the caller gave one,
-        # else it resolves $OLLAMA_HOST / localhost on its own.
-        if self._ollama is None:
-            try:
-                import ollama  # type: ignore
-            except ImportError as e:
-                raise ImportError(
-                    "SemanticEOTStage requires ollama. "
-                    "Install with `pip install vocal-helper[llm]`."
-                ) from e
-            self._ollama = ollama.Client(host=self.host) if self.host else ollama.Client()
         # whisper.cpp model for the fast partial-transcript pass. Silenced
         # (no realtime / progress prints) so it never pollutes the CLI stream.
         if self._whisper is None:
@@ -293,13 +266,10 @@ class SemanticEOTStage:
             return True  # nothing to extend — emit
         prompt = _PROMPT.format(text=text)
         try:
-            resp = self._ollama.generate(model=self.eot_model, prompt=prompt, stream=False)
+            resp = llm.chat(prompt, engine=self._engine, kind="llm")
         except Exception:  # noqa: BLE001
             return True  # classifier offline → fall back to non-gated VAD behaviour
-        if isinstance(resp, dict):
-            answer = str(resp.get("response", "")).strip().lower()
-        else:
-            answer = str(getattr(resp, "response", "")).strip().lower()
+        answer = str(resp).strip().lower()
         # Liberal parser : look for YES somewhere in the first ~ 10 chars.
         head = answer[:10]
         return "yes" in head and "no" not in head[: head.find("yes") + 3]

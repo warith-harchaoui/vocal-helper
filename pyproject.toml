@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "vocal-helper"
 version = "1.0.0"
-description = "Vocal Helper — async producer/consumer pipeline turning a live PCM stream into diarized, transcribed utterances and (optionally) a rolling LLM summary. Stages: Voice Activity Detection → online speaker diarization (Hungarian-style cosine clustering on backend embeddings) → STT (pywhispercpp turbo) → optional analyst (a local Ollama model, picked by best-engine-ai-helper)."
+description = "Vocal Helper — async producer/consumer pipeline turning a live PCM stream into diarized, transcribed utterances and (optionally) a rolling LLM summary. Stages: Voice Activity Detection → online speaker diarization (Hungarian-style cosine clustering on backend embeddings) → STT (pywhispercpp turbo) → optional analyst (a local model served via Ollama or vLLM, resolved by best-engine-ai-helper from a committed brief)."
 readme = "README.md"
 requires-python = ">=3.10,<3.14"
 license = {text = "BSD-3-Clause"}
@@ -41,17 +41,19 @@ classifiers = [
 #   ``window_s`` (default 20 s, the operating point validated at
 #   pdbms-canonical N=2089 — see vocal-helper README "Diarization choice").
 # - ASR : pywhispercpp turbo (``large-v3-turbo-q5_0`` by default).
-# - LLM analyst : Ollama-served local model (picked by
-#   best-engine-ai-helper) with a rolling summary buffer ; everything
-#   older than ``recent_window_s`` (default 60 s) gets folded into the
-#   summary.
+# - LLM analyst : local model served via Ollama or vLLM (backend + model
+#   resolved by best-engine-ai-helper from a committed brief) with a rolling
+#   summary buffer ; everything older than ``recent_window_s`` (default 60 s)
+#   gets folded into the summary.
 dependencies = [
     "os-helper>=2.0.0,<3",
-    # best-engine-ai-helper is the suite's model picker: the analyst (llm.py)
-    # and EOT (eot.py) stages read its text_model() resolver at import time
-    # to get the tag selected for this machine — or a safe default — instead
-    # of a hard-coded model. Light deps (click/psutil/pyyaml/requests). Core
-    # dep, like os-helper, since GemmaAnalystStage is imported unconditionally.
+    # best-engine-ai-helper owns the LLM contract: the analyst (llm.py) and EOT
+    # (eot.py) stages resolve the committed ``vocal_helper/llm.brief.yaml`` into a
+    # machine-specific engine descriptor (via ``beh.ensure``) and route every
+    # request through ``beh.llm.chat`` — which speaks to Ollama or vLLM per the
+    # descriptor. No hard-coded model tag lives here. Light deps
+    # (click/psutil/pyyaml/requests). Core dep, like os-helper, since
+    # GemmaAnalystStage is imported unconditionally.
     "best-engine-ai-helper>=1.0.0,<2",
     "audio-helper>=2.0.0,<3",
     "numpy>=1.24",
@@ -91,8 +93,20 @@ nemo = [
 sherpa = [
     "sherpa-onnx>=1.13",
 ]
-# Local LLM analyst via Ollama.
+# Local LLM analyst + semantic-EOT classifier. The serving backend (Ollama or
+# vLLM) and the model are resolved by best-engine-ai-helper from the committed
+# ``vocal_helper/llm.brief.yaml``, and requests go over HTTP via ``beh.llm.chat``
+# — so no client library (no ``ollama`` package) is needed here; best-engine is
+# already a core dependency and is listed again for intent.
 llm = [
+    "best-engine-ai-helper>=1.0.0,<2",
+]
+# Benchmark / ablation scripts under ``studies/`` (excluded from the wheel) call
+# the Ollama Python client — and, on a GPU box, vLLM — directly to compare raw
+# engines. Not needed to run vocal-helper itself; install only to reproduce the
+# study sweeps. vLLM is intentionally omitted (GPU/platform-specific, guarded by
+# a try/except in the scripts).
+studies = [
     "ollama>=0.4",
 ]
 # Click twin of the argparse CLI. Kept as an extra so the stdlib
