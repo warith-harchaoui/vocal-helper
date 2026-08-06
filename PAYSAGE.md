@@ -53,7 +53,7 @@ par lots. Il ne cherche pas à battre `pyannote` sur le DER hors ligne
 ni `faster-whisper` sur le WER brut de l'ASR — il *compose* ces briques
 éprouvées en un seul pipeline asynchrone dont les étapes sont
 individuellement remplaçables (n'importe quelle étape sur mesure peut
-être insérée sous forme de coroutine), et il expose cette composition à
+être insérée sous forme de coroutine) et il expose cette composition à
 travers quatre surfaces cohérentes : CLI argparse, CLI click, HTTP
 FastAPI, outils MCP. Ce compromis est le principal facteur de
 différenciation face à un simple notebook pyannote (pas de streaming),

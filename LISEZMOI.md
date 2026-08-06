@@ -15,7 +15,7 @@
 
 ## La promesse
 
-**Local d'abord, par conception.** vocal-helper tourne entièrement sur votre machine : transcription, diarisation et résumé se font en local (whisper.cpp / pyannote / NeMo / Ollama). Votre audio et vos transcriptions ne partent jamais vers un service tiers, aucune télémétrie, aucun compte, aucun verrouillage propriétaire. Votre voix — et celle de toutes les personnes enregistrées — compte parmi les données les plus personnelles qui soient, et une transcription est le compte rendu mot pour mot de ce qui a été dit, et par qui. Garder les deux sur votre propre matériel, c'est ce qui rend l'outil sûr à pointer sur une vraie réunion, un entretien ou une séance. Fait partie de la suite [AI Helpers](https://github.com/warith-harchaoui/ai-helpers) : la souveraineté sur vos données par l'Open Source local d'abord.
+**Local d'abord, par conception.** vocal-helper tourne entièrement sur votre machine : transcription, diarisation et résumé se font en local (whisper.cpp / pyannote / NeMo / Ollama). Votre audio et vos transcriptions ne partent jamais vers un service tiers, aucune télémétrie, aucun compte, aucun verrouillage propriétaire. Votre voix — et celle de toutes les personnes enregistrées — compte parmi les données les plus personnelles qui soient et une transcription est le compte rendu mot pour mot de ce qui a été dit et par qui. Garder les deux sur votre propre matériel, c'est ce qui rend l'outil sûr à pointer sur une vraie réunion, un entretien ou une séance. Fait partie de la suite [AI Helpers](https://github.com/warith-harchaoui/ai-helpers) : la souveraineté sur vos données par l'Open Source local d'abord.
 
 Vocal Helper est un **pipeline producteur/consommateur asynchrone** qui transforme un flux audio PCM (modulation d'impulsions codées) en direct en énoncés diarisés et transcrits — et, en option, en résumé glissant produit par un LLM (grand modèle de langue).
 
@@ -76,14 +76,14 @@ complet et fait sa propre segmentation.
 | **VAD** (détection d'activité vocale) | Silero v5 ONNX (CPU, processeur central) | Fenêtre 32 ms, `activity_threshold=0.5`, `min_silence_ms=300` par défaut. |
 | **Diarisation (online)** | `pyannote/embedding` (défaut) ou `nvidia/titanet_large` (NeMo) | Embedding par segment + clustering moyenne-mobile par distance cosinus, `join_threshold=0.30`. Calibré sur AMI dev-slice N=8 (2026-06-30). |
 | **STT** (transcription de la parole) | [`pywhispercpp`](https://github.com/abdeladim-s/pywhispercpp) turbo | `large-v3-turbo-q5_0` par défaut, timestamps mots activés. Exécution en thread pool pour ne jamais bloquer la boucle async. |
-| **Analyste LLM** *(optionnel)* | Modèle résolu via **best-engine-ai-helper** depuis le brief versionné `vocal_helper/llm.brief.yaml`, servi par Ollama ou vLLM | Résumé glissant de tout ce qui est **plus vieux que 60 s**. La fenêtre récente de 60 s reste verbatim. Aucun tag de modèle n'est codé en dur : `best-engine-ai-helper` résout le brief en un `llm.engine.yaml` spécifique à la machine (gitignoré) qui nomme le backend + le modèle, et chaque requête passe par `best_engine_ai_helper.llm.chat`. |
+| **Analyste LLM** *(optionnel)* | Modèle résolu via **best-engine-ai-helper** depuis le brief versionné `vocal_helper/llm.brief.yaml`, servi par Ollama ou vLLM | Résumé glissant de tout ce qui est **plus vieux que 60 s**. La fenêtre récente de 60 s reste verbatim. Aucun tag de modèle n'est codé en dur : `best-engine-ai-helper` résout le brief en un `llm.engine.yaml` spécifique à la machine (gitignoré) qui nomme le backend + le modèle et chaque requête passe par `best_engine_ai_helper.llm.chat`. |
 
 ## Installation
 
 > **Déploiement sur un serveur GPU (processeur graphique) ?** Voir [TECHNICAL_STACK.md](https://github.com/warith-harchaoui/vocal-helper/blob/main/TECHNICAL_STACK.md)
 > pour la recette complète : CUDA + PyTorch, whisper.cpp compilé avec
 > `GGML_CUDA=on`, pyannote 3.1 sur MPS/CUDA, service systemd Ollama,
-> RTF (facteur temps réel) attendus par GPU, et un manifest
+> RTF (facteur temps réel) attendus par GPU et un manifest
 > d'installation reproductible en 10 étapes couvrant toute la suite
 > AI Helpers (os-helper, audio-helper, podcast-helper, youtube-helper,
 > vocal-helper, music-helper).
@@ -125,7 +125,7 @@ démarrez le backend choisi. `best-engine-ai-helper` lit le brief versionné
 `vocal_helper/llm.brief.yaml`, choisit le backend + le modèle pour votre matériel
 (Ollama sur macOS / CPU, vLLM sur GPU discret) et écrit un
 `vocal_helper/llm.engine.yaml` gitignoré. `voh.resolve_engine()` le fait à la
-première utilisation, ou explicitement :
+première utilisation ou explicitement :
 
 ```bash
 # Depuis le dossier du paquet vocal_helper (qui contient llm.brief.yaml) :
@@ -137,7 +137,7 @@ ollama serve   # la ligne `serve:` de l'engine nomme le `ollama pull …` exact
 
 Tous les poids sont fournis dans un **bundle diarization-engines**
 auto-hébergé (pyannote 3.1 offline, NeMo Sortformer, l'embedder online
-`pyannote/embedding`, SpeechBrain VoxLingua107, et le `sherpa` ONNX
+`pyannote/embedding`, SpeechBrain VoxLingua107 et le `sherpa` ONNX
 sans-torch — segmentation pyannote-3.0 + TitaNet). On pointe `vocal-helper`
 dessus une fois et toute la chaîne tourne **sans HuggingFace** — aucun
 token, aucun téléchargement gated, compatible `HF_HUB_OFFLINE=1`.
@@ -229,7 +229,7 @@ vocal-helper-mcp
 
 Une page unique autonome (HTML + Tailwind CDN + JS vanilla, sans build) servie
 en **same-origin** par l'API. Déposez un fichier audio **ou collez une URL**,
-lancez la transcription diarisée localement, et lisez une **transcription
+lancez la transcription diarisée localement et lisez une **transcription
 étiquetée et colorée par locuteur** (une couleur stable par locuteur) à côté du
 résumé glissant. Elle appelle le même endpoint `/pipeline` — aucune logique
 serveur supplémentaire — et ne contacte que le serveur local : votre audio ne
@@ -257,11 +257,11 @@ async for ev in pipeline.run():
     ...
 ```
 
-Pratique pour des relais WebSocket / SSE, du rendu UI (interface utilisateur) live, ou une persistance JSONL.
+Pratique pour des relais WebSocket / SSE, du rendu UI (interface utilisateur) live ou une persistance JSONL.
 
 ## Routeur de backend — l'*aiguilleur*
 
-La diarisation est la seule étape où le choix du backend se pose vraiment, et il n'y a
+La diarisation est la seule étape où le choix du backend se pose vraiment et il n'y a
 **aucun vainqueur unique** : le meilleur backend dépend du scénario.
 `vocal_helper.router` (`voh.select_diarization`) transforme ce compromis mesuré
 en **une** décision explicite et testée, pour que la CLI et votre code ne codent
@@ -305,7 +305,7 @@ un `pyannote` / `nemo` / `sherpa` explicite pour forcer.
 ## Identification de la langue parlée
 
 Avant même de transcrire un mot, `vocal_helper.lid` détermine **quelle langue
-est parlée** — pour le fichier entier, ou par région dans un enregistrement où
+est parlée** — pour le fichier entier ou par région dans un enregistrement où
 l'on alterne les langues. C'est décisif : une passe whisper `"auto"` se
 verrouille sur la première langue entendue et *traduit* le reste dans
 celle-ci ; identifier la langue acoustiquement **d'abord** permet de
