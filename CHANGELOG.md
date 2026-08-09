@@ -6,7 +6,7 @@ on, **breaking behaviour and default changes land only in MAJOR releases; MINOR
 adds features compatibly; PATCH is bug-fixes and docs.** The public API is the
 names exported from `vocal_helper.__all__` plus the documented CLI flags.
 
-## [Unreleased]
+## [2.0.0] - 2026-08-09
 
 ### Changed
 
