@@ -162,7 +162,9 @@ pip install 'vocal-helper[all]'
 ### From source (no PyPI)
 
 ```bash
-pip install "vocal-helper[all]"
+git clone https://github.com/warith-harchaoui/vocal-helper.git
+cd vocal-helper
+pip install -e ".[all]"
 ```
 
 The `[all]` extra brings the mic and stream sources, every diarization backend (NeMo, the default, plus pyannote and sherpa), and the language-ID cross-check. Pick à la carte if you don't need everything:
