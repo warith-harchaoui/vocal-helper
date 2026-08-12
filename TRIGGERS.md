@@ -1,14 +1,14 @@
-# TRIGGERS — vocal-helper
+# TRIGGERS: vocal-helper
 
 This is the user-facing, exhaustive catalogue of what `vocal-helper` can do and
 the natural-language phrasings, commands, functions, file types, and URLs that
-should invoke it — whether you call it yourself or drive it as a Claude /
+should invoke it, whether you call it yourself or drive it as a Claude /
 OpenCode **skill** (see [`skills/vocal-helper/SKILL.md`](skills/vocal-helper/SKILL.md)
 and its [`references/triggers.md`](skills/vocal-helper/references/triggers.md)).
 
 `vocal-helper` turns **speech** (audio, the audio track of video, or any
 yt-dlp-reachable URL) into a **diarized, speaker-labelled, transcribed**
-conversation — and, optionally, a rolling local-LLM summary. It also identifies
+conversation, with an optional rolling local-LLM summary. It also identifies
 the spoken language. It is **local-first**: whisper.cpp / pyannote / NeMo /
 sherpa / local Ollama, no telemetry, no account, no SaaS. It does **not** edit
 audio files, synthesize voices, or fetch media just for storage.
@@ -51,12 +51,12 @@ labelled transcript + summary).
 - **Audio**: `.wav .mp3 .m4a .m4b .flac .ogg .oga .opus .aac .wma .aiff .aif`.
 - **Video** (speech track decoded via ffmpeg): `.mp4 .mkv .mov .webm .avi …`.
 - **URLs** *(needs `[stream]`)*: YouTube / Vimeo / Twitch / SoundCloud, podcast
-  RSS (latest episode), direct audio / HLS — anything yt-dlp reaches.
+  RSS (latest episode), direct audio / HLS: anything yt-dlp reaches.
 - **Live**: the microphone *(needs `[mic]`)*.
 
 ## When NOT to use vocal-helper (SKIP)
 
-- Pure audio-file transforms with no speech target — convert / re-encode /
+- Pure audio-file transforms with no speech target: convert / re-encode /
   resample, cut / trim / split / concatenate, silence, room-tone, MFCC
   similarity, Demucs stem separation → use **audio-helper**.
 - Text-to-speech, voice cloning, speech synthesis.
@@ -68,7 +68,7 @@ labelled transcript + summary).
 
 ## See also
 
-- [`README.md`](README.md) — features, install, quick start.
-- [`LISEZMOI.md`](LISEZMOI.md) — version française.
-- [`EXAMPLES.md`](EXAMPLES.md) — runnable recipes.
-- [`skills/README.md`](skills/README.md) — installing this as an agent skill.
+- [`README.md`](README.md): features, install, quick start.
+- [`LISEZMOI.md`](LISEZMOI.md): version française.
+- [`EXAMPLES.md`](EXAMPLES.md): runnable recipes.
+- [`skills/README.md`](skills/README.md): installing this as an agent skill.
