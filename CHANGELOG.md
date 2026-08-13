@@ -6,6 +6,22 @@ on, **breaking behaviour and default changes land only in MAJOR releases; MINOR
 adds features compatibly; PATCH is bug-fixes and docs.** The public API is the
 names exported from `vocal_helper.__all__` plus the documented CLI flags.
 
+## [2.0.1] - 2026-08-13
+
+### Fixed
+
+- `requirements.txt` had drifted from `pyproject.toml`: `os-helper`/
+  `audio-helper` pins were stale (`>=1.5.x`, predating the 2.0.0 migration),
+  `best-engine-ai-helper` (core dep — `GemmaAnalystStage` is imported
+  unconditionally) and `scipy` were missing entirely, and `pywhispercpp` was
+  pinned below the version `pyproject.toml` now requires.
+
+### Changed
+
+- Added a minimal conda `environment.yaml`.
+- Docs rewrite pass (WRITING.md/ECRITURE.md compliance) and install-command
+  fixes.
+
 ## [2.0.0] - 2026-08-09
 
 ### Changed
