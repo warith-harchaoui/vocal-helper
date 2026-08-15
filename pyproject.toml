@@ -162,7 +162,7 @@ Changelog = "https://github.com/warith-harchaoui/vocal-helper/blob/main/CHANGELO
 
 [project.scripts]
 vocal-helper = "vocal_helper.cli_argparse:main"
-vocal-helper-click = "vocal_helper.cli_click:cli"
+vocal-helper-click = "vocal_helper.cli_click:main"
 vocal-helper-mcp = "vocal_helper.mcp:main"
 
 [tool.setuptools.packages.find]

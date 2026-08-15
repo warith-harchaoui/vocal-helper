@@ -236,6 +236,23 @@ def test_click_cli_surface() -> None:
         assert result.exit_code == 0, sub
 
 
+def test_argparse_main_prints_clean_error_on_a_real_library_exception(
+    capsys: pytest.CaptureFixture,
+) -> None:
+    """A library exception (not a usage error) prints ``Error: ...`` + exit 1.
+
+    ``transcribe`` takes no ``argparse.FileType``/existence guard on its
+    ``path`` positional — a non-existent file reaches ``audio_helper.load_audio``
+    and raises there. Before this fix that propagated as a raw Python
+    traceback instead of a clean CLI error.
+    """
+    from vocal_helper.cli_argparse import main
+
+    code = main(["transcribe", "/no/such/file.wav"])
+    assert code == 1
+    assert "Error:" in capsys.readouterr().err
+
+
 # ---------------------------------------------------------------------------
 # Canonical shipped config builder — vocal_helper.cli_argparse._build_pipeline_config
 #
@@ -365,6 +382,38 @@ def test_click_version_flag_exits_zero() -> None:
     result = runner.invoke(click_cli, ["--version"])
     assert result.exit_code == 0
     assert "vocal-helper-click" in result.output
+
+
+def test_click_main_prints_clean_error_on_a_real_library_exception(
+    capsys: pytest.CaptureFixture, monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    """The ``main()`` console-script wrapper turns a library exception into exit 1.
+
+    ``CliRunner.invoke`` (used by every other click test here) catches
+    exceptions itself, so it never exercises ``main()`` — the actual
+    ``vocal-helper-click`` entry point. Drive it directly: a real WAV path
+    passes ``click.Path(exists=True)``, then a mocked ``load_audio`` raises,
+    which used to propagate as a raw traceback instead of a clean
+    ``Error: ...`` + exit 1.
+    """
+    pytest.importorskip("click")
+    import audio_helper
+
+    from vocal_helper.cli_click import main
+
+    wav = tmp_path / "clip.wav"
+    wav.write_bytes(b"not a real wav")
+
+    def _boom(*_a, **_kw):
+        raise RuntimeError("decode failed")
+
+    monkeypatch.setattr(audio_helper, "load_audio", _boom)
+    monkeypatch.setattr("sys.argv", ["vocal-helper-click", "transcribe", str(wav)])
+
+    with pytest.raises(SystemExit) as exc:
+        main()
+    assert exc.value.code == 1
+    assert "Error:" in capsys.readouterr().err
 
 
 def test_click_transcribe_happy_path(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:

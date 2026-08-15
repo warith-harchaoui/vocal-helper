@@ -634,7 +634,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parser.parse_args(argv)
     # Every subparser wired a ``func`` handler via ``set_defaults`` ; dispatch to
     # it and normalise the return to a plain int exit code for ``SystemExit``.
-    return int(args.func(args))
+    try:
+        return int(args.func(args))
+    except Exception as err:  # noqa: BLE001 — last resort: a clean CLI error, not a traceback
+        print(f"Error: {err}", file=sys.stderr)
+        return 1
 
 
 if __name__ == "__main__":  # pragma: no cover

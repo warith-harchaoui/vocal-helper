@@ -539,5 +539,24 @@ def transcribe(
         click.echo(text)
 
 
+def main() -> None:
+    """Console entry point (``vocal-helper-click``).
+
+    click's own ``main()`` only special-cases ``ClickException``/``Abort``
+    (and a broken pipe); a plain library exception would otherwise
+    propagate as a raw Python traceback instead of a clean CLI error. This
+    wraps the whole invocation and translates that last case into a
+    one-line stderr message + exit 1 — click's own control flow (usage
+    errors, ``--help``, an explicit ``sys.exit`` in a subcommand) already
+    raises ``SystemExit``, a ``BaseException`` this does not catch, so it
+    passes through untouched.
+    """
+    try:
+        cli()
+    except Exception as err:  # noqa: BLE001 — last resort: see docstring
+        click.echo(f"Error: {err}", err=True)
+        sys.exit(1)
+
+
 if __name__ == "__main__":  # pragma: no cover
-    cli()
+    main()
