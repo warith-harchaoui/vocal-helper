@@ -6,6 +6,15 @@ on, **breaking behaviour and default changes land only in MAJOR releases; MINOR
 adds features compatibly; PATCH is bug-fixes and docs.** The public API is the
 names exported from `vocal_helper.__all__` plus the documented CLI flags.
 
+## [2.0.2] - 2026-08-15
+
+### Fixed
+
+- **CLI**: a library exception now prints one clean `Error: ...` line to
+  stderr and exits 1, instead of a raw Python traceback, on both CLI
+  twins. `vocal-helper-click`'s console-script entry point now points at
+  a new `cli_click.main()` wrapper (was the bare `cli` group).
+
 ## [2.0.1] - 2026-08-13
 
 ### Fixed
