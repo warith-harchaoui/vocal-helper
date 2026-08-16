@@ -26,7 +26,7 @@ Usage Example
 
 Author
 ------
-Warith Harchaoui, Ph.D. — https://linkedin.com/in/warith-harchaoui/
+Warith Harchaoui, Ph.D. , https://linkedin.com/in/warith-harchaoui/
 """
 
 from __future__ import annotations

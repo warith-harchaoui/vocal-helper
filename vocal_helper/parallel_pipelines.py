@@ -64,7 +64,7 @@ Example
 
 Author
 ------
-Warith Harchaoui — https://www.linkedin.com/in/warith-harchaoui/
+Warith Harchaoui , https://www.linkedin.com/in/warith-harchaoui/
 """
 
 from __future__ import annotations

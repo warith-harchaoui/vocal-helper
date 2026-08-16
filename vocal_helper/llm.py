@@ -32,7 +32,7 @@ so downstream consumers never miss an event.
 
 Author
 ------
-Warith HARCHAOUI — https://linkedin.com/in/warith-harchaoui
+Warith HARCHAOUI , https://linkedin.com/in/warith-harchaoui
 """
 
 from __future__ import annotations

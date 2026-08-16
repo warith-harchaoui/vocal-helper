@@ -15,9 +15,9 @@
 
 ## La promesse
 
-**Local d'abord, par conception.** vocal-helper tourne entièrement sur votre machine : transcription, diarisation et résumé se font en local (whisper.cpp / pyannote / NeMo / Ollama). Votre audio et vos transcriptions ne partent jamais vers un service tiers, aucune télémétrie, aucun compte, aucun verrouillage propriétaire. Votre voix, comme celle de toutes les personnes enregistrées, compte parmi les données les plus personnelles qui soient ; une transcription est le compte rendu mot pour mot de ce qui a été dit et par qui. Garder les deux sur votre propre matériel, c'est ce qui rend l'outil sûr à pointer sur une vraie réunion, un entretien ou une séance. Fait partie de la suite [AI Helpers](https://github.com/warith-harchaoui/ai-helpers) : la souveraineté sur vos données par l'Open Source local d'abord.
+**Local d'abord, par conception.** vocal-helper tourne entièrement sur votre machine : transcription (mettre la parole en texte), diarisation (déterminer qui, parmi plusieurs locuteurs possibles, a dit quel passage, en les étiquetant S0, S1, ainsi de suite) et résumé se font en local (whisper.cpp / pyannote / NeMo / Ollama). Votre audio et vos transcriptions ne partent jamais vers un service tiers, aucune télémétrie, aucun compte, aucun verrouillage propriétaire. Votre voix, comme celle de toutes les personnes enregistrées, compte parmi les données les plus personnelles qui soient ; une transcription est le compte rendu mot pour mot de ce qui a été dit et par qui. Garder les deux sur votre propre matériel, c'est ce qui rend l'outil sûr à pointer sur une vraie réunion, un entretien ou une séance. Fait partie de la suite [AI Helpers](https://github.com/warith-harchaoui/ai-helpers) : la souveraineté sur vos données par l'Open Source local d'abord.
 
-Vocal Helper est un **pipeline producteur/consommateur asynchrone** qui transforme un flux audio PCM (modulation d'impulsions codées) en direct en énoncés diarisés et transcrits, avec en option un résumé glissant produit par un LLM (grand modèle de langue).
+Vocal Helper transforme un flux audio PCM (modulation d'impulsions codées) en énoncés diarisés et transcrits, avec en option un résumé glissant produit par un LLM (grand modèle de langue). En interne, c'est un **pipeline producteur/consommateur** : chaque étape de traitement (détecter la parole, identifier le locuteur, transcrire, résumer) tourne comme un poste de travail séparé ; chaque poste transmet son résultat au suivant par une file d'attente, comme une chaîne de boulangerie où la pâte passe du pétrin au four puis au refroidissement, chaque poste traitant un lot différent en même temps plutôt que d'attendre, inactif, que toute la commande soit finie.
 
 ## Documentation
 
@@ -321,8 +321,8 @@ dev-slice ; `sherpa` depuis l'ADR 0002. **DER** = qualité (plus bas = mieux) ;
 | online | sans torch | **`sherpa`** | 0.174 | 0.58 | Re-diarisation offline périodique (le sherpa online par segment est une impasse, ADR 0002). |
 
 Deux constats, tous deux mesurés ici : l'**offline** a un vrai croisement de
-longueur (nemo court ↔ pyannote long), d'où le routeur ; l'**online** n'en a pas
-— le clusterer streaming de vocal-helper est une approximation limitée par la
+longueur (nemo court ↔ pyannote long), d'où le routeur ; l'**online** n'en a pas :
+le clusterer streaming de vocal-helper est une approximation limitée par la
 latence où nemo gagne à toute longueur, donc le streaming route toujours vers
 nemo. `voh.select_diarization(live=…, duration_s=…, max_speakers=…,
 torch_free=…, pyannote_available=…)` retourne un `BackendPlan(mode, backend,

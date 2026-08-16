@@ -1,23 +1,23 @@
 """
-Vocal Helper — FastAPI HTTP surface.
+Vocal Helper: FastAPI HTTP surface.
 
 Exposes the offline batch pipeline over HTTP so ``vocal-helper`` can be
 dropped behind any reverse proxy and consumed by other services. The
 online streaming pipeline lives on-process (queues + coroutines) and is
-not exposed as REST endpoints — it is either driven from the CLI, the
+not exposed as REST endpoints: it is either driven from the CLI, the
 Python API, or a WebSocket surface that lives elsewhere.
 
 What ships here
 ---------------
-- ``POST /transcribe`` — one-shot ASR of an uploaded WAV / mp3 / m4a /
+- ``POST /transcribe``: one-shot ASR of an uploaded WAV / mp3 / m4a /
   ogg / flac. Returns ``{"text": ..., "language": ...}``.
-- ``POST /pipeline`` — full offline pipeline (VAD + diarization + STT
+- ``POST /pipeline``: full offline pipeline (VAD + diarization + STT
   + optional Gemma summary) on an uploaded audio file *or* a media URL
   (``url`` form field, fetched locally via yt-dlp, ``[stream]`` extra).
   Returns a list of :class:`Utterance` events, optionally the summary.
-- ``GET /gui`` — self-contained transcript-viewer GUI (drop a file or
-  paste a URL → speaker colour-coded transcript + rolling summary).
-- ``GET /health`` — liveness probe.
+- ``GET /gui``: self-contained transcript-viewer GUI (drop a file or
+  paste a URL, get a speaker colour-coded transcript + rolling summary).
+- ``GET /health``: liveness probe.
 
 Install the extra to get the runtime dependencies::
 
@@ -41,7 +41,7 @@ Usage Example
 
 Author
 ------
-Warith Harchaoui, Ph.D. — https://linkedin.com/in/warith-harchaoui/
+Warith Harchaoui, Ph.D., https://linkedin.com/in/warith-harchaoui/
 """
 
 from __future__ import annotations

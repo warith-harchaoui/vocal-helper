@@ -41,7 +41,7 @@ optional dependency (``pip install vocal-helper[lid]``), imported lazily.
 
 Author
 ------
-Warith HARCHAOUI — https://linkedin.com/in/warith-harchaoui
+Warith HARCHAOUI , https://linkedin.com/in/warith-harchaoui
 """
 
 from __future__ import annotations

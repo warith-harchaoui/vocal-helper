@@ -31,7 +31,7 @@ The contract is the same in all three cases :
 
 Author
 ------
-Warith HARCHAOUI — https://linkedin.com/in/warith-harchaoui
+Warith HARCHAOUI , https://linkedin.com/in/warith-harchaoui
 """
 
 from __future__ import annotations

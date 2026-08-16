@@ -35,7 +35,7 @@ is served from. No CDN audio, no analytics, no third party sees your voice.
 
 Author
 ------
-Warith Harchaoui, Ph.D. — https://linkedin.com/in/warith-harchaoui/
+Warith Harchaoui, Ph.D. , https://linkedin.com/in/warith-harchaoui/
 """
 
 from __future__ import annotations

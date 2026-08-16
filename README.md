@@ -19,9 +19,9 @@
 
 ## The Promise
 
-**Local-first by design.** vocal-helper runs entirely on your machine: transcription, diarization and summarisation happen locally (whisper.cpp / pyannote / NeMo / local Ollama); your audio and transcripts are never uploaded to a third-party service, no telemetry, no account, no cloud lock-in. Your voice, and everyone else's on the recording, is among the most personal data there is, and a transcript is a verbatim record of what was said and by whom; keeping both on your own hardware is what makes this tool safe to point at a real meeting, interview, or therapy session. Part of the [AI Helpers](https://github.com/warith-harchaoui/ai-helpers) suite: sovereignty over your data through local-first Open Source.
+**Local-first by design.** vocal-helper runs entirely on your machine: transcription (turning speech into text), diarization (working out which of possibly several speakers said each part, and labelling them `S0`, `S1`, and so on) and summarisation all happen locally (whisper.cpp / pyannote / NeMo / local Ollama); your audio and transcripts are never uploaded to a third-party service, no telemetry, no account, no cloud lock-in. Your voice, and everyone else's on the recording, is among the most personal data there is, and a transcript is a verbatim record of what was said and by whom; keeping both on your own hardware is what makes this tool safe to point at a real meeting, interview, or therapy session. Part of the [AI Helpers](https://github.com/warith-harchaoui/ai-helpers) suite: sovereignty over your data through local-first Open Source.
 
-Vocal Helper is an **async producer/consumer pipeline** turning audio into diarized, transcribed utterances, with an optional rolling Large Language Model (LLM) summary of the conversation. Two paths ship:
+Vocal Helper turns audio into diarized, transcribed utterances, with an optional rolling Large Language Model (LLM) summary of the conversation. Internally it is a **producer/consumer pipeline**: each processing step (detecting speech, identifying the speaker, transcribing, summarising) runs as its own worker, and each worker hands its output to the next one down a queue, the way a bakery's dough moves from the mixer to the oven to the cooling rack, each station working on a different batch at the same time instead of waiting idle for the whole order to finish. Two paths ship:
 
 - **Online** (`voh.Pipeline`): live Pulse-Code Modulation (PCM) stream → live transcript + live summary. Each stage runs at its own cadence, decoupled by bounded queues. The Speech-to-Text (STT) stage warms up on start so the first caption doesn't stall on whisper's cold inference.
 - **Offline** (`voh.OfflinePipeline`): full audio buffer → highest-quality diarization (pyannote 3.1 runs the whole meeting in one call; the 2026-07-14 offline map-reduce study found whole-buffer strictly best for Diarization Error Rate (DER), and chunk-and-stitch survives only as a memory backstop past ~1 h) → **full-throttle batched transcript** (consecutive segments concatenated into ≤ 24 s whisper calls, ~6.5× lower Real-Time Factor (RTF) at better Word Error Rate (WER) per the 2026-07-09 sweep) → summary. Opt back into per-segment Automatic Speech Recognition (ASR) with `OfflinePipelineConfig(asr={"batch": False})`.
@@ -87,11 +87,15 @@ and does its own segmentation.
 
 ## Backend router: the *aiguilleur*
 
-Diarization is the one stage with a real backend fork, and there is **no single
+Diarization is the one stage with a real backend fork (several competing
+implementations, each better in some cases), and there is **no single
 winner**: the best backend depends on the scenario. `vocal_helper.router`
-(`voh.select_diarization`) turns the measured trade-off into one explicit,
-tested decision so the CLI and your own code never hard-code a backend, and it
-reports **both quality (DER) and speed (RTF)** for the scenario, not just a name.
+(`voh.select_diarization`) plays the role of an *aiguilleur*, French for the
+railway signalman who switches each train onto the right track before it
+arrives: it looks at a job's length, live-or-batch mode, and speaker count,
+then turns that measured trade-off into one explicit, tested decision, so
+the CLI and your own code never hard-code a backend. It reports **both
+quality (DER) and speed (RTF)** for the scenario, not just a name.
 Numbers were **re-validated on-machine** (`studies/router_profile_validation.py`,
 `pyannote.metrics` collar 0.25, median DER + RTF) against ground truth: bagarre
 (30 short mixes) + AMI dev-slice; `sherpa` from ADR 0002. **DER** = quality
@@ -201,7 +205,7 @@ All model weights ship in a single self-hosted **diarization-engines
 bundle** (offline pyannote 3.1, NeMo Sortformer, the online
 `pyannote/embedding` embedder, SpeechBrain VoxLingua107, and the
 torch-free `sherpa` ONNX, pyannote-3.0 segmentation + TitaNet). Point
-`vocal-helper` at it once and the whole stack runs **HuggingFace-free** —
+`vocal-helper` at it once and the whole stack runs **HuggingFace-free**:
 no token, no gated downloads, `HF_HUB_OFFLINE=1` safe.
 
 Configure it in `settings.yaml` (the only config the project needs):

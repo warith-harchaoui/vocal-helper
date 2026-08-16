@@ -2,7 +2,7 @@
 vocal_helper.router
 ===================
 
-The **aiguilleur** — the study-grounded diarization backend router.
+The **aiguilleur**: the study-grounded diarization backend router.
 
 Diarization is the one pipeline stage with a genuine backend fork, and there is
 **no single best backend**: the right one depends on whether the audio is a
@@ -16,7 +16,7 @@ Quality × speed per scenario (the whole point)
 ----------------------------------------------
 Numbers were **re-validated on this machine** (2026-07-19,
 ``studies/router_profile_validation.py``, ``pyannote.metrics`` collar 0.25, median
-DER + RTF) against ground truth — bagarre (30 short mixes) + AMI dev-slice (2 real
+DER + RTF) against ground truth: bagarre (30 short mixes) + AMI dev-slice (2 real
 meetings). The ``sherpa`` DER is from ADR 0002; its ONNX models (pyannote-3.0
 segmentation + TitaNet-large embedding) now ship in the diarization-engines
 bundle, so the torch-free path runs with no HuggingFace and no PyTorch. DER =
@@ -25,9 +25,9 @@ quality (lower is better); RTF = speed (``< 1`` = faster than real time):
 ======== ========= ============ ========== =================================================
 mode     backend   DER          RTF        when the router picks it
 ======== ========= ============ ========== =================================================
-offline  nemo      **0.142**    0.051      short (≤300 s), ≤4 speakers — dense interleaved turns
-offline  pyannote  **0.122**    0.067      long / unknown length / >4 speakers — the robust default
-offline  sherpa    0.174        0.58       torch-free deployment (no PyTorch) — ADR 0002
+offline  nemo      **0.142**    0.051      short (≤300 s), ≤4 speakers; dense interleaved turns
+offline  pyannote  **0.122**    0.067      long / unknown length / >4 speakers; the robust default
+offline  sherpa    0.174        0.58       torch-free deployment (no PyTorch); ADR 0002
 online   nemo      0.586        0.030      any live stream (the default online embedder)
 online   sherpa    0.174        0.58       torch-free streaming = periodic offline re-diarization
 ======== ========= ============ ========== =================================================
@@ -37,25 +37,25 @@ Why a router, not a default
 Two independent findings, both measured on this machine:
 
 1. **Offline: a length crossover.** On short dense turns (bagarre, ~30 s) NeMo
-   Sortformer wins by ~2.3x — offline DER **0.142** vs pyannote **0.330** — its
+   Sortformer wins by ~2.3x (offline DER **0.142** vs pyannote **0.330**): its
    end-to-end slot attribution drives speaker-confusion to ~0. On long meetings
    (AMI) the verdict *reverses*: pyannote median DER **0.122** (inside Bredin
    2023's 0.188 band), and Sortformer *hangs* past ~25 min (no output on a 27-min
-   meeting) — its 90 s / 4-speaker cap puts long/crowded form out of distribution.
+   meeting), since its 90 s / 4-speaker cap puts long/crowded form out of distribution.
    So offline needs a router: "ship nemo" or "ship pyannote" is wrong for one
    common workload.
 
 2. **Online: nemo, always.** vocal-helper's ``OnlineDiarStage`` is a
-   latency-bound cosine-clustering *approximation* — inherently ~3-4x the offline
+   latency-bound cosine-clustering *approximation*, inherently ~3-4x the offline
    DER (it cannot model overlap). Across lengths the NeMo TitaNet embedder is the
    best online backend (bagarre 0.586, AMI 0.497) and beats pyannote/embedding
    online (0.590 / **0.844**), matching the 2026-06-30 embedding sweep that made
-   it the default. There is **no online length crossover** — streaming routes to
+   it the default. There is **no online length crossover**: streaming routes to
    nemo (``refine_on_close`` roughly halves the DER on meetings that over-segment,
    a stage knob the router leaves to the stage).
 
 The torch-free ``sherpa`` (ONNX TitaNet-large, DER 0.174/0.148, *beats* NeMo
-Sortformer 0.267, FR+EN validated — ADR 0002) is the portability pick either way.
+Sortformer 0.267, FR+EN validated, ADR 0002) is the portability pick either way.
 
 Scope
 -----
@@ -77,7 +77,7 @@ Usage example
 
 Author
 ------
-Warith HARCHAOUI — https://linkedin.com/in/warith-harchaoui
+Warith HARCHAOUI, https://linkedin.com/in/warith-harchaoui
 """
 
 from __future__ import annotations

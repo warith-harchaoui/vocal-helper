@@ -8,7 +8,7 @@ cp settings.yaml.example settings.yaml   # carries the diarization-engines URL
 ollama serve                             # LLM analyst
 ```
 
-No HuggingFace token needed — all model weights come from the self-hosted
+No HuggingFace token needed: all model weights come from the self-hosted
 diarization-engines bundle configured in `settings.yaml`
 (`engines.diarization_url`). See the
 [README](README.md#model-weights--no-huggingface-needed) for details.
@@ -22,7 +22,7 @@ vocal-helper mic \
   --initial-prompt "Réunion d'équipe : design, marketing, planning, livrables"
 ```
 
-The `--initial-prompt` arg is **strongly recommended** : the 2026-06-30 sweep on AMI dev-slice (`studies/whisper_prompt_lang_lock.py`) showed a domain-aligned bias prompt drops WER by 15-25 percentage points and saves up to 39 % RTF — name your conversational domain and a handful of expected proper nouns or technical terms.
+The `--initial-prompt` arg is **strongly recommended** : the 2026-06-30 sweep on AMI dev-slice (`studies/whisper_prompt_lang_lock.py`) showed a domain-aligned bias prompt drops WER by 15-25 percentage points and saves up to 39 % RTF: name your conversational domain and a handful of expected proper nouns or technical terms.
 
 Or in Python (the demo at `examples/live_mic_to_text.py`) :
 
@@ -34,7 +34,7 @@ async def main():
         source=lambda: voh.sources.from_microphone(),
         config=voh.PipelineConfig(
             asr={
-                "language": "auto",  # discovered from the audio — no default
+                "language": "auto",  # discovered from the audio, no default
                 "initial_prompt": "Réunion d'équipe : design, marketing, planning, livrables",
             },
         ),
@@ -67,7 +67,7 @@ async def main():
     p = voh.Pipeline(
         source=lambda: voh.sources.from_wav_file("./meeting.wav"),
         config=voh.PipelineConfig(
-            asr={"language": "auto"},  # discovered from the audio — no default
+            asr={"language": "auto"},  # discovered from the audio, no default
             llm={
                 "model": "gemma4:e4b",
                 "recent_window_s": 60.0,   # 60 s verbatim window
@@ -146,7 +146,7 @@ async def main():
                 "backend": "nemo",
                 "join_threshold": 0.35,   # TitaNet's distribution is wider
             },
-            asr={"language": "auto"},     # discovered from the audio — no default
+            asr={"language": "auto"},     # discovered from the audio, no default
         ),
     )
     async for ev in p.run():
@@ -161,7 +161,7 @@ asyncio.run(main())
 ## 6. Synchronous one-shot transcription (no pipeline)
 
 For when you have a single PCM buffer and just want text back. The language is
-**discovered** from the audio by default (`language="auto"`) — no default, no
+**discovered** from the audio by default (`language="auto"`): no default, no
 pairing :
 
 ```python

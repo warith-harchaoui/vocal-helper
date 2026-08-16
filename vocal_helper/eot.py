@@ -46,7 +46,7 @@ zero-dependency path (Silero alone) ; users wire it in via
 
 Author
 ------
-Warith HARCHAOUI — https://linkedin.com/in/warith-harchaoui
+Warith HARCHAOUI , https://linkedin.com/in/warith-harchaoui
 """
 
 from __future__ import annotations
