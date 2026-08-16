@@ -16,6 +16,9 @@ Warith Harchaoui — https://www.linkedin.com/in/warith-harchaoui/
 
 from __future__ import annotations
 
+import glob
+import tempfile
+import zipfile
 from pathlib import Path
 
 from vocal_helper.diar import resolve_diarization_engines
@@ -70,3 +73,34 @@ def test_resolver_local_dir_without_manifest_is_rejected(tmp_path: Path, monkeyp
     # each backend's own ``.exists()`` check decides usability.
     monkeypatch.setenv("VH_DIARIZATION_ENGINES", str(tmp_path))
     assert resolve_diarization_engines() == tmp_path
+
+
+def test_resolver_url_branch_cleans_up_its_temp_zip(tmp_path: Path, monkeypatch) -> None:
+    """The URL-download branch must not leak its downloaded ``.zip``.
+
+    ``resolve_diarization_engines`` downloads a (real-world: ~750 MB) bundle
+    to a ``NamedTemporaryFile(delete=False)`` before extracting it — it owns
+    cleanup itself, and used to never unlink it, leaking one temp file per
+    fresh-machine bootstrap. No network here: ``osh.download_file`` is faked
+    to write a small real zip so the extract path is genuinely exercised.
+    """
+    monkeypatch.setattr(
+        "vocal_helper._settings.resolve_diarization_engines_url",
+        lambda *a, **k: "https://example.invalid/diarization-engines.zip",
+    )
+    monkeypatch.setenv("VH_CACHE_DIR", str(tmp_path / "cache"))
+
+    def _fake_download_file(url: str, dst: str) -> None:
+        with zipfile.ZipFile(dst, "w") as z:
+            z.writestr("manifest.json", "{}")
+
+    monkeypatch.setattr("os_helper.download_file", _fake_download_file, raising=False)
+
+    tmp_zip_glob = str(Path(tempfile.gettempdir()) / "tmp*.zip")
+    before = set(glob.glob(tmp_zip_glob))
+    result = resolve_diarization_engines()
+    after = set(glob.glob(tmp_zip_glob))
+
+    assert result == tmp_path / "cache" / "diarization-engines"
+    assert (result / "manifest.json").exists()
+    assert after == before, f"leaked temp zip(s): {after - before}"

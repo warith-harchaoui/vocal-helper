@@ -6,6 +6,15 @@ on, **breaking behaviour and default changes land only in MAJOR releases; MINOR
 adds features compatibly; PATCH is bug-fixes and docs.** The public API is the
 names exported from `vocal_helper.__all__` plus the documented CLI flags.
 
+## [Unreleased]
+
+### Fixed
+
+- **`resolve_diarization_engines`** leaked its downloaded temp `.zip` (the
+  ~750MB diarization-engines bundle) on every fresh-machine bootstrap —
+  extracted it but never unlinked the temp file. Fixed with
+  `try/finally: os.unlink(...)`.
+
 ## [2.0.2] - 2026-08-15
 
 ### Fixed

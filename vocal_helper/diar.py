@@ -1424,22 +1424,31 @@ def resolve_diarization_engines() -> Path | None:
     import os_helper as osh
 
     dest.mkdir(parents=True, exist_ok=True)
-    with tempfile.NamedTemporaryFile(suffix=".zip", delete=False) as tmp:
+    # A path only, not a handle: osh.download_file and the plain urllib
+    # fallback both write to a path, so mkstemp (close the fd immediately,
+    # reopen by name) rather than NamedTemporaryFile. That means WE own
+    # cleanup — unlink in finally, always, so a ~750 MB temp .zip never
+    # survives this function, download-succeeds or not.
+    fd, tmp_name = tempfile.mkstemp(suffix=".zip")
+    os.close(fd)
+    try:
         # Prefer os_helper.download_file (streams the ~750 MB bundle with a
         # progress bar — tqdm on a TTY, quiet on CI). It landed in a newer
         # os-helper; on an older *published* release that lacks it, fall back to
         # a plain stdlib streaming download so the base pin stays satisfiable
         # against PyPI (one-time fetch either way, cached below).
         if hasattr(osh, "download_file"):
-            osh.download_file(src, tmp.name)
+            osh.download_file(src, tmp_name)
         else:  # pragma: no cover - exercised only on older os-helper
             import shutil
             import urllib.request
 
-            with urllib.request.urlopen(src) as resp, open(tmp.name, "wb") as out:
+            with urllib.request.urlopen(src) as resp, open(tmp_name, "wb") as out:
                 shutil.copyfileobj(resp, out)
-        with zipfile.ZipFile(tmp.name) as z:
+        with zipfile.ZipFile(tmp_name) as z:
             z.extractall(dest)
+    finally:
+        os.unlink(tmp_name)
     hits = list(dest.rglob("manifest.json"))
     return hits[0].parent if hits else None
 
