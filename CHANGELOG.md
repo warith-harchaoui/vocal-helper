@@ -6,14 +6,25 @@ on, **breaking behaviour and default changes land only in MAJOR releases; MINOR
 adds features compatibly; PATCH is bug-fixes and docs.** The public API is the
 names exported from `vocal_helper.__all__` plus the documented CLI flags.
 
-## [Unreleased]
+## [2.0.3] - 2026-08-17
 
 ### Fixed
 
 - **`resolve_diarization_engines`** leaked its downloaded temp `.zip` (the
-  ~750MB diarization-engines bundle) on every fresh-machine bootstrap —
-  extracted it but never unlinked the temp file. Fixed with
+  ~750MB diarization-engines bundle) on every fresh-machine bootstrap,
+  extracting it but never unlinking the temp file. Fixed with
   `try/finally: os.unlink(...)`.
+
+### Docs
+
+- **README/LISEZMOI**: glossed "diarization"/"diarisation" (the tool's core
+  function, never defined in plain language before), the "producer/consumer
+  pipeline" architecture (a short worked analogy added in both languages),
+  and "aiguilleur" (an unglossed French term that had been dropped into the
+  English README with no explanation). Removed em-dash punctuation asides
+  from README, LISEZMOI, EXAMPLES, and every module's opening docstring
+  (`router.py`/`api.py` reworked line by line; the rest got a byline-only
+  fix) per the suite's writing charter. Prose only, zero behavior change.
 
 ## [2.0.2] - 2026-08-15
 
