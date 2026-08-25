@@ -29,6 +29,7 @@ import contextlib
 from typing import Any
 
 import numpy as np
+import os_helper as osh
 from numpy.typing import NDArray
 
 from vocal_helper.types import DiarizedSegment, Utterance
@@ -307,7 +308,15 @@ class WhisperStage:
                 )
             else:
                 segments = self._model.transcribe(seg["pcm"])
-        except Exception:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001 — whisper.cpp failure shouldn't kill the stream
+            # A silently dropped segment is invisible to the caller — the queue
+            # simply emits one fewer Utterance with no signal anything went
+            # wrong. Log so a systematic whisper.cpp failure (bad model path,
+            # OOM, corrupt weights) is diagnosable instead of looking like
+            # silence in the transcript.
+            osh.warning(
+                f"WhisperStage: transcribe failed on segment [{seg['t0']:.2f}-{seg['t1']:.2f}] ({exc!r}); dropping it"
+            )
             return None
         text_parts: list[str] = []
         words: list[tuple[float, float, str]] = []
@@ -391,7 +400,14 @@ class WhisperStage:
                 segments = self._model.transcribe(pcm, initial_prompt=self.initial_prompt)
             else:
                 segments = self._model.transcribe(pcm)
-        except Exception:  # noqa: BLE001 — keep the contract : one Utterance per seg.
+        except Exception as exc:  # noqa: BLE001 — keep the contract : one Utterance per seg.
+            # Same visibility gap as the per-segment path : without a log line,
+            # a whole batched chunk silently comes back empty-text with no
+            # trace of the whisper.cpp failure that caused it.
+            osh.warning(
+                f"WhisperStage: batched transcribe failed on a {len(chunk)}-segment "
+                f"chunk ({exc!r}); emitting empty utterances for it"
+            )
             return [self._empty_utt(seg) for seg in chunk]
 
         acc: list[dict[str, Any]] = [{"text": [], "words": [], "language": None} for _ in chunk]

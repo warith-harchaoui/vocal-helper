@@ -253,6 +253,40 @@ def test_two_bursts_split_into_two_segments() -> None:
     assert segs[1]["t0"] > segs[0]["t0"]
 
 
+def test_second_run_lead_pad_matches_declared_span() -> None:
+    """A run that opens soon after the previous one closes gets full padding.
+
+    Regression test: closing a run used to reset the lead pad to just the
+    single window that crossed ``min_silence_ms``, discarding the rest of
+    the run's own trailing silence (already captured in its ``samples``).
+    When speech resumed before the pad ring refilled, the *next* run's
+    ``t0`` still claimed a full ``edge_pad_ms`` of lead-in (it is computed
+    from the voice-onset sample alone) while its actual ``pcm`` held only
+    whatever the thin pad ring had — shorter than ``t1 - t0`` implies, which
+    silently desynchronised the segment's audio from its own timestamps.
+    """
+    # edge_pad_ms=200 with a silence gap only marginally over min_silence_ms
+    # (300 ms) reproduces the thin-pad case : run B starts before six windows
+    # (edge_pad_ms // 32 ms) of real silence have re-accumulated after run A.
+    stage = _wire_fakes(SileroVADStage(min_silence_ms=300, min_speech_ms=100, edge_pad_ms=200))
+    win = _SILERO_WINDOW_SAMPLES
+
+    frames = [
+        _frame(1.0, win * 20),  # run A: ~640 ms voiced
+        _frame(0.0, win * 10),  # exactly 320 ms silence — closes run A
+        _frame(1.0, win * 20),  # run B starts immediately in the next frame
+        _frame(0.0, win * 12),  # closes run B
+    ]
+    segs = [s for s in _run_stage(stage, frames) if s is not None]
+
+    assert len(segs) == 2
+    for seg in segs:
+        # The emitted PCM must cover exactly the span the segment claims —
+        # a shorter buffer means the padding silently starved.
+        expected_samples = round((seg["t1"] - seg["t0"]) * SR)
+        assert seg["pcm"].shape[0] == expected_samples
+
+
 def test_all_silence_emits_no_segment() -> None:
     """A stream that is silent throughout never opens a run.
 

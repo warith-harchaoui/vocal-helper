@@ -6,6 +6,36 @@ on, **breaking behaviour and default changes land only in MAJOR releases; MINOR
 adds features compatibly; PATCH is bug-fixes and docs.** The public API is the
 names exported from `vocal_helper.__all__` plus the documented CLI flags.
 
+## [2.0.4] - 2026-08-25
+
+### Fixed
+
+- **`SileroVADStage._consume_frame`**: closing a voiced run reset the lead
+  pad ring to the single window that crossed `min_silence_ms`, instead of
+  reseeding it from that run's own trailing silence (already captured in
+  its `samples`). A new run's `t0` is computed as "voice onset minus
+  `edge_pad_ms`" regardless of how much padding is actually queued, so
+  when speech resumed before the pad ring refilled naturally, the emitted
+  segment's `pcm` held less audio than `t1 - t0` implied (768 samples / 48
+  ms short in the reproduction case) and its `t0` could land before the
+  previous segment's `t1`. Fixed by reseeding the lead pad from the
+  closed run's trailing windows instead of the single closing one. Added
+  a regression test in `tests/test_vad.py`.
+- **`WhisperStage._transcribe_blocking` / `_transcribe_chunk_blocking`**: a
+  whisper.cpp failure was swallowed with no log line at all — a
+  systematic failure (bad model path, out-of-memory, corrupt weights)
+  looked exactly like ordinary silence in the transcript, with no way to
+  tell the two apart. Now logged via `osh.warning`, matching the
+  best-effort-failure convention already used in `llm.py`.
+
+### Docs
+
+- **README/LISEZMOI**: added an honest "battle-tested" / "éprouvé en
+  production" paragraph (PyPI, green CI, semantic-versioned tags, and the
+  package's position at the top of the suite's dependency graph, on
+  `os-helper`, `best-engine-ai-helper`, `audio-helper`, `capture-helper`,
+  and `podcast-helper`) per the suite-wide documentation pass.
+
 ## [2.0.3] - 2026-08-17
 
 ### Fixed

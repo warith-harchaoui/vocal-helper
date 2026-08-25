@@ -226,13 +226,29 @@ class SileroVADStage:
                     )
                     if silence_ms >= self.min_silence_ms:
                         seg = self._emit_run(self._run, end_t=self._run.last_voiced_sample)
+                        # Keep the closed run's window list around just long
+                        # enough to reseed the lead pad below — ``self._run``
+                        # itself is retired now.
+                        closed_samples = self._run.samples
                         self._run = None
                         if seg is not None:
                             emitted.append(seg)
-                        # Reset the lead pad with the just-scored unvoiced
-                        # window so a *new* run can prepend it.
+                        # Reseed the lead pad from the *closed run's own*
+                        # trailing silence windows (already captured in
+                        # ``closed_samples`` — the tail beyond ``edge_pad_ms``
+                        # that ``_emit_run`` trimmed off the emitted segment),
+                        # not just the single window that crossed the
+                        # threshold. A new run's ``t0`` is computed as
+                        # "voice onset minus edge_pad_ms" regardless of how
+                        # much padding is actually queued ; refilling with
+                        # only one window left the next run's emitted ``pcm``
+                        # shorter than ``t1 - t0`` implies (and its ``t0``
+                        # could even land before the previous run's ``t1``)
+                        # whenever speech resumed soon after this run closed.
+                        maxlen = self._lead_pad.maxlen or 1
                         self._lead_pad.clear()
-                        self._lead_pad.append(window.copy())
+                        for w in closed_samples[-maxlen:]:
+                            self._lead_pad.append(w)
             cursor += _SILERO_WINDOW_SAMPLES
         # Stash the leftover < 512 samples for the next frame.
         self._tail = buf[cursor:].copy()
