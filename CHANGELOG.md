@@ -6,6 +6,16 @@ on, **breaking behaviour and default changes land only in MAJOR releases; MINOR
 adds features compatibly; PATCH is bug-fixes and docs.** The public API is the
 names exported from `vocal_helper.__all__` plus the documented CLI flags.
 
+## [2.0.5] - 2026-09-03
+
+### Fixed
+
+- **`__version__` drift**: `vocal_helper.__version__` was left at `2.0.3`
+  when `pyproject.toml` moved to `2.0.4` for the previous release, with
+  nothing catching it. Fixed, and added a `test_version_is_consistent`
+  guard (the same one already present in ann-router / elbow-helper /
+  best-engine-ai-helper) so this can't drift silently again.
+
 ## [2.0.4] - 2026-08-25
 
 ### Fixed

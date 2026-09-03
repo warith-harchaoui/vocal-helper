@@ -13,8 +13,22 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+import vocal_helper as voh
+
 # Repo root = the directory that holds pyproject.toml (tests/ is one level down).
 _ROOT = Path(__file__).resolve().parent.parent
+
+
+def test_version_is_consistent() -> None:
+    """pyproject.toml's version matches vocal_helper.__version__.
+
+    These drifted silently before (pyproject.toml bumped to 2.0.4 for the
+    2.0.4 release, __init__.py's __version__ left at 2.0.3) with nothing
+    catching it — every other suite member with a separate __version__
+    constant already has this guard; vocal-helper didn't.
+    """
+    pyproject = (_ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    assert f'version = "{voh.__version__}"' in pyproject
 
 
 def _package_name() -> str:
