@@ -2,7 +2,7 @@
 
 All figures land as SVG under ``~/vocal-helper/doc/figures/`` and use
 the canonical pdbms / vocal-helper figure palette
-(``harchaoui.org/warith/colors/`` "Base Palette with Contrasts").
+(``deraison.ai/colors/`` "Base Palette with Contrasts").
 
 Re-run after each new study to refresh.
 """

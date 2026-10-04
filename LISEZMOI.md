@@ -11,7 +11,7 @@
 
 `Vocal Helper` fait partie de la collection `AI Helpers` : des bibliothèques Python pensées pour bâtir des outils d'intelligence artificielle.
 
-[🌍 AI Helpers](https://harchaoui.org/warith/ai-helpers)
+[🌍 AI Helpers](https://deraison.ai/ai-helpers)
 
 ## La promesse
 
@@ -23,7 +23,7 @@ Vocal Helper est éprouvé en production. Le paquet est publié sur [PyPI](https
 
 ## Documentation
 
-[💻 Documentation](https://harchaoui.org/warith/ai-helpers/docs/vocal-helper-doc/)
+[💻 Documentation](https://deraison.ai/ai-helpers/docs/vocal-helper-doc/)
 
 [🗺️ Paysage](https://github.com/warith-harchaoui/vocal-helper/blob/main/PAYSAGE.md)
 
@@ -33,7 +33,7 @@ Vocal Helper est éprouvé en production. Le paquet est publié sur [PyPI](https
 
 Toutes les frontières entre étages sont des `asyncio.Queue` bornées ;
 chaque étage est sa propre coroutine. Les couleurs suivent la
-[palette AI Helpers](https://harchaoui.org/warith/colors/).
+[palette AI Helpers](https://deraison.ai/colors/).
 
 ### Online (streaming)
 
@@ -96,7 +96,7 @@ complet et fait sa propre segmentation.
 - 🐧 **Ubuntu/Debian** : `sudo apt update && sudo apt install -y python3 python3-pip git ffmpeg portaudio19-dev`
 - 🪟 **Windows** (PowerShell) : `winget install Python.Python.3.12 Git.Git Gyan.FFmpeg` (PortAudio est inclus dans les wheels Python)
 
-Nous recommandons d'utiliser des environnements Python. Consultez ce lien si vous ne savez pas en configurer un : [🥸 Tech tips](https://harchaoui.org/warith/4ml/#install).
+Nous recommandons d'utiliser des environnements Python. Consultez ce lien si vous ne savez pas en configurer un : [🥸 Tech tips](https://deraison.ai/4ml/#install).
 
 ### Depuis PyPI (recommandé)
 

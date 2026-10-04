@@ -13,7 +13,7 @@ rest of the suite uses (``video-helper``'s face stack, etc.), so a weight
 downloaded once by any helper is reused by all:
 
 - ``AI_HELPERS_MODEL_BASE_URL`` (default
-  ``https://harchaoui.org/warith/ai-helpers/models/``) — the user's own
+  ``https://deraison.ai/ai-helpers/models/``) — the user's own
   infrastructure. Never HuggingFace, no token, no gated repo.
 
 If the mirror (and any HuggingFace-free upstream fallback) fails, the caller
@@ -38,7 +38,7 @@ import os_helper as osh
 # ai-helper. Runtime downloads prefer this so there is no third-party (and
 # specifically no HuggingFace) dependency. Override for testing / a private
 # mirror. The env var name is shared with the sibling helpers on purpose.
-DEFAULT_BASE_URL = "https://harchaoui.org/warith/ai-helpers/models/"
+DEFAULT_BASE_URL = "https://deraison.ai/ai-helpers/models/"
 
 # Licenses that clear the default download gate — all permit commercial use.
 # CC-BY-4.0 / CC-BY-SA-4.0 cover the NVIDIA NeMo speaker exports (attribution

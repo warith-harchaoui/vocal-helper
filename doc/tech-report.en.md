@@ -19,7 +19,7 @@ voicemail archives). Every default in this report is justified by
 an empirical study under `studies/` whose log + JSON output lives
 on the user's research drive. The library is BSD-3-Clause licensed,
 local-first, and built to play nicely with the rest of the
-[AI Helpers](https://harchaoui.org/warith/ai-helpers) suite (the
+[AI Helpers](https://deraison.ai/ai-helpers) suite (the
 upstream research codebase is `pdbms` [@pdbms]).
 
 # 1. Goals & non-goals
@@ -424,6 +424,6 @@ the same numbers up to model-loading noise (~ ±5 % wall time).
 - The upstream research codebase that feeds vocal-helper's
   defaults : `pdbms` [@pdbms], with its own
   `doc/tech-report.{en,fr}.md`.
-- The AI Helpers landing page : <https://harchaoui.org/warith/ai-helpers>.
+- The AI Helpers landing page : <https://deraison.ai/ai-helpers>.
 
 # References

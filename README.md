@@ -11,11 +11,11 @@
 
 
 
-[![logo](https://raw.githubusercontent.com/warith-harchaoui/vocal-helper/main/assets/logo.png)](https://harchaoui.org/warith/ai-helpers)
+[![logo](https://raw.githubusercontent.com/warith-harchaoui/vocal-helper/main/assets/logo.png)](https://deraison.ai/ai-helpers)
 
 `Vocal Helper` belongs to a collection of libraries called `AI Helpers` developed for building Artificial Intelligence.
 
-[🌍 AI Helpers](https://harchaoui.org/warith/ai-helpers)
+[🌍 AI Helpers](https://deraison.ai/ai-helpers)
 
 ## The Promise
 
@@ -30,7 +30,7 @@ Vocal Helper ships on [PyPI](https://pypi.org/project/vocal-helper/) under seman
 
 ## Documentation
 
-[💻 Documentation](https://harchaoui.org/warith/ai-helpers/docs/vocal-helper-doc/)
+[💻 Documentation](https://deraison.ai/ai-helpers/docs/vocal-helper-doc/)
 
 [🗺️ Landscape](https://github.com/warith-harchaoui/vocal-helper/blob/main/LANDSCAPE.md)
 
@@ -40,7 +40,7 @@ Vocal Helper ships on [PyPI](https://pypi.org/project/vocal-helper/) under seman
 
 Every edge is a bounded `asyncio.Queue` ; every stage is its own
 coroutine. Colours follow the
-[AI Helpers palette](https://harchaoui.org/warith/colors/).
+[AI Helpers palette](https://deraison.ai/colors/).
 
 ### Online (streaming)
 
@@ -150,7 +150,7 @@ on both CLIs and `POST /pipeline`, so a file's real duration is probed and route
 - 🐧 **Ubuntu/Debian**: `sudo apt update && sudo apt install -y python3 python3-pip git ffmpeg portaudio19-dev`
 - 🪟 **Windows** (PowerShell): `winget install Python.Python.3.12 Git.Git Gyan.FFmpeg` (PortAudio ships inside the Python wheels)
 
-We recommend using Python environments. Check this link if you're unfamiliar with setting one up: [🥸 Tech tips](https://harchaoui.org/warith/4ml/#install).
+We recommend using Python environments. Check this link if you're unfamiliar with setting one up: [🥸 Tech tips](https://deraison.ai/4ml/#install).
 
 > **No compiler needed for the base install.** The core (`vocal-helper`, no
 > extras) pulls **prebuilt wheels** on every common platform: `pywhispercpp`

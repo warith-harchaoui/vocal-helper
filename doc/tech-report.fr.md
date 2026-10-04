@@ -19,7 +19,7 @@ archives de messagerie vocale). Chaque défaut de ce rapport est
 justifié par une étude empirique sous `studies/` dont le log + le
 JSON vit sur le disque de recherche. La bibliothèque est sous
 licence BSD-3-Clause, local-first, et pensée pour s'intégrer au
-reste de la suite [AI Helpers](https://harchaoui.org/warith/ai-helpers)
+reste de la suite [AI Helpers](https://deraison.ai/ai-helpers)
 (la base de recherche amont est `pdbms` [@pdbms]).
 
 # 1. Objectifs et non-objectifs
@@ -439,6 +439,6 @@ time).
 - La base de recherche amont qui alimente les défauts de
   vocal-helper : `pdbms` [@pdbms], avec son propre
   `doc/tech-report.{en,fr}.md`.
-- La landing AI Helpers : <https://harchaoui.org/warith/ai-helpers>.
+- La landing AI Helpers : <https://deraison.ai/ai-helpers>.
 
 # Références
