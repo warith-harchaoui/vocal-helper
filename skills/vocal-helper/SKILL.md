@@ -1,56 +1,27 @@
 ---
 name: vocal-helper
 description: >-
-  Turn audio (and the audio track of video, or any yt-dlp-reachable URL) into a
-  diarized, speaker-labelled, transcribed conversation — plus an optional rolling
-  local-LLM summary — with the `vocal-helper` toolkit. It answers "what was said",
-  "who spoke when", and "who is who": Silero VAD → speaker diarization (pyannote /
-  NeMo Sortformer / torch-free sherpa-onnx, auto-routed by a study-grounded quality
-  ×speed router) → whisper.cpp speech-to-text → local language ID → optional
-  Gemma-via-Ollama rolling summary. Two paths: an offline batch `OfflinePipeline`
-  and an online streaming `Pipeline` (live mic / URL). Exposed as a Python library
-  (`import vocal_helper as voh`), two CLIs (`vocal-helper` argparse and
-  `vocal-helper-click`), a FastAPI HTTP surface, an MCP tool set, and a browser
-  transcript-viewer GUI at `/gui` (drop a file or paste a URL → colour-coded,
-  speaker-labelled transcript + summary). Local-first — whisper.cpp / pyannote /
-  NeMo / sherpa / local Ollama; audio and transcripts never leave the machine, no
-  telemetry, no account, no SaaS.
-
-  TRIGGER — any of: the user asks to transcribe / caption / subtitle speech
-  ("transcribe this recording / meeting / interview / podcast / lecture / voice
-  memo", "turn this audio into text", "give me the transcript", "make subtitles /
-  captions / an SRT / a VTT", "speech to text", "STT / ASR this"); the user asks
-  who spoke ("who spoke when", "diarize this", "label the speakers", "separate the
-  speakers", "speaker segmentation / turns", "how many speakers", "which speaker
-  said X", "attribute each line to a speaker", "speaker-labelled transcript"); the
-  user asks to identify speakers by name from the conversation; the user asks for a
-  summary of a conversation / meeting ("summarise this meeting audio", "rolling
-  summary", "minutes / notes from this recording", "TL;DR of this call"); the user
-  asks the spoken language ("what language is this", "detect the language", "is
-  this French or English", "which parts are in which language"); the user points at
-  an audio file (`.wav .mp3 .m4a .m4b .flac .ogg .oga .opus .aac .wma .aiff`) or a
-  video file whose speech is the target (`.mp4 .mkv .mov .webm .avi …`) OR a URL
-  (YouTube / Vimeo / Twitch / SoundCloud / podcast RSS / direct audio) and wants
-  the words / speakers / summary; the user wants live transcription of a microphone
-  or a stream; the user types or references a command (`vocal-helper`,
-  `vocal-helper-click`, `vocal-helper-mcp`, subcommands `mic|file|url|transcribe`)
-  or a library symbol (`Pipeline`, `PipelineConfig`, `OfflinePipeline`,
-  `OfflinePipelineConfig`, `transcribe_pcm`, `transcribe_pcm_with_language`,
-  `SileroVADStage`, `OnlineDiarStage`, `OfflineDiarStage`, `WhisperStage`,
-  `GemmaAnalystStage`, `select_diarization`, `detect_language`,
-  `detect_language_regions`, `sources.from_url`, `sources.from_microphone`); the
-  user wants the vocal-helper API / MCP server run, or the transcript-viewer GUI;
-  the user asks to install / run vocal-helper.
-
-  SKIP when: the task is a pure audio-file transform with no speech target —
-  convert / re-encode / resample, cut / trim / split / concatenate, generate
-  silence, room-tone, MFCC similarity, or Demucs stem separation (use audio-helper);
-  text-to-speech / voice cloning / speech synthesis; music transcription (notes /
-  MIDI, not speech); downloading a file from a URL for its own sake with no
-  transcription wanted (use youtube-helper / podcast-helper); translating existing
-  text (no audio in play); or non-speech audio classification (sound events, genre).
-  vocal-helper turns *speech* into diarized, labelled, transcribed text (+ summary);
-  it does not edit audio files, synthesize voices, or fetch media for storage.
+  Turn speech — an audio file, the audio track of a video, a live microphone,
+  or any yt-dlp-reachable URL — into a diarized, speaker-labelled transcript,
+  plus an optional rolling local-LLM summary. Silero VAD → speaker diarization
+  (pyannote / NeMo Sortformer / torch-free sherpa-onnx, auto-routed) →
+  whisper.cpp speech-to-text → language ID → optional Gemma-via-Ollama
+  summary; offline batch or live streaming. Use
+  when the user says "transcribe this recording / meeting /
+  interview / podcast", "give me the transcript", "make subtitles / captions /
+  an SRT", "speech to text", "who spoke when", "diarize this", "label
+  or separate the speakers", "how many speakers", "summarise this meeting
+  audio", "what language is this", "live transcription from the mic", or
+  names `vocal-helper`, `vocal-helper-mcp`, `import
+  vocal_helper as voh`. Do NOT use for audio-file transforms (audio-helper),
+  text-to-speech, or downloading media for its own sake (youtube-helper). The
+  exhaustive trigger catalogue is in `references/triggers.md`.
+license: BSD-3-Clause
+metadata:
+  author: Warith Harchaoui
+  package: vocal-helper
+  suite: ai-helpers
+  homepage: https://deraison.ai/ai-helpers
 ---
 
 # vocal-helper — diarized transcription + rolling summary toolkit

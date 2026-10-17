@@ -14,25 +14,27 @@ voh.Pipeline(source=..., config=voh.PipelineConfig(...))
 voh.OfflinePipeline(source=..., config=voh.OfflinePipelineConfig(...))
 
 # One-shot ASR helpers.
-voh.transcribe_pcm(pcm, sr, model=..., language="auto", threads=6)         # -> str
-voh.transcribe_pcm_with_language(pcm, sr, ...)                             # -> (text, lang)
+voh.transcribe_pcm(pcm, sr, model=..., language="auto", threads=6)  # -> str
+voh.transcribe_pcm_with_language(pcm, sr, ...)  # -> (text, lang)
 
 # Stages (compose your own graph).
-voh.SileroVADStage(...)          # voice activity detection
-voh.OnlineDiarStage(...) / voh.OfflineDiarStage(...)   # who spoke when
-voh.WhisperStage(...)            # STT
-voh.GemmaAnalystStage(...)       # rolling local-LLM summary
+voh.SileroVADStage(...)  # voice activity detection
+voh.OnlineDiarStage(...) / voh.OfflineDiarStage(...)  # who spoke when
+voh.WhisperStage(...)  # STT
+voh.GemmaAnalystStage(...)  # rolling local-LLM summary
 
 # The study-grounded backend router.
-voh.select_diarization(live=False, duration_s=..., pyannote_available=..., nemo_available=...)  # -> BackendPlan
+voh.select_diarization(
+    live=False, duration_s=..., pyannote_available=..., nemo_available=...
+)  # -> BackendPlan
 
 # Spoken-language identification.
-voh.detect_language(pcm, sr)                # -> str
-voh.detect_language_regions(pcm, sr)        # -> list of language regions
+voh.detect_language(pcm, sr)  # -> str
+voh.detect_language_regions(pcm, sr)  # -> list of language regions
 
 # Sources (async PCM-frame producers).
-voh.sources.from_url(url)          # yt-dlp URL / RSS / direct audio   [stream]
-voh.sources.from_microphone(...)   # live mic                          [mic]
+voh.sources.from_url(url)  # yt-dlp URL / RSS / direct audio   [stream]
+voh.sources.from_microphone(...)  # live mic                          [mic]
 voh.sources.from_numpy_array(pcm, sample_rate=..., frame_ms=20)
 ```
 
