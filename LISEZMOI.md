@@ -178,13 +178,14 @@ vocal-helper mic --llm
 import asyncio
 import vocal_helper as voh
 
+
 async def main():
     pipeline = voh.Pipeline(
         source=lambda: voh.sources.from_microphone(),
         config=voh.PipelineConfig(
             diar={"backend": "pyannote"},
             asr={"model": "large-v3-turbo-q5_0", "language": "auto"},  # découverte depuis l'audio
-            llm={"engine": voh.resolve_engine()},   # retirer pour désactiver
+            llm={"engine": voh.resolve_engine()},  # retirer pour désactiver
         ),
     )
     async for ev in pipeline.run():
@@ -192,6 +193,7 @@ async def main():
             print(f"[{ev['t0']:.1f} {ev['speaker']}] {ev['text']}")
         elif "summary" in ev:
             print(f"--- résumé glissant ---\n{ev['summary']}")
+
 
 asyncio.run(main())
 ```
@@ -209,15 +211,14 @@ La source fichier respecte le tempo réel par défaut ; `--no-real-time` accél�
 ```python
 import asyncio, vocal_helper as voh
 
+
 async def main():
     pipeline = voh.OfflinePipeline(
-        source=lambda: voh.sources.from_wav_file(
-            "reunion.wav", real_time=False
-        ),
+        source=lambda: voh.sources.from_wav_file("reunion.wav", real_time=False),
         config=voh.OfflinePipelineConfig(
-            diar={"backend": "pyannote"},   # ou "nemo" pour les extraits ≤ 60 s
-            asr={"language": "auto"},       # découvert depuis l'audio, aucun défaut
-            llm={"engine": voh.resolve_engine()},    # retirer pour désactiver
+            diar={"backend": "pyannote"},  # ou "nemo" pour les extraits ≤ 60 s
+            asr={"language": "auto"},  # découvert depuis l'audio, aucun défaut
+            llm={"engine": voh.resolve_engine()},  # retirer pour désactiver
         ),
     )
     async for ev in pipeline.run():
@@ -225,6 +226,7 @@ async def main():
             print(f"[{ev['t0']:.1f} {ev['speaker']}] {ev['text']}")
         elif "summary" in ev:
             print(f"--- digest ---\n{ev['summary']}")
+
 
 asyncio.run(main())
 ```
@@ -289,8 +291,13 @@ quitte jamais la machine.
 Chaque étage peut être observé sans consommer le flux fusionné :
 
 ```python
-async def on_voiced(seg): print("VAD :", seg["t0"], seg["t1"])
-async def on_diar(seg):   print(" → ", seg["speaker"], seg["t0"], seg["t1"])
+async def on_voiced(seg):
+    print("VAD :", seg["t0"], seg["t1"])
+
+
+async def on_diar(seg):
+    print(" → ", seg["speaker"], seg["t0"], seg["t1"])
+
 
 pipeline.subscribe_voiced(on_voiced)
 pipeline.subscribe_diarized(on_diar)
@@ -334,6 +341,7 @@ jamais une boîte noire.
 
 ```python
 import vocal_helper as voh
+
 plan = voh.select_diarization(live=False, duration_s=45.0, max_speakers=3)
 print(plan.backend, plan.expected_der, plan.expected_rtf)  # nemo 0.142 0.051, court, ≤4 locuteurs
 print(voh.select_diarization(live=False, duration_s=1800.0).backend)  # 'pyannote', forme longue

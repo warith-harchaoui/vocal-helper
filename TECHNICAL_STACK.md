@@ -108,6 +108,7 @@ Sanity check :
 
 ```python
 import torch
+
 assert torch.cuda.is_available()
 print(torch.cuda.get_device_name(0))
 ```
@@ -169,7 +170,8 @@ Build takes 2-3 minutes. Verify at runtime :
 
 ```python
 from pywhispercpp.model import Model
-m = Model('large-v3-turbo-q5_0', n_threads=6)
+
+m = Model("large-v3-turbo-q5_0", n_threads=6)
 # On import you should see :
 #   whisper_backend_init_gpu: using CUDA backend
 ```
@@ -192,7 +194,7 @@ AMI). If you skip the `nemo` extra to save the ~ 5 GB install
 footprint, force `backend="pyannote"` :
 
 ```python
-diar={"backend": "pyannote"}
+diar = {"backend": "pyannote"}
 ```
 
 A third option, `backend="sherpa"`, runs the same TitaNet-large through
@@ -252,7 +254,8 @@ regular `tensorflow-cpu` + `tensorflow[and-cuda]`. Verify :
 
 ```python
 import tensorflow as tf
-print(tf.config.list_physical_devices('GPU'))  # should list your NVIDIA card
+
+print(tf.config.list_physical_devices("GPU"))  # should list your NVIDIA card
 ```
 
 If it doesn't, install the GPU-enabled TF explicitly :
@@ -497,6 +500,8 @@ whisper + pyannote init tax.
 ```python
 # /opt/warmup.py
 import asyncio, numpy as np, vocal_helper as voh
+
+
 async def main():
     pcm = np.zeros(16000 * 5, dtype=np.float32)
     p = voh.OfflinePipeline(
@@ -505,6 +510,8 @@ async def main():
     )
     async for _ in p.run():
         pass
+
+
 asyncio.run(main())
 ```
 
@@ -529,6 +536,7 @@ the offending stage / callback name. Route this into your log store :
 
 ```python
 import logging, sys
+
 logging.basicConfig(
     level=logging.INFO,
     format='{"ts":"%(asctime)s","level":"%(levelname)s","logger":"%(name)s","msg":%(message)s}',

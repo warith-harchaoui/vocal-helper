@@ -122,6 +122,7 @@ citation, so a choice is never a black box.
 
 ```python
 import vocal_helper as voh
+
 plan = voh.select_diarization(live=False, duration_s=45.0, max_speakers=3)
 print(plan.backend, plan.expected_der, plan.expected_rtf)  # nemo 0.142 0.051, short, ≤4 speakers
 print(voh.select_diarization(live=False, duration_s=1800.0).backend)  # 'pyannote', long form
@@ -253,13 +254,14 @@ vocal-helper mic --llm
 import asyncio
 import vocal_helper as voh
 
+
 async def main():
     pipeline = voh.Pipeline(
         source=lambda: voh.sources.from_microphone(),
         config=voh.PipelineConfig(
             diar={"backend": "pyannote"},
             asr={"model": "large-v3-turbo-q5_0", "language": "auto"},  # discovered from the audio
-            llm={"engine": voh.resolve_engine()},   # remove to disable
+            llm={"engine": voh.resolve_engine()},  # remove to disable
         ),
     )
     async for ev in pipeline.run():
@@ -267,6 +269,7 @@ async def main():
             print(f"[{ev['t0']:.1f} {ev['speaker']}] {ev['text']}")
         elif "summary" in ev:
             print(f"--- rolling summary ---\n{ev['summary']}")
+
 
 asyncio.run(main())
 ```
@@ -284,15 +287,14 @@ The file source preserves real-time pacing by default ; pass `--no-real-time` fo
 ```python
 import asyncio, vocal_helper as voh
 
+
 async def main():
     pipeline = voh.OfflinePipeline(
-        source=lambda: voh.sources.from_wav_file(
-            "meeting.wav", real_time=False
-        ),
+        source=lambda: voh.sources.from_wav_file("meeting.wav", real_time=False),
         config=voh.OfflinePipelineConfig(
-            diar={"backend": "pyannote"},   # or "nemo" for ≤ 60 s clips
-            asr={"language": "auto"},       # discovered from the audio, no default
-            llm={"engine": voh.resolve_engine()},    # remove to disable
+            diar={"backend": "pyannote"},  # or "nemo" for ≤ 60 s clips
+            asr={"language": "auto"},  # discovered from the audio, no default
+            llm={"engine": voh.resolve_engine()},  # remove to disable
         ),
     )
     async for ev in pipeline.run():
@@ -300,6 +302,7 @@ async def main():
             print(f"[{ev['t0']:.1f} {ev['speaker']}] {ev['text']}")
         elif "summary" in ev:
             print(f"--- digest ---\n{ev['summary']}")
+
 
 asyncio.run(main())
 ```
@@ -369,8 +372,13 @@ behalf. See [`skills/README.md`](https://github.com/warith-harchaoui/vocal-helpe
 Every stage can be observed without consuming the merged output stream :
 
 ```python
-async def on_voiced(seg): print("VAD:", seg["t0"], seg["t1"])
-async def on_diar(seg):   print(" → ", seg["speaker"], seg["t0"], seg["t1"])
+async def on_voiced(seg):
+    print("VAD:", seg["t0"], seg["t1"])
+
+
+async def on_diar(seg):
+    print(" → ", seg["speaker"], seg["t0"], seg["t1"])
+
 
 pipeline.subscribe_voiced(on_voiced)
 pipeline.subscribe_diarized(on_diar)
