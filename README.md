@@ -481,7 +481,7 @@ still open:
 
 ## Author
 
-[Warith HARCHAOUI](https://linkedin.com/in/warith-harchaoui), `warith@deraison.ai`
+[Warith HARCHAOUI](https://linkedin.com/in/warith-harchaoui), `warithmetics@deraison.ai`
 
 ## Acknowledgements
 

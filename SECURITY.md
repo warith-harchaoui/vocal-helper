@@ -5,7 +5,7 @@
 Please do **not** open a public GitHub issue for security-sensitive
 reports. Instead, email:
 
-- **warith@deraison.ai**
+- **warithmetics@deraison.ai**
 
 with subject `SECURITY: vocal-helper <one-line summary>`. Include:
 

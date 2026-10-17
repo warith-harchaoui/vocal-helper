@@ -431,7 +431,7 @@ line; 1.0.0 commits to them on the 2.x suite foundation.
   from the audio instead of literally echoing `"auto"` back.
 - **FastAPI app version was pinned at `0.3.7`** (four releases stale) — now
   tracks the package version (`0.4.7`).
-- **`__email__` typo** (`warithmetics@deraison.ai` → `warith@deraison.ai`) and
+- **`__email__` typo** (`warithmetics@deraison.ai` → `warithmetics@deraison.ai`) and
   stale `__version__` / `CITATION.cff` (0.4.6 → 0.4.7) brought in line with
   `pyproject.toml`.
 

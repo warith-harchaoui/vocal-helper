@@ -6,7 +6,7 @@ type: software
 authors:
   - given-names: Warith
     family-names: HARCHAOUI
-    email: warith@deraison.ai
+    email: warithmetics@deraison.ai
     orcid: "https://orcid.org/0000-0002-3487-7134"
     affiliation: "Deraison AI"
 repository-code: "https://github.com/warith-harchaoui/vocal-helper"

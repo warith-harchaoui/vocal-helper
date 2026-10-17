@@ -455,7 +455,7 @@ aujourd'hui en `2.x`, suivant le [versionnage sémantique](https://semver.org) :
 
 ## Auteur
 
-[Warith HARCHAOUI](https://linkedin.com/in/warith-harchaoui), `warith@deraison.ai`
+[Warith HARCHAOUI](https://linkedin.com/in/warith-harchaoui), `warithmetics@deraison.ai`
 
 ## Remerciements
 
