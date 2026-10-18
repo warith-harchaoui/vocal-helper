@@ -144,7 +144,7 @@ all = [
     "vocal-helper[cli,api,mcp,mic,stream,pyannote,nemo,sherpa,llm,lid]",
 ]
 dev = [
-    "pytest>=8",
+    "pytest>=8", "pytest-timeout>=2.3",
     "click>=8.1,<9",
     "fastapi>=0.115",
     "httpx>=0.27",
