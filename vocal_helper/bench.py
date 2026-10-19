@@ -287,3 +287,144 @@ def cpwer(reference_turns: list[dict], hypothesis_turns: list[dict], *,
         "mapping": best_map,
         "style_tolerant": style_tolerant,
     }
+
+
+def _overlap(a0: float, a1: float, b0: float, b1: float) -> float:
+    """Seconds two intervals share."""
+    return max(0.0, min(a1, b1) - max(a0, b0))
+
+
+def speaker_label_error(reference_turns: list[dict], hypothesis_turns: list[dict]) -> dict:
+    """How often the speaker label on a displayed turn is wrong.
+
+    Ported from ``operator-assistance-streaming/streaming/score_der.py`` and generalised off
+    its Gladia-only reference. For each reference turn, the hypothesis speaker holding the
+    most overlap with it wins the vote; labels are then matched one-to-one so the global
+    error is as low as possible, and the remaining mismatches are counted.
+
+    The point is what it *ignores*: boundary slop. DER charges every millisecond at the edge
+    of a turn, which is right for comparing diarizers and wrong for a product — a reader
+    never sees a boundary, they see a name against a paragraph. This asks their question
+    instead: how often is that name wrong.
+
+    Returns ``turns``, ``errors``, ``error_rate``, the chosen ``mapping`` and
+    ``unattributed`` (reference turns no hypothesis speaker overlaps at all, counted as
+    errors because a missing label is a wrong label to the person reading it).
+    """
+    ref = [t for t in reference_turns if float(t.get("t1", 0)) > float(t.get("t0", 0))]
+    if not ref:
+        return {"turns": 0, "errors": 0, "error_rate": None, "mapping": {}, "unattributed": 0}
+
+    votes: list[tuple[str, str | None]] = []
+    unattributed = 0
+    for r in ref:
+        r0, r1 = float(r["t0"]), float(r["t1"])
+        best, best_ov = None, 0.0
+        for h in hypothesis_turns:
+            ov = _overlap(r0, r1, float(h.get("t0", 0)), float(h.get("t1", 0)))
+            if ov > best_ov:
+                best, best_ov = str(h.get("speaker", "")), ov
+        if best is None:
+            unattributed += 1
+        votes.append((str(r.get("speaker", "")), best))
+
+    ref_labels = sorted({r for r, _h in votes})
+    hyp_labels = sorted({h for _r, h in votes if h is not None})
+    counts: dict[tuple[str, str], int] = {}
+    for r, h in votes:
+        if h is not None:
+            counts[(r, h)] = counts.get((r, h), 0) + 1
+
+    mapping: dict[str, str] = {}
+    if ref_labels and hyp_labels:
+        try:
+            import numpy as np
+            from scipy.optimize import linear_sum_assignment
+
+            size = max(len(ref_labels), len(hyp_labels))
+            # Maximise agreement ⇒ minimise its negative.
+            gain = np.zeros((size, size), dtype=float)
+            for i, r in enumerate(ref_labels):
+                for j, h in enumerate(hyp_labels):
+                    gain[i, j] = -counts.get((r, h), 0)
+            rows, cols = linear_sum_assignment(gain)
+            mapping = {
+                hyp_labels[j]: ref_labels[i]
+                for i, j in zip(rows, cols)
+                if i < len(ref_labels) and j < len(hyp_labels)
+            }
+        except ImportError:
+            # Greedy fallback: take the best remaining pair until one side runs out. Not
+            # optimal, and said so rather than pretending otherwise.
+            taken_r, taken_h = set(), set()
+            for (r, h), _n in sorted(counts.items(), key=lambda kv: -kv[1]):
+                if r not in taken_r and h not in taken_h:
+                    mapping[h] = r
+                    taken_r.add(r)
+                    taken_h.add(h)
+
+    errors = sum(1 for r, h in votes if h is None or mapping.get(h) != r)
+    return {
+        "turns": len(votes),
+        "errors": errors,
+        "error_rate": round(errors / len(votes), 4),
+        "mapping": mapping,
+        "unattributed": unattributed,
+    }
+
+
+def der_report(reference_turns: list[dict], hypothesis_turns: list[dict], *,
+               collar: float = 0.0, skip_overlap: bool = False) -> dict:
+    """DER broken into its parts, plus JER and both speaker counts.
+
+    The defaults are **collar 0 and overlap scored**, which is not the convention. The usual
+    0.25 s collar with overlap skipped deletes exactly the regions an interruption study is
+    about, and a system can look good on it precisely by ignoring simultaneous speech. Pass
+    ``collar=0.25, skip_overlap=True`` for a number comparable to published work, and read it
+    as a second line rather than the verdict.
+
+    Why the decomposition is not optional: miss, false alarm and confusion have different
+    cures. A high false alarm is a voice-activity problem, a high confusion is an identity
+    problem, and a single DER cannot tell you which one you have. On the 2026-10-19 AMI
+    bench the two local paths had near-identical DERs and opposite failures.
+
+    ``jer`` is reported next to it because DER is time-weighted: one dominant speaker can
+    hide the collapse of everyone else, which is the failure mode of a panel show. JER
+    normalises per speaker and does not let that through.
+
+    ``n_ref_speakers`` / ``n_hyp_speakers`` are there because a count is the bluntest and
+    often the most informative signal — a model with an architectural ceiling cannot emit a
+    fifth label, and that shows here before any error rate is read.
+
+    Requires the ``pyannote`` extra for the metrics themselves.
+    """
+    from pyannote.core import Annotation, Segment
+    from pyannote.metrics.diarization import DiarizationErrorRate, JaccardErrorRate
+
+    def _ann(turns: list[dict]) -> Annotation:
+        ann = Annotation()
+        for i, t in enumerate(turns):
+            t0, t1 = float(t.get("t0", 0.0)), float(t.get("t1", 0.0))
+            if t1 > t0:
+                ann[Segment(t0, t1), i] = str(t.get("speaker", ""))
+        return ann
+
+    ref, hyp = _ann(reference_turns), _ann(hypothesis_turns)
+    if not ref.labels():
+        return {"der": None, "error": "empty reference"}
+
+    der = DiarizationErrorRate(collar=collar, skip_overlap=skip_overlap)
+    jer = JaccardErrorRate(collar=collar, skip_overlap=skip_overlap)
+    detail = der(ref, hyp, detailed=True)
+    total = max(1e-9, detail["total"])
+    return {
+        "der": round(float(detail["diarization error rate"]), 4),
+        "miss": round(float(detail["missed detection"]) / total, 4),
+        "false_alarm": round(float(detail["false alarm"]) / total, 4),
+        "confusion": round(float(detail["confusion"]) / total, 4),
+        "jer": round(float(jer(ref, hyp)), 4),
+        "n_ref_speakers": len(ref.labels()),
+        "n_hyp_speakers": len(hyp.labels()),
+        "collar": collar,
+        "skip_overlap": skip_overlap,
+    }

@@ -125,3 +125,64 @@ def test_the_speaker_counts_come_back_so_a_bad_score_can_be_read() -> None:
 
 def test_cpwer_on_an_empty_reference_reports_a_hole() -> None:
     assert bench.cpwer([], _turns(("S0", 0, "x")))["cpwer"] is None
+
+
+# --- speaker label error: the product's question, not the diarizer's --------------------- #
+
+def test_boundary_slop_is_ignored_because_nobody_reads_a_boundary() -> None:
+    """DER charges every millisecond at the edge of a turn. A reader sees a name.
+
+    Here the hypothesis is late by 300 ms on both turns and the names are right, so the
+    thing the person reading actually experiences is: nothing wrong.
+    """
+    ref = [{"speaker": "A", "t0": 0.0, "t1": 5.0}, {"speaker": "B", "t0": 5.0, "t1": 10.0}]
+    hyp = [{"speaker": "S0", "t0": 0.3, "t1": 5.3}, {"speaker": "S1", "t0": 5.3, "t1": 10.3}]
+    out = bench.speaker_label_error(ref, hyp)
+    assert out["error_rate"] == 0.0 and out["mapping"] == {"S0": "A", "S1": "B"}
+
+
+def test_a_genuinely_wrong_name_is_counted() -> None:
+    ref = [{"speaker": "A", "t0": 0.0, "t1": 5.0}, {"speaker": "B", "t0": 5.0, "t1": 10.0},
+           {"speaker": "A", "t0": 10.0, "t1": 15.0}]
+    hyp = [{"speaker": "S0", "t0": 0.0, "t1": 5.0}, {"speaker": "S1", "t0": 5.0, "t1": 10.0},
+           {"speaker": "S1", "t0": 10.0, "t1": 15.0}]  # third turn attributed to B
+    out = bench.speaker_label_error(ref, hyp)
+    assert out["errors"] == 1 and out["error_rate"] == pytest.approx(1 / 3, abs=1e-4)
+
+
+def test_a_turn_no_hypothesis_covers_counts_as_wrong() -> None:
+    """A missing label is a wrong label to the person reading it."""
+    ref = [{"speaker": "A", "t0": 0.0, "t1": 5.0}, {"speaker": "B", "t0": 50.0, "t1": 55.0}]
+    hyp = [{"speaker": "S0", "t0": 0.0, "t1": 5.0}]
+    out = bench.speaker_label_error(ref, hyp)
+    assert out["unattributed"] == 1 and out["errors"] == 1
+
+
+def test_label_error_on_an_empty_reference_reports_a_hole() -> None:
+    assert bench.speaker_label_error([], [{"speaker": "S0", "t0": 0, "t1": 1}])["turns"] == 0
+
+
+# --- DER report --------------------------------------------------------------------------- #
+
+def test_der_defaults_score_overlap_and_use_no_collar() -> None:
+    """The usual 0.25 s collar with overlap skipped deletes what an interruption study is about."""
+    pytest.importorskip("pyannote.metrics")
+    ref = [{"speaker": "A", "t0": 0.0, "t1": 5.0}, {"speaker": "B", "t0": 5.0, "t1": 10.0}]
+    out = bench.der_report(ref, ref)
+    assert out["collar"] == 0.0 and out["skip_overlap"] is False
+    assert out["der"] == 0.0 and out["jer"] == 0.0
+
+
+def test_der_comes_decomposed_because_the_parts_have_different_cures() -> None:
+    """A high false alarm is a VAD problem; a high confusion is an identity problem."""
+    pytest.importorskip("pyannote.metrics")
+    ref = [{"speaker": "A", "t0": 0.0, "t1": 10.0}]
+    hyp = [{"speaker": "S0", "t0": 0.0, "t1": 10.0}, {"speaker": "S1", "t0": 10.0, "t1": 15.0}]
+    out = bench.der_report(ref, hyp)
+    assert out["false_alarm"] > 0 and out["confusion"] == 0.0
+    assert out["n_ref_speakers"] == 1 and out["n_hyp_speakers"] == 2
+
+
+def test_der_on_an_empty_reference_reports_a_hole() -> None:
+    pytest.importorskip("pyannote.metrics")
+    assert bench.der_report([], [{"speaker": "S0", "t0": 0, "t1": 1}])["der"] is None
