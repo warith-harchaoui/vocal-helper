@@ -25,7 +25,7 @@ import logging
 import pytest
 
 from vocal_helper.pipeline import (
-    _await_task_swallow,
+    _drain_task,
     _invoke_subscribers,
 )
 
@@ -83,11 +83,11 @@ def test_invoke_subscribers_empty_list_is_a_noop() -> None:
 
 
 # ---------------------------------------------------------------------------
-# _await_task_swallow
+# _drain_task
 # ---------------------------------------------------------------------------
 
 
-def test_await_task_swallow_cancelled_is_silent(
+def test_drain_task_cancelled_is_silent(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     """CancelledError is the expected shutdown path — must NOT log."""
@@ -100,7 +100,7 @@ def test_await_task_swallow_cancelled_is_silent(
         """Spawn the sleeper, cancel it, and let the swallow helper await it."""
         t = asyncio.create_task(sleeper(), name="voh.test.sleeper")
         t.cancel()
-        await _await_task_swallow(t)
+        await _drain_task(t)
 
     # CancelledError is the normal shutdown signal — capture WARNINGs so we can
     # assert none were emitted for it.
@@ -115,7 +115,7 @@ def test_await_task_swallow_cancelled_is_silent(
     assert not warning_records, f"CancelledError should not log a warning, got: {warning_records}"
 
 
-def test_await_task_swallow_other_exception_logs_warning(
+def test_drain_task_other_exception_records_and_logs(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     """A stage that crashes with a real exception MUST leave a trace."""
@@ -127,7 +127,7 @@ def test_await_task_swallow_other_exception_logs_warning(
     async def drive() -> None:
         """Spawn the crasher and await it through the swallow helper."""
         t = asyncio.create_task(crasher(), name="voh.test.diar")
-        await _await_task_swallow(t)
+        await _drain_task(t)
 
     # A real (non-Cancelled) crash MUST surface as a WARNING with a traceback —
     # the six-minute silent deadlock is what this test guards against.

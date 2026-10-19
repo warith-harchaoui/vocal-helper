@@ -96,7 +96,31 @@ def resolve_engine(*, endpoint: str | None = None) -> dict[str, Any]:
     return beh.ensure(_PACKAGE_DIR, endpoint=endpoint)
 
 
-async def _await_task_swallow(t: asyncio.Task) -> None:
+class StageCrashed(RuntimeError):
+    """A pipeline stage died, so the result is incomplete.
+
+    Raised at the end of :meth:`Pipeline.run` / :meth:`OfflinePipeline.run` when any stage
+    crashed, because the alternative is worse than an exception: before this existed, a
+    source that failed produced a **normal, empty transcript**. The crash was logged and the
+    run returned successfully with nothing in it, so a caller saw silence and no reason for
+    it — the same shape of failure the docstring of :func:`_drain_task` says once hid a
+    broken pyannote API "undetected for hours".
+
+    Pass ``strict=False`` to the pipeline to keep the lenient behaviour, which is a choice
+    somebody then made on purpose rather than inherited by accident.
+    """
+
+    def __init__(self, failures: list[tuple[str, BaseException]]) -> None:
+        names = ", ".join(name for name, _exc in failures)
+        super().__init__(
+            f"{len(failures)} pipeline stage(s) crashed: {names}. "
+            "The result is incomplete; see the chained exception."
+        )
+        self.failures = failures
+
+
+async def _drain_task(t: asyncio.Task,
+                      failures: list[tuple[str, BaseException]] | None = None) -> None:
     """Await a cancelled / long-running task on pipeline shutdown.
 
     ``asyncio.CancelledError`` is expected — the task got the ``cancel()``
@@ -112,7 +136,7 @@ async def _await_task_swallow(t: asyncio.Task) -> None:
     except asyncio.CancelledError:
         # Normal shutdown path.
         return
-    except Exception:  # noqa: BLE001 — final barrier ; we log, then continue.
+    except Exception as exc:  # noqa: BLE001 — final barrier ; record, log, keep draining.
         # Named logger + ``exc_info`` so the crash is observable with a full
         # traceback ; this silent-swallow path once deadlocked the suite.
         logger.warning(
@@ -120,6 +144,11 @@ async def _await_task_swallow(t: asyncio.Task) -> None:
             t.get_name(),
             exc_info=True,
         )
+        # Logging alone is invisible to a PROGRAM. Recording it is what lets run() refuse to
+        # report success on a run that lost a stage. Draining continues either way, so one
+        # dead stage never leaves the others un-awaited.
+        if failures is not None:
+            failures.append((t.get_name(), exc))
 
 
 async def _invoke_subscribers(
@@ -221,6 +250,7 @@ class Pipeline:
         source: SourceFactory,
         config: PipelineConfig | None = None,
         metrics: "LiveMetrics | None" = None,
+        strict: bool = True,
     ) -> None:
         """Wire up queues, stages and subscriber lists from ``config``.
 
@@ -229,6 +259,11 @@ class Pipeline:
 
         Parameters
         ----------
+        strict : bool, optional
+            ``True`` (default) raises :class:`StageCrashed` when a stage died, because a run
+            that lost a stage did not succeed — and the old behaviour returned a normal,
+            empty transcript with the reason only in a log. ``False`` restores leniency as a
+            deliberate choice; ``stage_failures`` is filled either way.
         metrics : LiveMetrics, optional
             Collector for what the session costs the person watching it: latency from
             end-of-speech to delivery, revision rate, queue waits. ``None`` (default)
@@ -238,6 +273,10 @@ class Pipeline:
         self.source_factory = source
         self.config = config or PipelineConfig()
         self.metrics = metrics
+        self.strict = strict
+        #: ``(stage name, exception)`` for every stage that died this run. Populated even
+        #: when ``strict=False``, so a lenient caller can still ask what went wrong.
+        self.stage_failures: list[tuple[str, BaseException]] = []
 
         # One bounded queue per hand-off. PCM gets the deep buffer (bursty,
         # 20 ms frames) ; the downstream segment queues stay shallow so a slow
@@ -383,7 +422,9 @@ class Pipeline:
                 if not t.done():
                     t.cancel()
             for t in tasks:
-                await _await_task_swallow(t)
+                await _drain_task(t, self.stage_failures)
+        if self.strict and self.stage_failures:
+            raise StageCrashed(self.stage_failures) from self.stage_failures[0][1]
 
     # ----- internal coroutines ------------------------------------------
 
@@ -573,10 +614,15 @@ class OfflinePipeline:
         *,
         source: SourceFactory,
         config: OfflinePipelineConfig | None = None,
+        strict: bool = True,
     ) -> None:
         """Wire up the batch chain (no VAD): queues, offline diar, ASR, LLM."""
         self.source_factory = source
         self.config = config or OfflinePipelineConfig()
+        self.strict = strict
+        #: ``(stage name, exception)`` for every stage that died this run — see
+        #: :class:`StageCrashed`. Filled even when ``strict=False``.
+        self.stage_failures: list[tuple[str, BaseException]] = []
 
         # Same bounded-queue rationale as the streaming pipeline — deep PCM
         # buffer, shallow segment queues that back-pressure the diarizer.
@@ -676,7 +722,9 @@ class OfflinePipeline:
                 if not t.done():
                     t.cancel()
             for t in tasks:
-                await _await_task_swallow(t)
+                await _drain_task(t, self.stage_failures)
+        if self.strict and self.stage_failures:
+            raise StageCrashed(self.stage_failures) from self.stage_failures[0][1]
 
     # ----- internal coroutines (mirrors the streaming pipeline) ----------
 
