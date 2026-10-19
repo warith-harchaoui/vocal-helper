@@ -2012,3 +2012,133 @@ class _SherpaOfflineDiar:
             pcm = pcm.astype(np.float32, copy=False)
         result = self._sd.process(pcm).sort_by_start_time()
         return [(float(seg.start), float(seg.end), f"spk{seg.speaker}") for seg in result]
+
+
+# ===========================================================================
+# DIART — the online regime's winner, ported from operator-assistance-streaming
+# ===========================================================================
+
+
+def snapshot_to_delta(
+    snapshot: list[tuple[float, float, str]],
+    already_sent: dict[tuple[float, str], tuple[float, float, str]],
+) -> tuple[list[tuple[float, float, str]], int]:
+    """Turn one of diart's full-annotation snapshots into what is actually new.
+
+    diart re-emits its **entire** running annotation on every step: each call extends a few
+    segments and may merge others. The original wrapper handled this by rebuilding its result
+    list from scratch each time, which is correct for a list and impossible for a queue — a
+    downstream stage consuming a stream cannot un-receive what it already got, and appending
+    the whole snapshot would make every segment arrive once per step.
+
+    So the snapshot is diffed against what has already gone out, keyed by ``(start, speaker)``:
+    a segment is new if that key has never been sent, and a **revision** if the key was sent
+    with a different end time. Revisions are forwarded too, because a segment that grew is
+    news, and they are counted separately so the caller can see them rather than discover them
+    as duplicates.
+
+    That count is the honest price of diart's latency. It reaches a first label in about 500 ms
+    where a finalise-then-emit diarizer takes seconds, and it pays for that by revising what it
+    already said — which is exactly the flicker :mod:`vocal_helper.live_metrics` measures.
+    Neither number means anything without the other.
+
+    Parameters
+    ----------
+    snapshot : list of (start, end, label)
+        The full annotation as of this step.
+    already_sent : dict
+        Mutated in place: maps ``(start, speaker)`` to the last tuple emitted for it.
+
+    Returns
+    -------
+    tuple
+        ``(to_emit, n_revisions)``.
+    """
+    to_emit: list[tuple[float, float, str]] = []
+    revisions = 0
+    for seg in sorted(snapshot):
+        t0, t1, label = float(seg[0]), float(seg[1]), str(seg[2])
+        key = (round(t0, 3), label)
+        previous = already_sent.get(key)
+        if previous is None:
+            already_sent[key] = (t0, t1, label)
+            to_emit.append((t0, t1, label))
+        elif abs(previous[1] - t1) > 1e-6:
+            already_sent[key] = (t0, t1, label)
+            to_emit.append((t0, t1, label))
+            revisions += 1
+    return to_emit, revisions
+
+
+class DiartDiarStage:
+    """Online diarization through diart, with this package's stage surface.
+
+    Ported from ``operator-assistance-streaming/streaming/diar_diart.py``, which is being
+    absorbed. Worth porting rather than dropping because that repository had already measured
+    the thing, in a comment nobody outside it could see: on their long reference diart reaches
+    **6.04 %** speaker error against **11.7 %** for the pyannote community-1 path, and a first
+    label in **500 ms against 20 s**.
+
+    That is the opposite of the offline verdict, where community-1 wins on every axis
+    measured. Two regimes, two winners, both measured — which is why
+    :class:`OnlineDiarStage` is not being replaced, only joined.
+
+    Two costs recorded rather than buried. diart needs its own environment (the source
+    repository ran its GUI from a dedicated conda env), so the import is lazy and says what is
+    missing. And its snapshot semantics mean it revises what it already emitted — see
+    :func:`snapshot_to_delta`, and measure it with :mod:`vocal_helper.live_metrics` before
+    choosing it over a quieter diarizer.
+    """
+
+    #: diart's published recommendation, and what the source repository ran: 5 s window,
+    #: 500 ms step, 500 ms latency at 16 kHz.
+    DEFAULTS = {"duration": 5.0, "step": 0.5, "latency": 0.5, "tau_active": 0.5}
+
+    def __init__(self, *, sample_rate: int = 16_000, **config: float) -> None:
+        """Store the configuration; diart itself loads on :meth:`run`."""
+        self.sample_rate = int(sample_rate)
+        self.config = {**self.DEFAULTS, **config}
+        self.revisions = 0
+        self._sent: dict[tuple[float, str], tuple[float, float, str]] = {}
+        self._label_map: dict[str, str] = {}
+
+    def _build(self):
+        """Instantiate diart's pipeline, naming the dependency if it is absent."""
+        try:
+            from diart import SpeakerDiarization, SpeakerDiarizationConfig
+        except ImportError as exc:  # pragma: no cover - depends on the environment
+            raise ImportError(
+                "diart is not installed. It is an optional backend with heavy pins of its "
+                "own; install it in a dedicated environment, or use OnlineDiarStage, which "
+                "needs nothing extra."
+            ) from exc
+        return SpeakerDiarization(SpeakerDiarizationConfig(**self.config))
+
+    def consume_snapshot(self, snapshot: list[tuple[float, float, str]]) -> list[DiarizedSegment]:
+        """One diart snapshot in, the segments a stream has not seen yet out.
+
+        Split from the async plumbing on purpose: this is where the reasoning lives, so it is
+        testable without diart, without audio and without an event loop.
+        """
+        fresh, revised = snapshot_to_delta(snapshot, self._sent)
+        self.revisions += revised
+        return [
+            {
+                "t0": t0,
+                "t1": t1,
+                "sample_rate": self.sample_rate,
+                "speaker": self._stable_label(label),
+            }
+            for t0, t1, label in fresh
+        ]
+
+    def _stable_label(self, label: str) -> str:
+        """diart's arbitrary label → this package's ``"S0"``, ``"S1"``…, stable per session.
+
+        Per instance, never per class: a module-level mapping would leak one session's
+        speakers into the next, so two consecutive recordings would share a numbering and the
+        second would start at whatever the first reached.
+        """
+        if label not in self._label_map:
+            self._label_map[label] = f"S{len(self._label_map)}"
+        return self._label_map[label]
