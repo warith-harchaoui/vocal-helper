@@ -1761,6 +1761,67 @@ class _NemoSortformerDiar:
         return _parse_sortformer_segments(preds[0])
 
 
+#: Speaker-embedding backends, and what picking between them actually costs.
+#:
+#: Both emit the **same 192-dimensional TitaNet-large vector**, so downstream clustering and
+#: cross-recording identity matching are unaffected by the choice — it is an installation and
+#: platform decision, not a quality one. ``"nemo"`` runs it through torch/NeMo (sharpest on a
+#: desktop); ``"sherpa"`` runs the same weights through onnxruntime, torch-free, which is what
+#: ships on iOS and Android.
+EMBEDDER_BACKENDS = ("nemo", "sherpa")
+
+
+def make_embedder(backend: str = "nemo", *, model_path: str | None = None) -> Any:
+    """Build a speaker embedder: the public way to get one.
+
+    Exists because every consumer in the suite was reaching into this module's private names
+    for it — ``notes-helper`` imported ``_TitaNetEmbedder``, ``_SherpaEmbedder`` **and**
+    ``_resolve_sherpa_models``; ``sidekick`` imported ``_SherpaEmbedder``. Three repositories
+    depending on a leading underscore is not a dependency, it is a promise nobody made, and it
+    is exactly what has to go before vocal-helper can be "the tool you use for any free local
+    mode".
+
+    Parameters
+    ----------
+    backend : str, optional
+        ``"nemo"`` (default) or ``"sherpa"`` — see :data:`EMBEDDER_BACKENDS`. The default is
+        TitaNet via NeMo, picked by ``studies/diar_embedding_backend.py``: a 0.354 separability
+        margin against 0.201 for ``pyannote/embedding``, a 76 % uplift.
+    model_path : str, optional
+        ``sherpa`` only: an explicit ONNX path. ``None`` resolves it the usual way
+        (:func:`resolve_sherpa_models`), which never reaches the hub.
+
+    Returns
+    -------
+    Any
+        An object exposing ``load()`` and ``embed(pcm, sr) -> np.ndarray``.
+
+    Raises
+    ------
+    ValueError
+        On an unknown backend — named here rather than failing later inside a model load.
+    """
+    name = (backend or "nemo").strip().lower()
+    if name == "nemo":
+        return _TitaNetEmbedder()
+    if name == "sherpa":
+        path = model_path
+        if path is None:
+            _seg, path = resolve_sherpa_models()
+        return _SherpaEmbedder(model_path=path)
+    raise ValueError(f"unknown embedder backend {backend!r}; expected one of {EMBEDDER_BACKENDS}")
+
+
+def resolve_sherpa_models() -> tuple[str, str]:
+    """Public name for the sherpa ONNX resolution — ``(segmentation, embedding)`` paths.
+
+    Same function as the private one it wraps, published because consumers already depend on
+    it. Never reaches HuggingFace: environment override, then the self-hosted bundle, then the
+    shared ai-helpers mirror.
+    """
+    return _resolve_sherpa_models()
+
+
 def _resolve_sherpa_models() -> tuple[str, str]:
     """Locate the sherpa-onnx segmentation + speaker-embedding ONNX files.
 

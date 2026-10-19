@@ -73,7 +73,13 @@ Warith Harchaoui, Ph.D., https://linkedin.com/in/warith-harchaoui/
 
 from vocal_helper import sources
 from vocal_helper.asr import WhisperStage, transcribe_pcm, transcribe_pcm_with_language
-from vocal_helper.diar import OfflineDiarStage, OnlineDiarStage
+from vocal_helper.diar import (
+    EMBEDDER_BACKENDS,
+    OfflineDiarStage,
+    OnlineDiarStage,
+    make_embedder,
+    resolve_sherpa_models,
+)
 from vocal_helper.lid import (
     LangRegion,
     RegionVerdict,
@@ -146,6 +152,10 @@ __all__ = [
     "SileroVADStage",
     "OnlineDiarStage",
     "OfflineDiarStage",
+    # Speaker embedding — the public way in, so consumers stop importing private names.
+    "EMBEDDER_BACKENDS",
+    "make_embedder",
+    "resolve_sherpa_models",
     "SemanticEOTStage",
     "WhisperStage",
     # Backend router — the study-grounded "aiguilleur".
