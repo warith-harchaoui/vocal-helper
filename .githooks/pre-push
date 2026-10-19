@@ -12,7 +12,7 @@ ruff check . || { echo "[pre-push] ruff check failed - push aborted."; exit 1; }
 echo "[pre-push] ruff format --check..."
 ruff format --check . || { echo "[pre-push] ruff format failed - push aborted."; exit 1; }
 
-echo "[pre-push] full pytest sweep (unit + integration)..."
+echo "[pre-push] pytest sweep (the repo's own default selection)..."
 # A gate must never hang. This sweep deliberately clears the marker filter with -m "",
 # which wakes integration tests that reach the network; yt-dlp and friends inherit
 # Python's default socket timeout, i.e. none at all. A vocal-helper run sat at 0 % CPU
@@ -27,6 +27,26 @@ TIMEOUT_ARGS=""
 if python -c "import pytest_timeout" 2>/dev/null; then
   TIMEOUT_ARGS="--timeout=600"
 fi
-python -m pytest -q -m "" $TIMEOUT_ARGS || { echo "[pre-push] tests failed - push aborted."; exit 1; }
+# NOTE: no -m "" here, unlike the other fourteen repositories.
+#
+# This project's integration tests stream a specific third-party YouTube video
+# through yt-dlp and ffmpeg and then run Whisper over it. tests/test_integration_youtube.py
+# says so itself -- "Skipped by default ... Run with pytest -v -m integration" -- and
+# pyproject.toml backs that with addopts = -m 'not integration'. Forcing them on with
+# -m "" overrode both, and put a push gate at the mercy of Google's CDN.
+#
+# It is not a theoretical risk. Two runs during the 2026-10-18 audit stalled at 0 % CPU
+# holding sockets that never delivered another byte -- once for nine minutes, once for
+# over four hours -- and had to be killed. Bounding the read upstream (podcast-helper's
+# -rw_timeout, youtube-helper's socket_timeout) was not enough: the four-hour stall had
+# -rw_timeout 60000000 on its ffmpeg command line and hung anyway.
+#
+# A gate that cannot finish is worse than no gate, because the only way past it is
+# --no-verify, which skips the lint and the tests together. So the gate runs what this
+# repository considers its own suite. Run the integration tests deliberately, on a
+# workstation, when you want them:
+#
+#     pytest -v -m integration
+python -m pytest -q $TIMEOUT_ARGS || { echo "[pre-push] tests failed - push aborted."; exit 1; }
 
 echo "[pre-push] all green - pushing."
