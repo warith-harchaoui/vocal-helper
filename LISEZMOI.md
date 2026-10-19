@@ -286,6 +286,14 @@ quitte jamais la machine.
 (liens symboliques vers `~/.claude/skills/` et `~/.opencode/skills/`) et
 [`TRIGGERS.md`](https://github.com/warith-harchaoui/vocal-helper/blob/main/TRIGGERS.md) pour le catalogue exhaustif des déclencheurs.
 
+### Surface publique ajoutée le 2026-10-19
+
+`make_embedder(backend)` et `resolve_sherpa_models()` remplacent les noms privés que trois
+dépôts importaient par-dessus une frontière (`_TitaNetEmbedder`, `_SherpaEmbedder`,
+`_resolve_sherpa_models`). Les deux backends d'embedding émettent le **même** vecteur
+TitaNet-large 192-d : le choix est une affaire d'installation et de plateforme, jamais de
+qualité — `nemo` par torch, `sherpa` par onnxruntime pour iOS et Android.
+
 ## Abonnés : fan-out sans posséder la boucle
 
 Chaque étage peut être observé sans consommer le flux fusionné :
@@ -352,21 +360,73 @@ défaut sur les deux CLI et sur `POST /pipeline` ; la durée réelle du fichier 
 sondée puis routée (court → `nemo`, long → `pyannote`) sans choix manuel. Passez
 un `pyannote` / `nemo` / `sherpa` explicite pour forcer.
 
-## Choix de diarisation : pourquoi le clustering cosinus online
+## Choix de diarisation : offline et online n'ont pas le même gagnant
 
-L'étude `pdbms` (2026-06-29, N=2089 par système) classe les diariseurs
-streaming online ainsi :
+Mesuré, pas supposé, le 2026-10-19.
 
-| Mode | Recommandé | DER (propre) |
-|---|---|---|
-| Streaming ≤ 300 s | `hungarian_nemo` (w=20 s) | 0,13 – 0,20 |
-| Streaming > 300 s | `hungarian_pyannote` (w=30 s) | 0,30 – 0,45 |
+**Offline — `pyannote community-1`.** Sur AMI (8 réunions, collar 0, recouvrement compté), il
+fait jeu égal avec speaker-diarization-3.1 à **0,116 de DER médian** : comparer les médianes
+conclut qu'il n'y a rien à gagner. Toute la différence est dans la queue — pire réunion
+**0,474** contre **0,149**, dispersion qui s'effondre de 0,412 à 0,086 — et une seule réunion
+la porte, où community-1 fait 3,3× mieux. Sur trois vrais plateaux de 64 min à six personnes,
+c'est aussi lui qui sur-segmente le moins : **×2,7**, contre ×3,0 pour 3.1, ×3,7 pour
+Sortformer 4spk-v1 et **×19,7** pour le chemin sherpa-onnx. C'est le défaut de
+`_PyannoteOfflineDiar` ; un bundle antérieur retombe sur 3.1 avec un avertissement.
 
-Vocal Helper spécialise cette décision : comme la VAD isole déjà chaque
-segment vocal, la machinerie à fenêtre glissante se réduit à un embedding par
-segment plus un clustering moyenne-mobile par distance cosinus. Le
-`join_threshold=0,30` par défaut est la valeur retenue sur AMI dev-slice N=8
-dans le `pyannote_stitch_threshold_sweep` du 2026-06-30.
+**Online — `diart`.** Verdict inverse, issu de la mesure qu'`operator-assistance-streaming`
+avait déjà faite : **6,04 %** d'erreur de locuteur contre **11,7 %** pour le chemin community-1
+sur sa référence longue, et un premier label en **500 ms contre 20 s**. `DiartDiarStage` est le
+portage. Il coûte un environnement à part, et il révise ce qu'il a déjà émis — diart renvoie
+toute son annotation à chaque pas, donc `snapshot_to_delta` en fait un flux et **compte les
+révisions**, qui sont le prix honnête des 500 ms. À lire à côté de la latence, jamais seule.
+
+**Et toujours par défaut pour l'étage online intégré : le clustering cosinus.** L'étude `pdbms`
+(2026-06-29, N=2089 par système) classe `hungarian_nemo` (w=20 s, DER 0,13–0,20) jusqu'à 300 s
+et `hungarian_pyannote` (w=30 s, 0,30–0,45) au-delà. `OnlineDiarStage` spécialise ça : le VAD
+isole déjà chaque segment voisé, donc la fenêtre glissante se réduit à un plongement par
+segment plus un clustering cosinus à moyenne courante. `join_threshold=0,30` vient du balayage
+AMI dev-slice du 2026-06-30.
+
+## Mesure de la transcription : `vocal_helper.bench`
+
+Le WER seul est aveugle à la façon dont l'audio multi-locuteurs échoue, donc le module porte
+les métriques qui ne le sont pas.
+
+| fonction | ce qu'elle voit que les autres ne voient pas |
+|---|---|
+| `cpwer` | les bons mots sous **la mauvaise personne**. Concaténez un épisode : un diariseur qui a fondu cinq intervenants en deux obtient le même WER qu'un qui les a séparés ; le DER voit ça mais ne lit jamais un mot. Les locuteurs non appariés sont facturés **des deux côtés**, donc la sur-segmentation n'est pas récompensée. |
+| `term_error_rate` | **quels** mots ont été ratés. « le Fégaro » pour *Le Figaro* est une erreur d'arrondi en WER et un enregistrement perdu dans l'analyse. |
+| `speaker_label_error` | la question du produit : à quelle fréquence le nom affiché est faux, en ignorant le flou de frontière que le DER facture à la milliseconde. |
+| `der_report` | le DER **décomposé** (manqué / fausse alarme / confusion n'ont pas le même remède), collar 0 et recouvrement compté par défaut, plus le JER et les deux comptes de locuteurs. |
+
+## Sessions live : `vocal_helper.live_metrics`
+
+La qualité offline a le WER et le DER ; le live a la latence, le scintillement et l'attente en
+file, et aucun des trois ne répond seul.
+
+```python
+m = voh.LiveMetrics()
+pipeline = voh.Pipeline(source=..., metrics=m)
+...
+print(m.summary())
+```
+
+La latence se compte depuis la **fin** de la parole, parce que c'est là que l'auditeur commence
+à attendre. Le taux de révision compte parce qu'un texte qui saute est inutilisable à n'importe
+quel WER — et zéro révision n'est pas bon en soi, c'est payé en latence. L'attente par file dit
+**où** le temps est passé : un total lent sans attente en file est un modèle lent, le même total
+avec une grosse attente est un consommateur affamé. Correctifs opposés.
+
+`violations` fait respecter la seule règle sur laquelle repose toute la conception live :
+**aucune mise à jour n'apparaît avant l'audio qui la produit**. Un compte non nul signifie
+qu'une horloge, un tampon ou un bouchon ment, et tout chiffre à côté est une fiction.
+
+## Les échecs sont bruyants
+
+Une chaîne qui perdait un étage rendait une transcription normale et **vide**, la raison restant
+dans un log. `run()` lève désormais `StageCrashed` en nommant chaque étage mort, et
+`pipeline.stage_failures` porte les exceptions. `strict=False` redonne l'indulgence — un choix
+qu'on fait, pas qu'on hérite.
 
 ## Identification de la langue parlée
 

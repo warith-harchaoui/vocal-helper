@@ -367,6 +367,14 @@ behalf. See [`skills/README.md`](https://github.com/warith-harchaoui/vocal-helpe
 `~/.claude/skills/` and `~/.opencode/skills/`), and
 [`TRIGGERS.md`](https://github.com/warith-harchaoui/vocal-helper/blob/main/TRIGGERS.md) for the exhaustive catalogue of what invokes it.
 
+### Public surface added 2026-10-19
+
+`make_embedder(backend)` and `resolve_sherpa_models()` replace the private names three
+repositories were importing across a boundary (`_TitaNetEmbedder`, `_SherpaEmbedder`,
+`_resolve_sherpa_models`). Both embedder backends emit the same 192-d TitaNet-large
+vector, so the choice is installation and platform, never quality: `nemo` through torch,
+`sherpa` through onnxruntime for iOS and Android.
+
 ## Subscribers: fan-out without owning the loop
 
 Every stage can be observed without consuming the merged output stream :
@@ -389,16 +397,74 @@ async for ev in pipeline.run():
 
 Useful for WebSocket / SSE relays, live User Interface (UI) updates, or JSONL persistence.
 
-## Diarization choice: why **online cosine clustering**
+## Diarization choice: offline and online have different winners
 
-The `pdbms` study (2026-06-29, N=2089 per system) ranks the online streaming diarizers as :
+Measured, not assumed, on 2026-10-19.
 
-| Mode | Recommended | DER (clean) |
-|---|---|---|
-| Streaming ≤ 300 s | `hungarian_nemo` (w=20 s) | 0.13 – 0.20 |
-| Streaming > 300 s | `hungarian_pyannote` (w=30 s) | 0.30 – 0.45 |
+**Offline — `pyannote community-1`.** On AMI (8 meetings, collar 0, overlap scored) it ties
+speaker-diarization-3.1 at a **0.116 median DER**, so a median comparison says there is nothing
+to choose between them. The difference is the tail: 3.1's worst meeting is **0.474**,
+community-1's is **0.149**, and the spread collapses from 0.412 to 0.086. One meeting carries
+all of it, where community-1 is 3.3× better. On three real 64-minute six-speaker panels it also
+over-splits least of everything measured — **2.7×**, against 3.0× for 3.1, 3.7× for Sortformer
+4spk-v1 and **19.7×** for the sherpa-onnx path. It is the default for
+`_PyannoteOfflineDiar`; a bundle that predates it falls back to 3.1 with a warning.
 
-Vocal Helper specialises that decision : since the VAD already isolates each voiced segment for us, the sliding-window machinery collapses to per-segment embedding + cosine-distance running-mean clustering. The default `join_threshold=0.30` is the value selected on AMI dev-slice N=8 in the 2026-06-30 `pyannote_stitch_threshold_sweep`.
+**Online — `diart`.** The opposite verdict, from the measurement
+`operator-assistance-streaming` had already made: **6.04 %** speaker error against **11.7 %**
+for the community-1 path on its long reference, and a first label in **500 ms against 20 s**.
+`DiartDiarStage` is the port. It costs an environment of its own, and it revises what it
+already emitted — diart re-sends its whole annotation each step, so `snapshot_to_delta` turns
+that into a stream and **counts the revisions**, which is the honest price of the 500 ms.
+Read it next to the latency with `LiveMetrics`, never alone.
+
+**Still the default for the built-in online stage — cosine clustering.** The `pdbms` study
+(2026-06-29, N=2089 per system) ranks streaming diarizers as `hungarian_nemo` (w=20 s, DER
+0.13–0.20) up to 300 s and `hungarian_pyannote` (w=30 s, 0.30–0.45) beyond. `OnlineDiarStage`
+specialises that: the VAD already isolates each voiced segment, so the sliding window collapses
+to per-segment embedding plus cosine running-mean clustering. `join_threshold=0.30` comes from
+the 2026-06-30 AMI dev-slice sweep.
+
+## Scoring: `vocal_helper.bench`
+
+Plain WER cannot see how multi-speaker audio actually fails, so the module carries the metrics
+that can.
+
+| function | what it sees that the others do not |
+|---|---|
+| `cpwer` | the right words under the **wrong person**. Concatenate an episode and a diarizer that merged five panellists into two scores exactly like one that separated them; DER sees that and never reads a word. Unmatched speakers are charged on **both** sides, so over-splitting is not rewarded. |
+| `term_error_rate` | **which** words were missed. "le Fégaro" for *Le Figaro* is a rounding error in WER and a lost record in any corpus-level analysis. |
+| `speaker_label_error` | the product's question — how often is the displayed name wrong — ignoring the boundary slop DER bills to the millisecond. |
+| `der_report` | DER **decomposed** (miss / false alarm / confusion have different cures), collar 0 and overlap scored by default, plus JER and both speaker counts. |
+
+## Live sessions: `vocal_helper.live_metrics`
+
+Offline quality has WER and DER; live has latency, flicker and queue wait, and no one of them
+is the answer alone.
+
+```python
+m = voh.LiveMetrics()
+pipeline = voh.Pipeline(source=..., metrics=m)
+...
+print(m.summary())
+```
+
+Latency is counted from the **end** of the speech, because that is when a listener starts
+waiting. The revision rate matters because text that jumps is unusable at any word error rate —
+and zero revisions is not automatically good, it is paid for in latency. Per-queue waits say
+*where* the time went: a slow total with no queue wait is a slow model, the same total with a
+large one is a starved consumer. Opposite fixes.
+
+`violations` enforces the one rule the whole live design rests on: **no update appears before
+the audio that produced it**. A non-zero count means a clock, a buffer or a mock is lying, and
+every number beside it is fiction.
+
+## Failures are loud
+
+A pipeline that lost a stage used to return a normal, **empty** transcript with the reason only
+in a log. `run()` now raises `StageCrashed`, naming every stage that died, and
+`pipeline.stage_failures` carries the exceptions. Pass `strict=False` to opt back into
+leniency — a choice somebody makes rather than inherits.
 
 ## Spoken-language identification
 
