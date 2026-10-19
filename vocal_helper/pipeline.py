@@ -47,6 +47,7 @@ except Exception:  # pragma: no cover — optional
     SemanticEOTStage = None  # type: ignore[assignment, misc]
 
 from vocal_helper.llm import GemmaAnalystStage
+from vocal_helper.live_metrics import LiveMetrics
 from vocal_helper.types import (
     DiarizedSegment,
     PcmFrame,
@@ -219,14 +220,24 @@ class Pipeline:
         *,
         source: SourceFactory,
         config: PipelineConfig | None = None,
+        metrics: "LiveMetrics | None" = None,
     ) -> None:
         """Wire up queues, stages and subscriber lists from ``config``.
 
         Nothing runs here — construction only allocates the inter-stage queues
         and instantiates each stage. The chain starts on :meth:`run`.
+
+        Parameters
+        ----------
+        metrics : LiveMetrics, optional
+            Collector for what the session costs the person watching it: latency from
+            end-of-speech to delivery, revision rate, queue waits. ``None`` (default)
+            records nothing. Pass one and read :meth:`LiveMetrics.report` afterwards —
+            offline quality has WER and DER, and this is the live equivalent.
         """
         self.source_factory = source
         self.config = config or PipelineConfig()
+        self.metrics = metrics
 
         # One bounded queue per hand-off. PCM gets the deep buffer (bursty,
         # 20 ms frames) ; the downstream segment queues stay shallow so a slow
@@ -476,6 +487,18 @@ class Pipeline:
                     if item is None:
                         utt_done = True
                     else:
+                        # Record what the consumer is about to see, at the moment it sees
+                        # it. Opt-in (``metrics=`` on the Pipeline) and a dict insert when
+                        # on, so an unmeasured session pays nothing. See
+                        # :mod:`vocal_helper.live_metrics` for why latency and revision
+                        # rate have to be read as a pair.
+                        if self.metrics is not None:
+                            self.metrics.record(
+                                speaker=str(item.get("speaker", "")),
+                                t0=float(item.get("t0", 0.0)),
+                                t1=float(item.get("t1", 0.0)),
+                                text=str(item.get("text", "")),
+                            )
                         yield item
                         utt_task = asyncio.create_task(reader(utt_q))
                 elif d is sum_task:

@@ -90,6 +90,7 @@ from vocal_helper.lid import (
     detect_language_speechbrain,
     language_posterior_curve,
 )
+from vocal_helper.live_metrics import LiveMetrics
 from vocal_helper.llm import GemmaAnalystStage
 from vocal_helper.pipeline import (
     OfflinePipeline,
@@ -171,6 +172,8 @@ __all__ = [
     "detect_language_speechbrain",
     "language_posterior_curve",
     "GemmaAnalystStage",
+    # Live measurement: latency, flicker, queue waits — the online counterpart of WER/DER.
+    "LiveMetrics",
     # LiveKit-inspired EOT eval + Pipecat-inspired parallel primitive
     "EOTPair",
     "eot_score",
