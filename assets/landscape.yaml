@@ -1,0 +1,301 @@
+meta:
+  reference: vocal-helper
+  rotation_deg: 50.506
+  explained_variance_ratio:
+  - 0.4611
+  - 0.2563
+  cumulative_variance: 0.7174
+  n_approaches: 17
+  attributes:
+  - Live streaming
+  - Online diarization
+  - Offline diarization
+  - Local only
+  - Rolling LLM summary
+  - Multi-source input
+  - Ergonomic Python API
+  - Multi-surface
+  lower_is_better: []
+axes:
+  axis_1:
+    name: Adaptable ↔ Versatile
+    pole_left: Adaptable
+    pole_right: Versatile
+    loadings:
+      Live streaming: 0.2788
+      Online diarization: -0.1367
+      Offline diarization: -0.3873
+      Local only: 0.36
+      Rolling LLM summary: 0.2922
+      Multi-source input: 0.4154
+      Ergonomic Python API: 0.3858
+      Multi-surface: 0.4661
+  axis_2:
+    name: Independent ↔ Comprehensive
+    pole_bottom: Independent
+    pole_top: Comprehensive
+    loadings:
+      Live streaming: 0.1776
+      Online diarization: 0.5319
+      Offline diarization: 0.497
+      Local only: -0.4167
+      Rolling LLM summary: 0.3637
+      Multi-source input: 0.2631
+      Ergonomic Python API: 0.1253
+      Multi-surface: 0.2183
+approaches:
+- name: vocal-helper
+  coordinates:
+    axis_1: 2.1316
+    axis_2: 2.3374
+  role: best
+  color: '#FF3B30'
+  attributes:
+    Live streaming: 5.0
+    Online diarization: 5.0
+    Offline diarization: 5.0
+    Local only: 5.0
+    Rolling LLM summary: 5.0
+    Multi-source input: 5.0
+    Ergonomic Python API: 5.0
+    Multi-surface: 5.0
+- name: whisper.cpp
+  coordinates:
+    axis_1: 0.4646
+    axis_2: -2.3374
+  role: competitor
+  color: '#D0A241'
+  attributes:
+    Live streaming: 2.0
+    Online diarization: 1.0
+    Offline diarization: 1.0
+    Local only: 5.0
+    Rolling LLM summary: 1.0
+    Multi-source input: 2.0
+    Ergonomic Python API: 2.0
+    Multi-surface: 2.0
+- name: faster-whisper
+  coordinates:
+    axis_1: 1.1801
+    axis_2: -2.105
+  role: competitor
+  color: '#BDC15C'
+  attributes:
+    Live streaming: 2.0
+    Online diarization: 1.0
+    Offline diarization: 1.0
+    Local only: 5.0
+    Rolling LLM summary: 1.0
+    Multi-source input: 2.0
+    Ergonomic Python API: 4.0
+    Multi-surface: 2.0
+- name: WhisperX
+  coordinates:
+    axis_1: -0.8051
+    axis_2: -1.3054
+  role: competitor
+  color: '#CF7F42'
+  attributes:
+    Live streaming: 1.0
+    Online diarization: 1.0
+    Offline diarization: 4.0
+    Local only: 4.0
+    Rolling LLM summary: 1.0
+    Multi-source input: 2.0
+    Ergonomic Python API: 3.0
+    Multi-surface: 1.0
+- name: whisper_streaming
+  coordinates:
+    axis_1: 1.381
+    axis_2: -1.8654
+  role: competitor
+  color: '#95D282'
+  attributes:
+    Live streaming: 5.0
+    Online diarization: 1.0
+    Offline diarization: 1.0
+    Local only: 5.0
+    Rolling LLM summary: 1.0
+    Multi-source input: 2.0
+    Ergonomic Python API: 3.0
+    Multi-surface: 2.0
+- name: pyannote.audio
+  coordinates:
+    axis_1: -0.9576
+    axis_2: -0.5134
+  role: competitor
+  color: '#FA9488'
+  attributes:
+    Live streaming: 2.0
+    Online diarization: 2.0
+    Offline diarization: 5.0
+    Local only: 4.0
+    Rolling LLM summary: 1.0
+    Multi-source input: 2.0
+    Ergonomic Python API: 3.0
+    Multi-surface: 1.0
+- name: diart
+  coordinates:
+    axis_1: 0.7574
+    axis_2: 0.7968
+  role: competitor
+  color: '#4890D3'
+  attributes:
+    Live streaming: 5.0
+    Online diarization: 5.0
+    Offline diarization: 3.0
+    Local only: 4.0
+    Rolling LLM summary: 1.0
+    Multi-source input: 3.0
+    Ergonomic Python API: 3.0
+    Multi-surface: 2.0
+- name: NVIDIA NeMo
+  coordinates:
+    axis_1: -1.5176
+    axis_2: -0.7065
+  role: competitor
+  color: '#D87797'
+  attributes:
+    Live streaming: 2.0
+    Online diarization: 3.0
+    Offline diarization: 4.0
+    Local only: 4.0
+    Rolling LLM summary: 1.0
+    Multi-source input: 2.0
+    Ergonomic Python API: 1.0
+    Multi-surface: 1.0
+- name: Nemotron-3 Diarization
+  coordinates:
+    axis_1: -2.1316
+    axis_2: 0.6615
+  role: competitor
+  color: '#F4A5E8'
+  attributes:
+    Live streaming: 5.0
+    Online diarization: 5.0
+    Offline diarization: 5.0
+    Local only: 3.0
+    Rolling LLM summary: 1.0
+    Multi-source input: 1.0
+    Ergonomic Python API: 1.0
+    Multi-surface: 1.0
+- name: sherpa-onnx
+  coordinates:
+    axis_1: 1.3436
+    axis_2: -0.5509
+  role: competitor
+  color: '#1CC7C6'
+  attributes:
+    Live streaming: 4.0
+    Online diarization: 3.0
+    Offline diarization: 2.0
+    Local only: 5.0
+    Rolling LLM summary: 1.0
+    Multi-source input: 3.0
+    Ergonomic Python API: 2.0
+    Multi-surface: 3.0
+- name: FunASR
+  coordinates:
+    axis_1: 0.8437
+    axis_2: 0.0588
+  role: competitor
+  color: '#0096BB'
+  attributes:
+    Live streaming: 4.0
+    Online diarization: 3.0
+    Offline diarization: 3.0
+    Local only: 4.0
+    Rolling LLM summary: 1.0
+    Multi-source input: 3.0
+    Ergonomic Python API: 2.0
+    Multi-surface: 3.0
+- name: Moonshine
+  coordinates:
+    axis_1: 1.7388
+    axis_2: -1.7492
+  role: competitor
+  color: '#3DB88E'
+  attributes:
+    Live streaming: 5.0
+    Online diarization: 1.0
+    Offline diarization: 1.0
+    Local only: 5.0
+    Rolling LLM summary: 1.0
+    Multi-source input: 2.0
+    Ergonomic Python API: 4.0
+    Multi-surface: 2.0
+- name: SpeechBrain
+  coordinates:
+    axis_1: -1.2544
+    axis_2: -1.0653
+  role: worst
+  color: '#A52A2A'
+  attributes:
+    Live streaming: 1.0
+    Online diarization: 2.0
+    Offline diarization: 4.0
+    Local only: 4.0
+    Rolling LLM summary: 1.0
+    Multi-source input: 2.0
+    Ergonomic Python API: 2.0
+    Multi-surface: 1.0
+- name: vosk
+  coordinates:
+    axis_1: 2.1316
+    axis_2: -1.4644
+  role: right
+  color: '#007AFF'
+  attributes:
+    Live streaming: 4.0
+    Online diarization: 1.0
+    Offline diarization: 1.0
+    Local only: 5.0
+    Rolling LLM summary: 1.0
+    Multi-source input: 3.0
+    Ergonomic Python API: 3.0
+    Multi-surface: 3.0
+- name: Deepgram
+  coordinates:
+    axis_1: 0.9507
+    axis_2: 2.3374
+  role: top
+  color: '#AF52DE'
+  attributes:
+    Live streaming: 5.0
+    Online diarization: 4.0
+    Offline diarization: 4.0
+    Local only: 1.0
+    Rolling LLM summary: 2.0
+    Multi-source input: 3.0
+    Ergonomic Python API: 4.0
+    Multi-surface: 3.0
+- name: Gladia
+  coordinates:
+    axis_1: 0.7644
+    axis_2: 2.2188
+  role: competitor
+  color: '#7D88DC'
+  attributes:
+    Live streaming: 4.0
+    Online diarization: 4.0
+    Offline diarization: 4.0
+    Local only: 1.0
+    Rolling LLM summary: 2.0
+    Multi-source input: 3.0
+    Ergonomic Python API: 4.0
+    Multi-surface: 3.0
+- name: pyannoteAI
+  coordinates:
+    axis_1: -1.3604
+    axis_2: 0.9303
+  role: competitor
+  color: '#B690E4'
+  attributes:
+    Live streaming: 2.0
+    Online diarization: 3.0
+    Offline diarization: 5.0
+    Local only: 1.0
+    Rolling LLM summary: 1.0
+    Multi-source input: 2.0
+    Ergonomic Python API: 3.0
+    Multi-surface: 2.0

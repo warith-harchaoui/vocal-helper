@@ -2,102 +2,111 @@
 
 🇫🇷 Français · [🇬🇧 LANDSCAPE.md](https://github.com/warith-harchaoui/vocal-helper/blob/main/LANDSCAPE.md)
 
-Projets Python / open source voisins et concurrents dans l'espace
-« parole en direct → texte attribué aux locuteurs → résumé », comparés
-à `vocal-helper`. Les notes vont de ⭐ (1) à ⭐⭐⭐⭐⭐ (5), évaluées sur
-la tâche visée par `vocal-helper` : un **pipeline producteur/consommateur
-asynchrone qui transforme un flux PCM en direct (micro, URL ou fichier)
-en énoncés diarisés et transcrits, plus un résumé LLM glissant
-optionnel**. Un projet optimisé pour un autre usage (par ex.
-transcription par lots uniquement, diarisation non temps réel, dialogue
-LLM généraliste) n'est pas pénalisé ; la note reflète seulement
-l'adéquation à *ce* créneau.
+Les projets voisins et concurrents du domaine « parole en direct → texte attribué aux locuteurs
+→ synthèse », notés sur le travail pour lequel `vocal-helper` est fait : une **chaîne
+producteur/consommateur asynchrone qui transforme un flux PCM vivant (micro, URL ou fichier) en
+énoncés transcrits et attribués, plus une synthèse LLM courante en option**. Un projet conçu
+pour autre chose — transcription par lot, diarisation hors ligne seulement — n'est pas pénalisé
+pour autant : la note dit l'adéquation à *ce* créneau, rien d'autre.
+
+Mise à jour le 2026-10-19. Ce qui a changé depuis le tableau d'août n'est pas seulement la liste
+des entrées : plusieurs notes viennent désormais de **nos propres mesures** et non d'impressions,
+et ces mesures en ont déplacé deux.
+
+## Ce que nous avons mesuré nous-mêmes
+
+| constat | où ça tombe dans le tableau |
+|---|---|
+| pyannote **community-1** fait jeu égal avec 3.1 à 0,116 de DER médian sur AMI, mais sa pire réunion est à **0,149 contre 0,474** : même centre, une queue quatre fois plus courte | `pyannote.audio` à 5 en hors ligne |
+| Sur trois vrais plateaux de 64 min à six personnes, la sur-segmentation vaut **×2,7 (community-1), ×3,0 (3.1), ×3,7 (Sortformer), ×19,7 (sherpa-onnx)** | pourquoi `sherpa-onnx` n'a que 2 en hors ligne, malgré un excellent moteur portable |
+| **Sortformer 4spk-v1 n'émet jamais un cinquième locuteur** : plafond architectural, confirmé sur 30 mix à cinq voix | `NVIDIA NeMo` plafonné à 4 en hors ligne |
+| **diart** atteint 6,04 % d'erreur de locuteur contre 11,7 % pour le chemin community-1 sur un appel long à deux voix, avec un premier label en **500 ms contre 20 s** | `diart` à 5 en direct |
+
+Ce dernier point mérite la réserve que le chiffre seul escamote : l'appel comptait **deux**
+locuteurs, ce qui est le cas facile de diart, et la littérature le donne régulièrement *moins*
+précis que les chaînes par regroupement sur du matériel multi-locuteurs difficile. À lire comme
+« le plus rapide à produire un label utilisable », pas comme « le plus exact ».
 
 ## En un coup d'œil
 
 <!-- TABLE:START -->
-| Transcription en direct | Streaming en direct | Diarisation en ligne | STT 100 % local | Résumé LLM glissant | Multi-source | API Python ergonomique | Multi-surface | Hors ligne |
+| Project | Live streaming | Online diarization | Offline diarization | Local only | Rolling LLM summary | Multi-source input | Ergonomic Python API | Multi-surface |
 | --- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| **vocal-helper** | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ |
-| whisper.cpp | ⭐⭐⭐ | ⭐ | ⭐⭐⭐⭐⭐ | ⭐ | ⭐⭐ | ⭐⭐ | ⭐⭐ | ⭐⭐⭐⭐⭐ |
-| openai-whisper | ⭐ | ⭐ | ⭐⭐⭐⭐⭐ | ⭐ | ⭐⭐ | ⭐⭐⭐ | ⭐⭐ | ⭐⭐⭐⭐⭐ |
-| faster-whisper | ⭐⭐ | ⭐ | ⭐⭐⭐⭐⭐ | ⭐ | ⭐⭐ | ⭐⭐⭐⭐ | ⭐⭐ | ⭐⭐⭐⭐⭐ |
-| WhisperX | ⭐ | ⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐ | ⭐⭐ | ⭐⭐⭐ | ⭐⭐ | ⭐⭐⭐⭐⭐ |
-| whisper_streaming | ⭐⭐⭐⭐⭐ | ⭐ | ⭐⭐⭐⭐⭐ | ⭐ | ⭐⭐⭐ | ⭐⭐⭐ | ⭐⭐⭐ | ⭐⭐⭐ |
-| pyannote.audio | ⭐⭐ | ⭐⭐⭐⭐ | ⭐ | ⭐ | ⭐⭐ | ⭐⭐⭐ | ⭐ | ⭐⭐⭐⭐⭐ |
-| NVIDIA NeMo | ⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐ | ⭐⭐⭐ | ⭐⭐ | ⭐ | ⭐⭐⭐⭐⭐ |
-| SpeechBrain | ⭐⭐ | ⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐ | ⭐⭐ | ⭐⭐⭐ | ⭐⭐ | ⭐⭐⭐⭐⭐ |
-| vosk | ⭐⭐⭐⭐ | ⭐ | ⭐⭐⭐⭐⭐ | ⭐ | ⭐⭐⭐ | ⭐⭐⭐ | ⭐⭐⭐ | ⭐⭐⭐⭐⭐ |
-| AssemblyAI | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐ | ⭐⭐⭐ | ⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐⭐⭐ | ⭐ |
-| Deepgram | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐ | ⭐⭐ | ⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐⭐⭐ | ⭐ |
-| Otter.ai | ⭐⭐⭐⭐⭐ | ⭐⭐⭐ | ⭐ | ⭐⭐⭐ | ⭐⭐ | ⭐ | ⭐⭐ | ⭐ |
+| **vocal-helper** | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ |
+| whisper.cpp | ⭐⭐ | ⭐ | ⭐ | ⭐⭐⭐⭐⭐ | ⭐ | ⭐⭐ | ⭐⭐ | ⭐⭐ |
+| faster-whisper | ⭐⭐ | ⭐ | ⭐ | ⭐⭐⭐⭐⭐ | ⭐ | ⭐⭐ | ⭐⭐⭐⭐ | ⭐⭐ |
+| WhisperX | ⭐ | ⭐ | ⭐⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐ | ⭐⭐ | ⭐⭐⭐ | ⭐ |
+| whisper_streaming | ⭐⭐⭐⭐⭐ | ⭐ | ⭐ | ⭐⭐⭐⭐⭐ | ⭐ | ⭐⭐ | ⭐⭐⭐ | ⭐⭐ |
+| pyannote.audio | ⭐⭐ | ⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐ | ⭐⭐ | ⭐⭐⭐ | ⭐ |
+| diart | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐ | ⭐⭐⭐ | ⭐⭐⭐ | ⭐⭐ |
+| NVIDIA NeMo | ⭐⭐ | ⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐ | ⭐⭐ | ⭐ | ⭐ |
+| Nemotron-3 Diarization | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐⭐⭐ | ⭐ | ⭐ | ⭐ | ⭐ |
+| sherpa-onnx | ⭐⭐⭐⭐ | ⭐⭐⭐ | ⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐ | ⭐⭐⭐ | ⭐⭐ | ⭐⭐⭐ |
+| FunASR | ⭐⭐⭐⭐ | ⭐⭐⭐ | ⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐ | ⭐⭐⭐ | ⭐⭐ | ⭐⭐⭐ |
+| Moonshine | ⭐⭐⭐⭐⭐ | ⭐ | ⭐ | ⭐⭐⭐⭐⭐ | ⭐ | ⭐⭐ | ⭐⭐⭐⭐ | ⭐⭐ |
+| SpeechBrain | ⭐ | ⭐⭐ | ⭐⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐ | ⭐⭐ | ⭐⭐ | ⭐ |
+| vosk | ⭐⭐⭐⭐ | ⭐ | ⭐ | ⭐⭐⭐⭐⭐ | ⭐ | ⭐⭐⭐ | ⭐⭐⭐ | ⭐⭐⭐ |
+| Deepgram | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐ | ⭐⭐ | ⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐⭐⭐ |
+| Gladia | ⭐⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐ | ⭐⭐ | ⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐⭐⭐ |
+| pyannoteAI | ⭐⭐ | ⭐⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐ | ⭐ | ⭐⭐ | ⭐⭐⭐ | ⭐⭐ |
 <!-- TABLE:END -->
 
 ## Carte de positionnement
 
 <!-- FIGURE:START -->
-Représentation 2D du tableau ci-dessus.
+Représentation en deux dimensions du tableau ci-dessus, produite avec
+[standpoint](https://github.com/warith-harchaoui/standpoint).
 
-![Carte de positionnement](https://raw.githubusercontent.com/warith-harchaoui/vocal-helper/main/assets/paysage.png)
+![Carte de positionnement](https://raw.githubusercontent.com/warith-harchaoui/vocal-helper/main/assets/landscape.png)
 
-La carte est un résumé en 2D des 8 critères : à lire comme une forme, pas comme un classement. « vocal-helper » se situe dans le coin en haut à droite. Les axes se lisent **Horizontal : Autonomie ↔ Dynamisme** et **Vertical : Adaptabilité ↔ Richesse**.
+Les axes se lisent **horizontalement : Adaptable ↔ Polyvalent**, **verticalement : Indépendant ↔
+Complet**, et ils portent **72 %** de l'information des huit critères (46 % et 26 %). La carte
+est donc une forme, pas un classement : deux points proches s'accordent sur l'essentiel de ce
+qui a été noté, et peuvent malgré tout différer sur le critère qui vous importe.
+
+L'intéressant est le regroupement. Les services cloud (Deepgram, Gladia) sont proches de
+`vocal-helper` en *capacité* et loin de lui en indépendance : c'est exactement l'échange qu'ils
+proposent. Les moteurs de transcription purs se massent en bas à droite — indépendants,
+polyvalents, et sans aucune opinion sur qui parle. Les piles de recherche en diarisation
+(pyannote.audio, NeMo, Nemotron-3, SpeechBrain) sont à gauche : profondes sur un axe, pas faites
+pour être une chaîne.
 <!-- FIGURE:END -->
 
 ## Positionnement
 
-`vocal-helper` se place volontairement à l'intersection de
-l'**ergonomie de whisper.cpp** (local, économique, sans GPU strictement
-requis) et de la capacité de **diarisation en direct + analyste
-glissant** que la plupart des piles vocales repoussent vers la couche
-par lots. Il ne cherche pas à battre `pyannote` sur le DER hors ligne
-ni `faster-whisper` sur le WER brut de l'ASR ; il *compose* ces briques
-éprouvées en un seul pipeline asynchrone dont les étapes sont
-individuellement remplaçables (n'importe quelle étape sur mesure peut
-être insérée sous forme de coroutine) et il expose cette composition à
-travers quatre surfaces cohérentes : CLI argparse, CLI click, HTTP
-FastAPI, outils MCP. Ce compromis est le principal facteur de
-différenciation face à un simple notebook pyannote (pas de streaming),
-la famille Whisper locale (whisper.cpp, openai-whisper, faster-whisper,
-WhisperX, whisper_streaming : ASR seulement, pas de diarisation) ou un
-service cloud comme AssemblyAI / Deepgram / Otter.ai (entièrement géré,
-mais hors appareil, avec des notes faibles en STT 100 % local et Hors
-ligne).
+`vocal-helper` se tient là où l'**ergonomie de whisper.cpp** (local, peu cher, pas de GPU
+obligatoire) rencontre la **diarisation en direct et l'analyste courant** que la plupart des
+piles renvoient à une couche par lot. Il ne cherche à battre ni pyannote en diarisation ni
+whisper en transcription : il les utilise, et prend en charge ce que personne d'autre ne prend
+— la chaîne producteur/consommateur entre les deux, et la mesure de ce qu'elle coûte à la
+personne qui regarde.
 
-Deux nuances derrière les étoiles méritent d'être précisées. La
-diarisation en ligne est la contrainte la plus dure de `vocal-helper` :
-il fait tourner pyannote / NeMo sous une stratégie de clustering en
-ligne, là où `pyannote.audio` obtient sa meilleure note hors ligne mais
-ne livre aucun pipeline de streaming par défaut. Le résumé LLM glissant, un modèle local servi via Ollama ou vLLM et résolu par
-machine par best-engine-ai-helper sur une fenêtre de 60 s, est une étape intégrée que
-la plupart des piles ASR n'ont tout simplement pas, ce qui explique que
-seuls les services cloud (AssemblyAI, Deepgram) s'en approchent sur
-cette colonne, seulement en envoyant votre audio hors appareil.
+Concrètement, ce qui est ici et rare ailleurs :
 
-## Quand choisir quoi
+- **Un seul paquet pour les deux régimes, avec un défaut mesuré dans chacun.** community-1 hors
+  ligne, diart en direct. Deux régimes, deux gagnants, aucun supposé.
+- **Une mesure qui épouse la panne** (`vocal_helper.bench`) : le cpWER facture ensemble les mots
+  et le locuteur, parce qu'un diariseur qui a fondu cinq intervenants en deux obtient exactement
+  le même WER qu'un qui les a séparés.
+- **Une mesure du direct** (`vocal_helper.live_metrics`) : latence depuis la fin de la parole,
+  taux de révision, attente par file. Le hors-ligne a le WER et le DER ; le direct n'avait rien,
+  y compris chez les projets ci-dessus.
+- **Des échecs bruyants.** Un étage perdu lève une exception au lieu de rendre une transcription
+  vide.
 
-- **`vocal-helper`** : conversation en direct → transcription diarisée
-  → résumé glissant, entièrement sur l'appareil, intégrable dans
-  n'importe quel service Python. Réunions, entretiens, points d'équipe,
-  notes de thérapie, tableaux de modération, agents vocaux.
-- **`pyannote.audio`** : diarisation par lots uniquement sur de l'audio
-  enregistré, quand le DER hors ligne compte plus que la latence
-  (production de podcasts, traitement d'archives).
-- **`NVIDIA NeMo`** : vous faites déjà tourner une pile Triton / NIM et
-  voulez Sortformer / TitaNet étroitement couplés à votre couche de
-  service GPU.
-- **`whisper.cpp` / `faster-whisper`** : vous avez seulement besoin
-  d'ASR, sans diarisation ni analyste ; la latence n'est pas la
-  contrainte la plus serrée.
-- **`openai-whisper` / `WhisperX`** : vous voulez l'implémentation de
-  référence exacte de Whisper pour un benchmark (`openai-whisper`), ou
-  l'alignement au niveau du mot plus une diarisation par lots sur des
-  enregistrements (`WhisperX`) ; le streaming n'est pas en jeu.
-- **`whisper_streaming`** : vous voulez un serveur d'ASR en streaming
-  prêt à l'emploi, sans diarisation ni étapes LLM.
-- **`vosk` / `SpeechBrain`** : vous voulez une boîte à outils d'ASR
-  locale légère ou orientée recherche, sans couche d'analyste de
-  diarisation.
-- **`AssemblyAI` / `Deepgram` / `Otter.ai`** : vous acceptez une
-  dépendance au cloud (leurs notes sont faibles en STT 100 % local /
-  Hors ligne) et voulez un SLA entièrement géré plutôt qu'un pipeline
-  local.
+## Quand prendre autre chose
+
+La moitié honnête d'un document de paysage.
+
+- **Vous voulez seulement la transcription d'un fichier.** Prenez `faster-whisper` ou
+  `whisper.cpp` directement : tout ce qui est ici sur les files et la latence est du poids mort
+  pour vous.
+- **Vous voulez la meilleure diarisation hors ligne, et rien d'autre.** Prenez `pyannote.audio`
+  avec community-1 — c'est précisément ce que `vocal-helper` fait en dessous, donc la seule
+  question est de savoir si vous voulez la chaîne autour.
+- **Vous travaillez en mandarin, cantonais, japonais ou coréen.** `FunASR` est fait pour ces
+  langues, pas nous.
+- **Vous devez tourner sur un Raspberry Pi.** `Moonshine` vise ce matériel ; notre chemin local
+  vise une machine de classe portable.
+- **Vous voulez un engagement de service, pas une bibliothèque.** Deepgram, Gladia, AssemblyAI.
+  L'échange est la souveraineté : l'audio quitte la machine, et la facture suit les heures.
