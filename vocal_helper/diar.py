@@ -1466,8 +1466,28 @@ class _PyannoteOfflineDiar:
     configured.
     """
 
-    def __init__(self, *, device: str | None = None) -> None:
-        """Store the requested device ; defer pipeline loading to :meth:`load`.
+    #: Checkpoint → (bundle sub-directory, config file name). Both are self-contained
+    #: folders whose config references its own weights, so neither touches the hub.
+    _CHECKPOINTS = {
+        "community-1": ("pyannote-community-1", "config.yaml"),
+        "3.1": ("pyannote-3.1", "pyannote_diarization_config.yaml"),
+    }
+
+    #: Default checkpoint, chosen by measurement rather than by recency.
+    #:
+    #: On the 2026-10-19 bench, community-1 and 3.1 tie on AMI at a 0.116 median DER —
+    #: a median-only comparison concludes there is nothing to choose between them. The
+    #: difference is entirely in the tail: 3.1's worst meeting is 0.474, community-1's
+    #: is 0.149, and the spread collapses from 0.412 to 0.086. One meeting (ES2011d)
+    #: carries all of it, where community-1 is 3.3x better. On three real 64-minute
+    #: six-speaker panels it also over-splits least of everything measured: 2.7x
+    #: against 3.0x for 3.1, 3.7x for Sortformer and 19.7x for the sherpa path.
+    #:
+    #: Same price in every other respect, so the one that has no catastrophic case wins.
+    DEFAULT_CHECKPOINT = "community-1"
+
+    def __init__(self, *, device: str | None = None, checkpoint: str | None = None) -> None:
+        """Store the requested device and checkpoint ; defer loading to :meth:`load`.
 
         Parameters
         ----------
@@ -1476,8 +1496,18 @@ class _PyannoteOfflineDiar:
             CUDA > MPS > CPU at load time. The resolved device is recorded
             on ``self._device`` so :meth:`diarize` can place inputs
             correctly.
+        checkpoint : str, optional
+            ``"community-1"`` (default, see :data:`DEFAULT_CHECKPOINT`) or ``"3.1"``.
+            A bundle that only carries 3.1 falls back to it with a warning rather than
+            failing, so an existing install keeps working after an upgrade.
         """
         self.device = device  # ``None`` → auto-pick at load time
+        self.checkpoint = (checkpoint or self.DEFAULT_CHECKPOINT).strip().lower()
+        if self.checkpoint not in self._CHECKPOINTS:
+            raise ValueError(
+                f"unknown pyannote checkpoint {self.checkpoint!r}; "
+                f"expected one of {sorted(self._CHECKPOINTS)}"
+            )
         self._pipeline: Any = None
         # Resolved at load time so ``diarize`` knows where to put the
         # input tensor when it's not on the same device as the model.
@@ -1512,11 +1542,25 @@ class _PyannoteOfflineDiar:
         # touches HuggingFace. There is no HF fallback — a missing bundle is a
         # configuration error, not a reason to reach out to the hub.
         engines = resolve_diarization_engines()
-        local_cfg = (
-            engines / "pyannote-3.1" / "pyannote_diarization_config.yaml"
-            if engines is not None
-            else None
-        )
+
+        def _cfg_for(name: str) -> Path | None:
+            sub, fname = self._CHECKPOINTS[name]
+            return engines / sub / fname if engines is not None else None
+
+        local_cfg = _cfg_for(self.checkpoint)
+        if (local_cfg is None or not local_cfg.exists()) and self.checkpoint != "3.1":
+            # An existing bundle predates community-1. Degrading to 3.1 with a warning beats
+            # failing: 3.1 is the same median quality, it simply has the bad meetings.
+            fallback = _cfg_for("3.1")
+            if fallback is not None and fallback.exists():
+                import os_helper as osh  # local, matching this module's style
+
+                osh.warning(
+                    f"pyannote {self.checkpoint} is not in the diarization-engines bundle; "
+                    "falling back to 3.1. They tie on median DER, but 3.1 keeps the "
+                    "catastrophic cases community-1 removes (worst meeting 0.474 vs 0.149)."
+                )
+                self.checkpoint, local_cfg = "3.1", fallback
         if local_cfg is None or not local_cfg.exists():
             raise RuntimeError(
                 "No diarization-engines bundle found. Set `engines.diarization_url` "
