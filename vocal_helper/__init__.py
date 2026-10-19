@@ -90,6 +90,7 @@ from vocal_helper.lid import (
     detect_language_speechbrain,
     language_posterior_curve,
 )
+from vocal_helper.fanout import LOSSLESS, LOSSY, Sink, fanout
 from vocal_helper.live_metrics import LiveMetrics
 from vocal_helper.llm import GemmaAnalystStage
 from vocal_helper.pipeline import (
@@ -176,6 +177,11 @@ __all__ = [
     "GemmaAnalystStage",
     # Live measurement: latency, flicker, queue waits — the online counterpart of WER/DER.
     "LiveMetrics",
+    # Producer/consumer fan-out: one producer, several consumers, explicit backpressure.
+    "fanout",
+    "Sink",
+    "LOSSLESS",
+    "LOSSY",
     # LiveKit-inspired EOT eval + Pipecat-inspired parallel primitive
     "EOTPair",
     "eot_score",
