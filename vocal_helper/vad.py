@@ -197,11 +197,21 @@ class SileroVADStage:
             abs_start = self._absolute_sample + cursor
             if voiced:
                 if self._run is None:
+                    # Anchor t0 on the lead actually buffered, not on the lead
+                    # that was requested. The ring holds whole Silero windows,
+                    # so it carries floor(edge_pad_samples / 512) of them -- and
+                    # at least one, because maxlen is clamped to >= 1. Deriving
+                    # t0 from edge_pad_ms instead made the two disagree: at the
+                    # default 200 ms the PCM began 8 ms *after* the t0 it was
+                    # labelled with, and at edge_pad_ms=0 it began 32 ms
+                    # *before* it. t0 is the anchor every ASR word offset is
+                    # mapped through, so that error propagated to every
+                    # timestamp in the segment.
+                    lead = list(self._lead_pad)
+                    lead_samples = sum(int(w.shape[0]) for w in lead)
                     self._run = _Run(
-                        t0=max(
-                            0.0, abs_start / float(self.sample_rate) - self.edge_pad_ms / 1000.0
-                        ),
-                        samples=list(self._lead_pad) + [window.copy()],
+                        t0=max(0.0, (abs_start - lead_samples) / float(self.sample_rate)),
+                        samples=[*lead, window.copy()],
                         last_voiced_sample=abs_start + _SILERO_WINDOW_SAMPLES,
                         last_window_sample=abs_start + _SILERO_WINDOW_SAMPLES,
                     )

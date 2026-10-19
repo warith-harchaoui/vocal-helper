@@ -320,3 +320,49 @@ def test_window_never_split_across_frame_boundary() -> None:
     # A split window would have mis-scored and fragmented the run; we expect one.
     assert len(segs) == 1
     assert segs[0]["pcm"].shape[0] > 0
+
+
+# ---------------------------------------------------------------------------
+# t0 must name the first sample actually emitted
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("edge_pad_ms", [0, 50, 100, 200, 300])
+def test_t0_matches_the_lead_actually_buffered(edge_pad_ms: int) -> None:
+    """The declared t0 must describe the PCM that is actually shipped.
+
+    The lead-pad ring holds whole Silero windows, so it carries
+    floor(edge_pad_samples / 512) of them -- and at least one, since maxlen is
+    clamped to >= 1. t0 used to be derived from the *requested* edge_pad_ms
+    instead, so the two disagreed: at the default 200 ms the PCM began 8 ms
+    after the t0 it was labelled with, and at edge_pad_ms=0 it began 32 ms
+    before it.
+
+    t0 is the anchor every ASR word offset is mapped through, so a mismatch
+    here shifts every timestamp in the segment.
+    """
+    stage = _wire_fakes(
+        SileroVADStage(min_silence_ms=300, min_speech_ms=100, edge_pad_ms=edge_pad_ms)
+    )
+    win = _SILERO_WINDOW_SAMPLES
+
+    # Enough leading silence to fill the ring whatever its maxlen, then a long
+    # voiced burst, then silence past min_silence_ms to close the run.
+    lead_silence = _frame(0.0, win * 20)
+    voiced = _frame(1.0, win * 20)
+    trailing = _frame(0.0, win * 14)
+
+    segs = [s for s in _run_stage(stage, [lead_silence, voiced, trailing]) if s is not None]
+    assert len(segs) == 1
+    seg = segs[0]
+
+    # The voiced burst starts exactly where the leading silence ends.
+    voiced_start_sample = win * 20
+    lead_windows = stage._lead_pad.maxlen or 0
+    expected_first_sample = voiced_start_sample - lead_windows * win
+    expected_t0 = max(0.0, expected_first_sample / SR)
+
+    assert seg["t0"] == pytest.approx(expected_t0, abs=1e-9), (
+        f"t0 {seg['t0']} does not name the first emitted sample "
+        f"({expected_first_sample} = {expected_t0}s)"
+    )

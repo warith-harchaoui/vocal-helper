@@ -6,6 +6,49 @@ on, **breaking behaviour and default changes land only in MAJOR releases; MINOR
 adds features compatibly; PATCH is bug-fixes and docs.** The public API is the
 names exported from `vocal_helper.__all__` plus the documented CLI flags.
 
+## [2.0.6] - 2026-10-19
+
+### Fixed
+
+- **`SileroVADStage` labelled every segment with a `t0` that did not name its
+  first sample.** The lead-pad ring is sized in whole Silero windows —
+  `maxlen = max(1, edge_pad_samples // 512)` — so it carries
+  `floor(edge_pad_samples / 512)` of them, and at least one because the clamp
+  never lets it reach zero. `t0`, however, was derived from the *requested*
+  `edge_pad_ms`. The two disagreed at every setting:
+
+  | `edge_pad_ms` | requested | ring carries | mismatch |
+  |---|---|---|---|
+  | 0 | 0 | 512 | **+32.0 ms** |
+  | 50 | 800 | 512 | −18.0 ms |
+  | 100 | 1600 | 1536 | −4.0 ms |
+  | **200 (default)** | 3200 | 3072 | **−8.0 ms** |
+  | 300 | 4800 | 4608 | −12.0 ms |
+
+  At the default the PCM began 8 ms *after* the `t0` it was labelled with; at
+  `edge_pad_ms=0` — the natural way to ask for no padding — it began 32 ms
+  *before* it.
+
+  The magnitude understates the consequence. `t0` is the anchor every ASR word
+  offset is mapped through to recover absolute time, so the error did not stay
+  in the VAD: it shifted **every timestamp in the segment**, uniformly and
+  silently. Nothing downstream could notice, because the PCM and its label were
+  consistent with each other — just not with the audio.
+
+  `t0` is now derived from the lead actually buffered. Five parametrised tests
+  pin the invariant, and were confirmed to fail against the previous behaviour
+  at every setting before being accepted.
+
+### Changed
+
+- The pre-push gate no longer forces the integration tests on. They stream a
+  specific third-party YouTube video through yt-dlp, ffmpeg and Whisper, and
+  `tests/test_integration_youtube.py` already documented itself as "Skipped by
+  default … Run with `pytest -v -m integration`"; the shared hook's `-m ""`
+  overrode both that and this project's `addopts`. Two runs stalled at 0 % CPU
+  on half-closed sockets, once for over four hours, and had to be killed. Run
+  them deliberately with `pytest -m integration`.
+
 ## [2.0.5] - 2026-09-03
 
 ### Fixed
