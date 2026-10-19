@@ -71,7 +71,7 @@ Author
 Warith Harchaoui, Ph.D., https://linkedin.com/in/warith-harchaoui/
 """
 
-from vocal_helper import sources
+from vocal_helper import bench, sources
 from vocal_helper.asr import WhisperStage, transcribe_pcm, transcribe_pcm_with_language
 from vocal_helper.diar import (
     EMBEDDER_BACKENDS,
@@ -145,6 +145,8 @@ except Exception:  # pragma: no cover — optional
 
 __all__ = [
     "sources",
+    # Scoring: WER, term error rate, and cpWER (words and speaker priced together).
+    "bench",
     "Pipeline",
     "PipelineConfig",
     "OfflinePipeline",
