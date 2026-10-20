@@ -1390,12 +1390,52 @@ class OfflineDiarStage:
         self,
         pcm: NDArray[np.float32],
         sr: int,
+        *,
+        num_speakers: int | None = None,
+        min_speakers: int | None = None,
+        max_speakers: int | None = None,
     ) -> list[tuple[float, float, str]]:
-        """Return ``[(t0, t1, speaker), …]`` sorted by start time."""
+        """Return ``[(t0, t1, speaker), …]`` sorted by start time.
+
+        Parameters
+        ----------
+        num_speakers : int, optional
+            Exact speaker count, when the set really is closed.
+        min_speakers : int, optional
+            A FLOOR — the hint to reach for whenever a roster is known. Panel shows announce
+            their panel, so the count is available before a sample is processed; but the
+            roster is a floor and not a total, because the episode also carries reporters,
+            archive clips and narrators nobody announced. Forcing an exact count has to put
+            those extra voices somewhere, and where it puts them is inside a real person.
+        max_speakers : int, optional
+            A ceiling. Leave unset unless a hard upper bound is genuinely known.
+
+        Notes
+        -----
+        These reach the backend's OWN clustering rather than being applied afterwards, and
+        that is the point. Repairing an over-estimated count after the fact is measurably
+        not possible with the same embedding that produced it — the clusterer has already
+        spent that information (see :func:`merge_speakers`). A count hint is only useful
+        where it can still change the decision.
+        """
         self._ensure_backend()
         duration_s = pcm.shape[0] / float(sr)
+        hints = {
+            "num_speakers": num_speakers,
+            "min_speakers": min_speakers,
+            "max_speakers": max_speakers,
+        }
         if duration_s <= self.ideal_duration_s + 1e-3:
-            return self._backend_obj.diarize(pcm, sr)
+            try:
+                return self._backend_obj.diarize(pcm, sr, **hints)
+            except TypeError:
+                # A backend that takes no hints (NeMo Sortformer fixes its own speaker
+                # slots) must still work rather than fail on an argument it never had.
+                if any(v is not None for v in hints.values()):
+                    import os_helper as osh  # local, matching this module's style
+
+                    osh.warning(f"  diar: backend {self.backend!r} ignores speaker-count hints")
+                return self._backend_obj.diarize(pcm, sr)
         return self._diarize_long(pcm, sr)
 
     async def run(
@@ -1657,6 +1697,31 @@ def resolve_diarization_engines() -> Path | None:
 # ---------------------------------------------------------------------------
 
 
+def _count_kwargs(
+    num_speakers: int | None, min_speakers: int | None, max_speakers: int | None
+) -> dict[str, int]:
+    """Build the speaker-count kwargs, preferring a FLOOR over an exact count.
+
+    A panel show announces its panel, so the roster is known before a sample is processed —
+    but it is a floor, not a total: the episode also carries reporters in packages, archive
+    clips and off-screen narrators nobody announces. Forcing an exact count therefore has to
+    put those extra voices somewhere, and where it puts them is inside a real person. A
+    floor keeps the guarantee that matters (these announced people are distinct) and leaves
+    the rest free.
+
+    ``num_speakers`` wins when given, because a caller who passes it is asserting a closed
+    set and that is their call to make.
+    """
+    if num_speakers is not None and num_speakers > 0:
+        return {"num_speakers": int(num_speakers)}
+    out: dict[str, int] = {}
+    if min_speakers is not None and min_speakers > 0:
+        out["min_speakers"] = int(min_speakers)
+    if max_speakers is not None and max_speakers > 0:
+        out["max_speakers"] = int(max_speakers)
+    return out
+
+
 class _PyannoteOfflineDiar:
     """Wraps ``pyannote.audio.Pipeline('pyannote/speaker-diarization-3.1')``.
 
@@ -1827,6 +1892,10 @@ class _PyannoteOfflineDiar:
         self,
         pcm: NDArray[np.float32],
         sr: int,
+        *,
+        num_speakers: int | None = None,
+        min_speakers: int | None = None,
+        max_speakers: int | None = None,
     ) -> list[tuple[float, float, str]]:
         """Run the pyannote 3.1 pipeline on a whole buffer.
 
@@ -1852,7 +1921,14 @@ class _PyannoteOfflineDiar:
         # CUDA paths don't fall back to a silent CPU round-trip per
         # forward.
         wave = torch.from_numpy(pcm).unsqueeze(0).to(torch.device(self._device))
-        out = self._pipeline({"waveform": wave, "sample_rate": sr})
+        # pyannote's own clustering takes the hints natively, so a known roster reaches the
+        # place it can actually change the answer instead of being applied as a post-hoc
+        # repair. That matters because a post-hoc repair of an over-estimated count is
+        # measurably NOT possible with the same embedding (see merge_speakers' docstring).
+        out = self._pipeline(
+            {"waveform": wave, "sample_rate": sr},
+            **_count_kwargs(num_speakers, min_speakers, max_speakers),
+        )
         # pyannote 3.x changed its return type from a bare
         # ``pyannote.core.Annotation`` to a ``DiarizeOutput`` dataclass
         # exposing ``.speaker_diarization`` (the Annotation),
@@ -2146,6 +2222,8 @@ class _SherpaOfflineDiar:
         self.min_on = min_duration_on
         self.min_off = min_duration_off
         self._sd: Any = None
+        self._models: tuple[str, str] | None = None
+        self._configured_clusters: int = num_clusters
 
     def load(self) -> None:
         """Resolve the ONNX models and build the sherpa diarization pipeline.
@@ -2158,21 +2236,33 @@ class _SherpaOfflineDiar:
             If the models cannot be resolved or the assembled config is invalid.
         """
         try:
-            import sherpa_onnx  # type: ignore
+            import sherpa_onnx  # type: ignore  # noqa: F401 — presence check; _build imports it
         except ImportError as e:
             raise ImportError(
                 "OfflineDiarStage(backend='sherpa') requires the sherpa extra. "
                 "Install with `pip install vocal-helper[sherpa]`."
             ) from e
 
-        seg_model, emb_model = _resolve_sherpa_models()
+        self._models = _resolve_sherpa_models()
+        self._build(self.num_clusters)
+
+    def _build(self, num_clusters: int) -> None:
+        """Assemble the sherpa pipeline for a given cluster count.
+
+        Separate from :meth:`load` because a speaker-count FLOOR cannot be expressed in
+        sherpa's clustering config — it takes an exact count or a threshold, never a bound —
+        so honouring one means rebuilding with an exact count and running again.
+        """
+        import sherpa_onnx  # type: ignore
+
+        seg_model, emb_model = self._models
         config = sherpa_onnx.OfflineSpeakerDiarizationConfig(
             segmentation=sherpa_onnx.OfflineSpeakerSegmentationModelConfig(
                 pyannote=sherpa_onnx.OfflineSpeakerSegmentationPyannoteModelConfig(model=seg_model),
             ),
             embedding=sherpa_onnx.SpeakerEmbeddingExtractorConfig(model=emb_model),
             clustering=sherpa_onnx.FastClusteringConfig(
-                num_clusters=self.num_clusters, threshold=self.threshold
+                num_clusters=num_clusters, threshold=self.threshold
             ),
             min_duration_on=self.min_on,
             min_duration_off=self.min_off,
@@ -2183,11 +2273,20 @@ class _SherpaOfflineDiar:
                 f"seg={seg_model} emb={emb_model}"
             )
         self._sd = sherpa_onnx.OfflineSpeakerDiarization(config)
+        self._configured_clusters = num_clusters
+
+    def _reconfigure(self, num_clusters: int) -> None:
+        """Rebuild the pipeline with a different cluster count (models stay resolved)."""
+        self._build(num_clusters)
 
     def diarize(
         self,
         pcm: NDArray[np.float32],
         sr: int,
+        *,
+        num_speakers: int | None = None,
+        min_speakers: int | None = None,
+        max_speakers: int | None = None,
     ) -> list[tuple[float, float, str]]:
         """Diarize a whole PCM buffer; return ``[(t0, t1, speaker), …]`` by start time.
 
@@ -2197,6 +2296,16 @@ class _SherpaOfflineDiar:
             Mono float32 audio in ``[-1, 1]``.
         sr : int
             Sample rate (sherpa expects 16 kHz).
+        num_speakers : int, optional
+            Exact count, forwarded to sherpa's clustering as ``num_clusters``.
+        min_speakers : int, optional
+            A FLOOR. sherpa's clustering has no floor of its own — it takes an exact count
+            or a threshold — so this is applied by re-running with ``num_clusters`` set to
+            the floor when the threshold pass came back with fewer speakers. It costs a
+            second pass only in the case where the first one under-counted, and that case
+            is the one worth paying for: too few speakers is the unrecoverable direction.
+        max_speakers : int, optional
+            A ceiling, applied the same way.
 
         Returns
         -------
@@ -2209,8 +2318,23 @@ class _SherpaOfflineDiar:
         assert self._sd is not None  # runtime sanity after load().
         if pcm.dtype != np.float32:
             pcm = pcm.astype(np.float32, copy=False)
-        result = self._sd.process(pcm).sort_by_start_time()
-        return [(float(seg.start), float(seg.end), f"spk{seg.speaker}") for seg in result]
+
+        def _run(n_clusters: int) -> list[tuple[float, float, str]]:
+            if n_clusters != self._configured_clusters:
+                self._reconfigure(n_clusters)
+            result = self._sd.process(pcm).sort_by_start_time()  # type: ignore[union-attr]
+            return [(float(seg.start), float(seg.end), f"spk{seg.speaker}") for seg in result]
+
+        if num_speakers is not None and num_speakers > 0:
+            return _run(int(num_speakers))
+
+        segments = _run(self.num_clusters)
+        found = len({lab for _t0, _t1, lab in segments})
+        if min_speakers is not None and min_speakers > 0 and found < min_speakers:
+            return _run(int(min_speakers))
+        if max_speakers is not None and 0 < max_speakers < found:
+            return _run(int(max_speakers))
+        return segments
 
 
 # ===========================================================================

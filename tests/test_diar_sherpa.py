@@ -39,9 +39,9 @@ def test_sherpa_stage_wiring_and_backend_contract() -> None:
     sherpa clusters the entire recording inside one ``process`` call, so the
     stage's ``ideal_duration_s`` must default to the very-large sherpa constant
     (chunking would only cost DER). The backend itself must match the same
-    ``load()`` then ``diarize(pcm, sr) -> [(t0, t1, speaker), …]`` shape as the
-    pyannote / NeMo backends, defaulting to auto speaker count and sensible
-    pruning.
+    ``load()`` then ``diarize(pcm, sr, *, num_speakers=None, min_speakers=None,
+    max_speakers=None) -> [(t0, t1, speaker), …]`` shape as the pyannote backend,
+    defaulting to auto speaker count and sensible pruning.
     """
     # Whole-buffer sizing: no chunking for the clustering backend.
     stage = OfflineDiarStage(backend="sherpa")
@@ -49,7 +49,19 @@ def test_sherpa_stage_wiring_and_backend_contract() -> None:
     # Backend contract: load + diarize(pcm, sr), auto-cluster defaults.
     diar = _SherpaOfflineDiar()
     assert hasattr(diar, "load")
-    assert list(inspect.signature(diar.diarize).parameters) == ["pcm", "sr"]
+    sig = inspect.signature(diar.diarize).parameters
+    # Positional contract unchanged across backends...
+    assert [n for n, p in sig.items() if p.kind is not inspect.Parameter.KEYWORD_ONLY] == [
+        "pcm",
+        "sr",
+    ]
+    # ...plus the speaker-count hints, keyword-only and all optional, so a caller holding a
+    # roster can reach the backend's OWN clustering with it. Repairing an over-estimated
+    # count afterwards is measurably impossible with the same embedding (pdbms 685b9cc), so
+    # the hint has to arrive while it can still change the answer.
+    for name in ("num_speakers", "min_speakers", "max_speakers"):
+        assert sig[name].kind is inspect.Parameter.KEYWORD_ONLY
+        assert sig[name].default is None
     assert diar.num_clusters == -1
     assert diar.threshold == 0.5
 
