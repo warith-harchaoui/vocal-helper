@@ -16,7 +16,8 @@ Every EOT / turn-taking study we run needs the same primitives :
   "turn ended, hand over").
 - A latency band under which we score the detector (e.g. 300 ms,
   600 ms, 1200 ms).
-- A pair of failure modes to count :
+- A pair of failure modes to count:
+
   * **false-cutoff** — the detector fired *before* the true turn
     end (interrupts the speaker prematurely).
   * **hang** — the detector waited too long *after* the true turn

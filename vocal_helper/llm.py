@@ -9,7 +9,8 @@ maintains a **rolling summary** of the conversation up to
 Algorithm
 ---------
 - Keep a deque of recent utterances with timestamps.
-- After every new :class:`Utterance` :
+- After every new :class:`Utterance`:
+
   - Move utterances whose ``t1`` is older than
     ``now − recent_window_s`` from the recent buffer into the
     summarisation queue.
