@@ -106,6 +106,43 @@ from numpy.typing import NDArray
 
 from vocal_helper.types import DiarizedSegment, VoicedSegment
 
+#: Cosine distance below which two provisional speakers are taken to be the same person.
+#:
+#: Measured, not guessed. ``pasdebonneoudemauvaisesituation/scripts/exp_merge_overclustered.py``
+#: splits each AMI reference speaker into m pure sub-clusters (m = 2, 3, 4, 6 — perfect
+#: over-clustering), pools a voiceprint per sub-cluster, and asks whether a merge puts them
+#: back together. 8 meetings × 4 factors = 32 cases, scored as "recovered the true speaker
+#: count AND left under 5 % of speech time on the wrong person".
+#:
+#: This number lives in the CENTRED space (see the ``centre`` argument of
+#: :func:`merge_speakers`), where the safe band is 0.8–1.0 at 94 % of cases and still 88 % at
+#: 0.7 and 81 % at 1.1. It was chosen as the middle of that plateau rather than its best single
+#: point: a default should be the setting that is still right when the audio is worse than
+#: the audio it was tuned on. With ``centre=False`` the geometry is different and the band
+#: moves to roughly 0.3–0.4.
+MERGE_THRESHOLD = 0.9
+
+#: How distance between two groups of voiceprints is defined when merging.
+#:
+#: ``"complete"`` — the FARTHEST pair decides — rather than the single-linkage union-find this
+#: module used before. Single linkage merges two groups as soon as *any* one member of each is
+#: close, so one ambiguous segment welds two speakers together, and the weld is transitive:
+#: A-B and B-C collapse A-C even when A and C are plainly different people. On AMI that shows
+#: up as a cliff — single linkage recovers the right speakers at 0.30 and collapses every
+#: speaker in the meeting into ONE cluster at 0.40. Complete linkage requires every member of
+#: both groups to be close, which costs a few correct merges and removes the cliff.
+#:
+#: The practical consequence is margin, and it is measured: on the same 32 AMI cases the old
+#: default (single linkage, 0.30, uncentred) is safe in 81 % of them and drops to 47 % one
+#: notch up at 0.40. Complete linkage in the centred space holds 94 % across a band three
+#: notches wide. A cliff was replaced by a plateau.
+#:
+#: Complete linkage is also the right KIND of error. It errs towards leaving one speaker
+#: split in two, which the next stage can still repair; single and average linkage err
+#: towards welding two people into one, which nothing downstream can undo. When in doubt,
+#: fail in the direction that is recoverable.
+MERGE_LINKAGE = "complete"
+
 BackendName = Literal["pyannote", "nemo", "sherpa"]
 DeviceName = Literal["cpu", "cuda", "mps"]
 
@@ -200,6 +237,7 @@ class OnlineDiarStage:
         refine_on_close: bool = False,
         min_cluster_size: int = 2,
         merge_threshold: float | None = None,
+        merge_linkage: str = MERGE_LINKAGE,
     ) -> None:
         """Configure the online diarizer ; the embedder loads lazily.
 
@@ -276,7 +314,12 @@ class OnlineDiarStage:
         self.max_speakers = max_speakers
         self.refine_on_close = refine_on_close
         self.min_cluster_size = min_cluster_size
-        self.merge_threshold = merge_threshold if merge_threshold is not None else join_threshold
+        # Defaulting the merge threshold to join_threshold tied two unrelated decisions
+        # together: join_threshold governs whether a LIVE segment extends a speaker, the
+        # merge threshold governs whether two finished speakers were one person all along.
+        # They are measured separately (see MERGE_THRESHOLD) and now default separately.
+        self.merge_threshold = merge_threshold if merge_threshold is not None else MERGE_THRESHOLD
+        self.merge_linkage = merge_linkage
         self._embedder: Any = None
         self._centroids: list[_Centroid] = []
         self._next_id = 0
@@ -538,20 +581,14 @@ class OnlineDiarStage:
     ) -> list[str]:
         """Global re-clustering + singleton prune over the buffered batch.
 
-        Repairs the online clusterer's over-segmentation once the whole
-        stream is available. Working from the per-provisional-speaker
-        centroids (mean of that speaker's segment embeddings) :
+        Repairs the online clusterer's over-segmentation once the whole stream is
+        available, by delegating to :func:`merge_speakers` — the same repair any consumer
+        gets, so the stage and the public API cannot drift apart.
 
-        1. **Merge** provisional speakers whose centroids sit within
-           ``merge_threshold`` cosine distance (single-linkage union-find) —
-           this folds the duplicates that slow EMA centroid drift spawns for
-           a speaker already modelled.
-        2. **Prune** merged clusters smaller than ``min_cluster_size`` by
-           reassigning each of their segments to the nearest *surviving*
-           cluster centroid — this absorbs the outlier micro-speakers
-           (overlap, laughter, jingle, backchannels) into a real speaker.
-        3. **Relabel** survivors to compact ``"S0", "S1", …"`` ids ordered by
-           first appearance.
+        The per-speaker voiceprint is weighted by how long each segment lasted, because a
+        20 s turn is stronger evidence of who is speaking than a 1 s backchannel, and the
+        unweighted mean this used before let a crowd of short segments outvote the speech
+        that actually identified somebody.
 
         Segments that were never embedded keep their ``"S?"`` label.
 
@@ -568,121 +605,19 @@ class OnlineDiarStage:
         list[str]
             Final speaker id per segment, index-aligned with ``segs``.
         """
-        # Group segment indices by their provisional online label, keeping
-        # only embedded segments — "S?" segments pass through untouched.
-        by_label: dict[str, list[int]] = {}
-        for i, (seg, emb) in enumerate(zip(segs, embeddings, strict=True)):
-            if emb is None:
-                continue
-            by_label.setdefault(seg["speaker"], []).append(i)
-        if not by_label:
-            return [seg["speaker"] for seg in segs]
-
-        labels = list(by_label.keys())
-        # Per-provisional centroid = unit-norm mean of its segment embeddings.
-        centroids = np.stack(
-            [
-                _unit_mean([cast("NDArray[np.float32]", embeddings[i]) for i in by_label[lab]])
-                for lab in labels
-            ],
-            axis=0,
+        # One implementation only: the public merge_speakers() is the same repair, so the
+        # stage cannot drift from what consumers get, and the AMI evidence behind the
+        # linkage choice covers both callers at once.
+        durations = [float(seg["t1"]) - float(seg["t0"]) for seg in segs]
+        return merge_speakers(
+            list(embeddings),
+            [seg["speaker"] for seg in segs],
+            durations=durations,
+            threshold=self.merge_threshold,
+            linkage=self.merge_linkage,
+            min_cluster_size=self.min_cluster_size,
+            max_speakers=self.max_speakers,
         )
-
-        # 1. Merge near-duplicate centroids via single-linkage union-find.
-        parent = list(range(len(labels)))
-
-        def find(x: int) -> int:
-            """Return the union-find root of ``x`` with path compression.
-
-            Parameters
-            ----------
-            x : int
-                Index into ``parent`` whose set representative is wanted.
-
-            Returns
-            -------
-            int
-                The representative (root) index of the set containing ``x``.
-            """
-            # Walk up to the root, halving the path on the way so future
-            # lookups on the same chain get shallower (path compression).
-            while parent[x] != x:
-                parent[x] = parent[parent[x]]
-                x = parent[x]
-            return x
-
-        def union(a: int, b: int) -> None:
-            """Merge the sets containing ``a`` and ``b`` in place.
-
-            Parameters
-            ----------
-            a : int
-                First index to merge.
-            b : int
-                Second index to merge.
-
-            Returns
-            -------
-            None
-                ``parent`` is mutated in place; nothing is returned.
-            """
-            # Resolve both roots, then attach the higher-indexed root to the
-            # lower one so labels stay deterministic across runs.
-            ra, rb = find(a), find(b)
-            if ra != rb:
-                parent[max(ra, rb)] = min(ra, rb)
-
-        if len(labels) > 1:
-            sim = centroids @ centroids.T
-            dist = 1.0 - sim
-            for a in range(len(labels)):
-                for b in range(a + 1, len(labels)):
-                    if dist[a, b] <= self.merge_threshold:
-                        union(a, b)
-
-        # Collect merged groups: root -> segment indices + recomputed centroid.
-        group_members: dict[int, list[int]] = {}
-        for li, lab in enumerate(labels):
-            group_members.setdefault(find(li), []).extend(by_label[lab])
-        group_roots = list(group_members.keys())
-        group_centroid = {
-            root: _unit_mean([cast("NDArray[np.float32]", embeddings[i]) for i in members])
-            for root, members in group_members.items()
-        }
-
-        # 2. Prune: a group survives iff it has >= min_cluster_size segments.
-        survivors = [r for r in group_roots if len(group_members[r]) >= self.min_cluster_size]
-        # Degenerate guard — if the prune would erase everything (every
-        # cluster tiny), keep them all rather than emit nothing meaningful.
-        if not survivors:
-            survivors = group_roots
-
-        # 3. Assign each segment a final group root: survivors keep theirs,
-        # pruned groups route each segment to the nearest survivor centroid.
-        survivor_mat = np.stack([group_centroid[r] for r in survivors], axis=0)
-        final_root: dict[int, int] = {}
-        for root, members in group_members.items():
-            if root in survivors:
-                for i in members:
-                    final_root[i] = root
-            else:
-                for i in members:
-                    emb = cast("NDArray[np.float32]", embeddings[i])
-                    nearest = int(np.argmax(survivor_mat @ emb))
-                    final_root[i] = survivors[nearest]
-
-        # Compact, first-appearance-ordered relabelling of the survivors.
-        compact: dict[int, str] = {}
-        out: list[str] = []
-        for i, seg in enumerate(segs):
-            if i not in final_root:
-                out.append(seg["speaker"])  # untouched "S?"
-                continue
-            root = final_root[i]
-            if root not in compact:
-                compact[root] = f"S{len(compact)}"
-            out.append(compact[root])
-        return out
 
 
 def _unit_mean(vectors: list[NDArray[np.float32]]) -> NDArray[np.float32]:
@@ -697,6 +632,237 @@ def _unit_mean(vectors: list[NDArray[np.float32]]) -> NDArray[np.float32]:
     if norm > 0:
         mean = mean / norm
     return mean.astype(np.float32, copy=False)
+
+
+def merge_speakers(
+    embeddings: list[NDArray[np.float32] | None],
+    labels: list[str],
+    *,
+    durations: list[float] | None = None,
+    threshold: float = MERGE_THRESHOLD,
+    linkage: str = MERGE_LINKAGE,
+    min_cluster_size: int = 1,
+    min_speakers: int | None = None,
+    max_speakers: int | None = None,
+    centre: bool = True,
+) -> list[str]:
+    """Fold an over-estimated set of speaker labels back down using voiceprints.
+
+    Every diarizer we measure on real panel audio finds too many speakers rather than too
+    few: on *C dans l'air* episodes announcing a six-person panel, pyannote community-1
+    returns 13–18 labels, NeMo 20–24, and the online path over 100. ``DIARIZATION-TROUBLES.md``
+    records the same signature — 203 labels for four people.
+
+    That asymmetry is the reason this function exists. **Over-clustering is repairable and
+    under-clustering is not.** When one person has been split across three labels, each piece
+    is still pure, and a merge can reassemble them. When two people have been collapsed into
+    one label, their speech is mixed inside a single cluster and nothing downstream can
+    separate them again without redoing the segmentation. So the safe operating point for any
+    diarizer in this suite is to over-split deliberately and repair here, rather than to
+    gamble on hitting the count exactly.
+
+    Parameters
+    ----------
+    embeddings : list of ndarray or None
+        One unit-norm voiceprint per segment. ``None`` marks a segment that was never
+        embedded; those keep their incoming label untouched rather than being guessed at.
+    labels : list of str
+        The provisional speaker id per segment, index-aligned with *embeddings*.
+    durations : list of float, optional
+        Seconds per segment. Used to weight the per-speaker voiceprint, because a 20 s turn
+        is far stronger evidence of who is talking than a 1 s one, and an unweighted mean
+        lets a crowd of short backchannels outvote the speech that actually identifies
+        somebody. Defaults to equal weight.
+    threshold : float, optional
+        Cosine distance at which merging stops. See :data:`MERGE_THRESHOLD`.
+    linkage : str, optional
+        ``"complete"`` (default), ``"average"`` or ``"single"`` — see :data:`MERGE_LINKAGE`.
+    min_cluster_size : int, optional
+        Merged clusters holding fewer segments than this are dissolved and their segments
+        reassigned to the nearest surviving cluster. This is what absorbs the one-off
+        micro-speakers that overlap, laughter and jingles produce.
+    min_speakers : int, optional
+        A FLOOR the merge may never go below. Panel shows announce their panel, so the
+        roster is known before a single sample is processed — and it is a floor rather than
+        a total, since an episode also carries reporters, archive clips and off-screen
+        narrators nobody announces. Merging past the floor destroys the very separation the
+        roster proves exists, which is why a floor is the right hint to pass a diarizer and
+        an exact count is not.
+    max_speakers : int, optional
+        A ceiling, applied after the floor. Useful when a hard upper bound is genuinely
+        known; leave unset otherwise, since guessing it wrong forces real speakers together.
+    centre : bool, optional
+        Subtract the mean of the per-speaker voiceprints before comparing them, then
+        re-normalise. Every segment of one recording shares a component that is not the
+        speaker — the microphone, the room, the codec — and on single-device audio (a
+        meeting through one array, a panel through one broadcast chain) that shared
+        component can dominate the cosine geometry and swamp the smaller differences that
+        actually distinguish people. Removing it widened the safe band from 94 % of AMI
+        cases at a single threshold (0.30, uncentred) to 94 % across a three-notch span.
+
+        The mean is taken over SPEAKERS, not over segments, and that detail matters: a host
+        holding 40 % of a panel's airtime drags a segment-mean towards himself, so centering
+        would subtract mostly *him* rather than the shared channel. One vote per provisional
+        speaker removes that failure before it can happen.
+
+        Borrowed from ``notes_helper.diarize.cluster``, which has done this for its local
+        path all along; measuring it is what moved it from one consumer's private trick to
+        everyone's default. Note that it changes what *threshold* means — see
+        :data:`MERGE_THRESHOLD`.
+
+    Returns
+    -------
+    list of str
+        One label per input segment, renamed compactly to ``"S0"``, ``"S1"``, … in order of
+        first appearance. Segments whose embedding was ``None`` keep their original label.
+
+    Notes
+    -----
+    Pure and model-free: it takes vectors and returns labels, touching no audio and loading
+    nothing. That is deliberate — it lets any consumer repair the output of any diarizer,
+    including offline and paid cloud ones whose clustering we do not control.
+    """
+    if len(embeddings) != len(labels):
+        raise ValueError(
+            f"embeddings and labels differ in length: {len(embeddings)} vs {len(labels)}"
+        )
+    if durations is not None and len(durations) != len(labels):
+        raise ValueError(f"durations must align with labels: {len(durations)} vs {len(labels)}")
+    if linkage not in ("complete", "average", "single"):
+        raise ValueError(f"unknown linkage {linkage!r}")
+
+    by_label: dict[str, list[int]] = {}
+    for i, (emb, lab) in enumerate(zip(embeddings, labels, strict=True)):
+        if emb is not None:
+            by_label.setdefault(lab, []).append(i)
+    if len(by_label) < 2:
+        return list(labels)
+
+    weight = [1.0] * len(labels) if durations is None else [max(0.0, float(d)) for d in durations]
+
+    def pooled(idx: list[int]) -> NDArray[np.float32]:
+        return _weighted_unit_mean(
+            [cast("NDArray[np.float32]", embeddings[i]) for i in idx],
+            [weight[i] for i in idx],
+        )
+
+    # 1. Absorb the micro-clusters FIRST, before anything is merged.
+    #
+    # Order matters here and it is not obvious. Pruning after the merge lets two junk
+    # labels — a laugh and a jingle, say — find each other, form a cluster of two, and so
+    # pass the very size test meant to remove them: noise is promoted to a speaker by being
+    # merged with other noise. Pruning first means only labels with real support take part
+    # in the merge, and their segments are routed to whichever real speaker they most
+    # resemble. It also keeps the junk out of the centre computed below, which a crowd of
+    # one-off outliers would otherwise drag around.
+    names = sorted(by_label)
+    kept = [n for n in names if len(by_label[n]) >= max(1, min_cluster_size)]
+    if not kept:  # everything is tiny: keep it all rather than
+        kept = names  # return nothing meaningful
+    kept_vecs = np.stack([pooled(by_label[n]) for n in kept], axis=0)
+
+    # The channel offset is defined by the real speakers only, one vote each.
+    offset = kept_vecs.mean(axis=0, keepdims=True) if centre else None
+    kept_shifted = _shift(kept_vecs, offset)
+
+    members: dict[str, list[int]] = {n: list(by_label[n]) for n in kept}
+    for name in names:
+        if name in members:
+            continue
+        for i in by_label[name]:
+            emb = _shift(cast("NDArray[np.float32]", embeddings[i])[None, :], offset)[0]
+            members[kept[int(np.argmax(kept_shifted @ emb))]].append(i)
+
+    # 2. Merge what is left: these are speakers, not noise.
+    assignment = _agglomerate(
+        kept_shifted,
+        threshold=threshold,
+        linkage=linkage,
+        min_clusters=min_speakers,
+        max_clusters=max_speakers,
+    )
+
+    merged: dict[int, list[int]] = {}
+    for name, cluster in zip(kept, assignment, strict=True):
+        merged.setdefault(int(cluster), []).extend(members[name])
+
+    # 3. Compact, first-appearance-ordered relabelling.
+    final = {i: cluster for cluster, idx in merged.items() for i in idx}
+    compact: dict[int, str] = {}
+    out: list[str] = []
+    for i, lab in enumerate(labels):
+        if i not in final:
+            out.append(lab)
+            continue
+        cluster = final[i]
+        if cluster not in compact:
+            compact[cluster] = f"S{len(compact)}"
+        out.append(compact[cluster])
+    return out
+
+
+def _shift(vectors: NDArray[np.float32], offset: NDArray[np.float32] | None) -> NDArray[np.float32]:
+    """Subtract *offset* and re-normalise; identity when *offset* is ``None``."""
+    if offset is None:
+        return vectors
+    shifted = vectors - offset
+    norms = np.linalg.norm(shifted, axis=1, keepdims=True)
+    return (shifted / np.maximum(norms, 1e-9)).astype(np.float32)
+
+
+def _weighted_unit_mean(
+    vectors: list[NDArray[np.float32]], weights: list[float]
+) -> NDArray[np.float32]:
+    """L2-normalised, weight-averaged mean of unit vectors.
+
+    Degenerate weights (all zero) fall back to an unweighted mean rather than dividing by
+    zero — a segment list with no duration information is still a segment list.
+    """
+    mat = np.stack(vectors, axis=0)
+    w = np.asarray(weights, dtype=np.float32)
+    if float(w.sum()) <= 0:
+        w = np.ones(len(vectors), dtype=np.float32)
+    mean = (mat * w[:, None]).sum(axis=0) / float(w.sum())
+    norm = float(np.linalg.norm(mean))
+    if norm > 0:
+        mean = mean / norm
+    return mean.astype(np.float32, copy=False)
+
+
+def _agglomerate(
+    centroids: NDArray[np.float32],
+    *,
+    threshold: float,
+    linkage: str,
+    min_clusters: int | None,
+    max_clusters: int | None,
+) -> NDArray[np.int_]:
+    """Cosine agglomerative clustering, cut at *threshold* then clamped to the bounds.
+
+    The bounds are applied by re-cutting the SAME tree at a count rather than by nudging the
+    threshold until the count comes out right: the tree is the model, and re-cutting it keeps
+    the merge order the distances actually implied instead of inventing a distance that
+    happens to produce the wanted number.
+    """
+    from scipy.cluster.hierarchy import fcluster
+    from scipy.cluster.hierarchy import linkage as scipy_linkage
+    from scipy.spatial.distance import pdist
+
+    n = len(centroids)
+    if n <= 1:
+        return np.zeros(n, dtype=int)
+
+    tree = scipy_linkage(pdist(centroids, metric="cosine"), method=linkage)
+    assignment = fcluster(tree, t=float(threshold), criterion="distance")
+
+    floor = max(1, min(int(min_clusters), n)) if min_clusters else None
+    if floor is not None and len(set(assignment.tolist())) < floor:
+        assignment = fcluster(tree, t=floor, criterion="maxclust")
+
+    ceiling = max(1, min(int(max_clusters), n)) if max_clusters else None
+    if ceiling is not None and len(set(assignment.tolist())) > ceiling:
+        assignment = fcluster(tree, t=ceiling, criterion="maxclust")
+    return assignment
 
 
 def _parse_sortformer_segments(lines: Any) -> list[tuple[float, float, str]]:

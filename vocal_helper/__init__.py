@@ -78,6 +78,7 @@ from vocal_helper.diar import (
     OfflineDiarStage,
     OnlineDiarStage,
     make_embedder,
+    merge_speakers,
     resolve_sherpa_models,
 )
 from vocal_helper.fanout import LOSSLESS, LOSSY, Sink, fanout
@@ -159,6 +160,9 @@ __all__ = [
     # Speaker embedding — the public way in, so consumers stop importing private names.
     "EMBEDDER_BACKENDS",
     "make_embedder",
+    # Repair an over-estimated speaker count with voiceprints — the failure every
+    # diarizer we measure actually has (see diar.MERGE_LINKAGE).
+    "merge_speakers",
     "resolve_sherpa_models",
     "SemanticEOTStage",
     "WhisperStage",
