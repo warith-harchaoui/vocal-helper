@@ -115,12 +115,21 @@ from vocal_helper.types import DiarizedSegment, VoicedSegment
 #: count AND left under 5 % of speech time on the wrong person".
 #:
 #: This number lives in the CENTRED space (see the ``centre`` argument of
-#: :func:`merge_speakers`), where the safe band is 0.8–1.0 at 94 % of cases and still 88 % at
-#: 0.7 and 81 % at 1.1. It was chosen as the middle of that plateau rather than its best single
-#: point: a default should be the setting that is still right when the audio is worse than
-#: the audio it was tuned on. With ``centre=False`` the geometry is different and the band
-#: moves to roughly 0.3–0.4.
-MERGE_THRESHOLD = 0.9
+#: :func:`merge_speakers`). On that experiment alone the best value is 0.9, which repairs
+#: 94 % of cases against 81 % at 0.6 — and shipping 0.9 would have been a mistake, because
+#: a second experiment measures a workload where it does harm.
+#:
+#: ``exp_merge_realclusters.py`` produces the over-clustering the way a diarizer actually
+#: does — agglomerative clustering asked for K̂ = m·K — instead of splitting each speaker's
+#: turns at random. On that input, 0.9 leaves **9 of 32 cases worse than not merging at
+#: all**, while 0.6 and below never damage a single one. 0.6 is therefore the largest value
+#: that is harmless on the hard workload, and it still repairs 81 % of the easy one.
+#:
+#: The gap between the two experiments is the real lesson, and :func:`merge_speakers`'s
+#: docstring spells it out: random fragmentation is repairable, a clusterer's considered
+#: opinion is not. With ``centre=False`` the geometry differs and the safe band moves down
+#: to roughly 0.3.
+MERGE_THRESHOLD = 0.6
 
 #: How distance between two groups of voiceprints is defined when merging.
 #:
@@ -652,6 +661,30 @@ def merge_speakers(
     few: on *C dans l'air* episodes announcing a six-person panel, pyannote community-1
     returns 13–18 labels, NeMo 20–24, and the online path over 100. ``DIARIZATION-TROUBLES.md``
     records the same signature — 203 labels for four people.
+
+    When this works, and when it cannot
+    -----------------------------------
+    It depends entirely on WHERE the extra labels came from, and the difference is not a
+    detail — it is the difference between a near-perfect repair and no repair at all.
+
+    **Random fragmentation is repairable.** A streaming clusterer that mints a duplicate
+    because its centroid drifted, or spawns a one-off label for a laugh, splits a speaker
+    in a way unrelated to how that speaker actually sounds. Each fragment is then a random
+    sample of the same voice, and the fragments look alike. Measured on AMI with such
+    splits, the voiceprints separate same-speaker from different-speaker fragments at
+    AUC 0.99 and the merge recovers the true count in 94 % of cases.
+
+    **A clusterer's considered opinion is not.** When the extra labels come from asking a
+    clusterer for too many speakers, the groups it returns are precisely the ones it judged
+    FAR APART — using the same cosine similarity this function would use to merge them. The
+    information needed for the repair has already been consumed. Measured on the same
+    meetings, that AUC collapses from 0.99 to **0.60 median, 0.27 worst** — at or below
+    chance. No threshold and no linkage recovers it, because the signal is not there.
+
+    The practical rule: use this to repair fragmentation, never to undo a deliberate
+    over-clustering. For the latter the only real fix is a different, stronger embedding,
+    or a diarizer asked for the right count in the first place. The shipped default is
+    deliberately conservative for exactly this reason — see :data:`MERGE_THRESHOLD`.
 
     That asymmetry is the reason this function exists. **Over-clustering is repairable and
     under-clustering is not.** When one person has been split across three labels, each piece

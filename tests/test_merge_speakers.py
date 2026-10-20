@@ -332,3 +332,41 @@ def test_the_centre_is_not_dragged_around_by_one_off_outliers():
         labels.append(f"NOISE{j}")
     out = merge_speakers(emb, labels, min_cluster_size=2)
     assert len({*out}) == 3
+
+
+def test_the_default_threshold_is_the_harmless_one_not_the_best_one():
+    """Pins the decision the second experiment forced.
+
+    On randomly-fragmented speakers a threshold of 0.9 repairs 94 % of AMI cases against
+    81 % at 0.6, so 0.9 looks strictly better — and shipping it was a mistake. When the
+    over-clustering comes from a real clusterer rather than a random split, 0.9 leaves 9 of
+    32 cases WORSE than not merging at all, while 0.6 damages none. The default is the
+    largest value that cannot do harm, not the one that scores best on the easy workload.
+    """
+    from vocal_helper.diar import MERGE_THRESHOLD
+
+    assert MERGE_THRESHOLD <= 0.6, (
+        "raising this past 0.6 re-enters the band where merging damaged real clusterer "
+        "output; re-run pdbms/scripts/exp_merge_realclusters.py before changing it"
+    )
+
+
+def test_acoustically_separated_modes_of_one_speaker_are_left_alone():
+    """The honest limit, as behaviour rather than prose.
+
+    When a clusterer splits one person into two groups BECAUSE they sound different — a
+    calm passage and a raised voice — those groups are far apart by the very measure this
+    function merges on. The conservative default must then decline to merge rather than
+    guess, since guessing wrong welds two real people elsewhere in the same recording.
+    """
+    a, b = _speaker_basis(2)
+    rng = np.random.default_rng(13)
+    # Two modes of ONE speaker, deliberately far apart in the embedding space.
+    mode1 = [_jitter(a, 0.15, rng) for _ in range(5)]
+    mode2 = [_jitter(_unit(0.55 * a + 0.45 * b), 0.15, rng) for _ in range(5)]
+    emb = mode1 + mode2
+    labels = ["MODE1"] * 5 + ["MODE2"] * 5
+    out = merge_speakers(emb, labels)
+    # Two labels out: it declined. That is a MISS, and an acceptable one — the test exists
+    # to record that the behaviour is chosen, not accidental.
+    assert len({*out}) == 2
