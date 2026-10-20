@@ -370,3 +370,33 @@ def test_acoustically_separated_modes_of_one_speaker_are_left_alone():
     # Two labels out: it declined. That is a MISS, and an acceptable one — the test exists
     # to record that the behaviour is chosen, not accidental.
     assert len({*out}) == 2
+
+
+def test_join_threshold_is_calibrated_for_the_embedder_actually_shipped():
+    """Pins the fix for root cause 5 of DIARIZATION-TROUBLES.md.
+
+    0.30 was calibrated for ``pyannote/embedding``; the default embedder then became
+    TitaNet, which sits on a different cosine scale, and nobody moved the number. Replayed
+    over 8 full AMI meetings with the shipped embeddings, 0.30 mints 87 speakers for 4
+    against 28 at 0.50, and end-to-end confusion falls from 0.101 to 0.074.
+
+    If the default embedder changes again, this constant has to be re-measured — which is
+    the whole point of naming it here rather than leaving it inline.
+    """
+    from vocal_helper.diar import JOIN_THRESHOLD, OnlineDiarStage
+
+    assert JOIN_THRESHOLD == 0.50
+    assert OnlineDiarStage().join_threshold == JOIN_THRESHOLD
+
+
+def test_merge_and_join_thresholds_are_independent_decisions():
+    """They answer different questions and must not be collapsed again.
+
+    join_threshold: does this LIVE segment extend a speaker?
+    MERGE_THRESHOLD: were these two FINISHED speakers one person all along?
+    The second used to default to the first, which tied an unrelated pair of decisions.
+    """
+    from vocal_helper.diar import JOIN_THRESHOLD, MERGE_THRESHOLD, OnlineDiarStage
+
+    assert MERGE_THRESHOLD != JOIN_THRESHOLD
+    assert OnlineDiarStage().merge_threshold == MERGE_THRESHOLD

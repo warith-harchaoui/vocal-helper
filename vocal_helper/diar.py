@@ -106,6 +106,34 @@ from numpy.typing import NDArray
 
 from vocal_helper.types import DiarizedSegment, VoicedSegment
 
+#: Cosine distance below which a streaming segment joins an existing speaker.
+#:
+#: Was 0.30, calibrated for the ``pyannote/embedding`` distribution — and then the default
+#: embedder became TitaNet, which sits on a different cosine scale, and the threshold never
+#: moved. ``DIARIZATION-TROUBLES.md`` lists that mismatch as root cause 5 of the
+#: over-segmentation it documents; this is the measurement that closes it.
+#:
+#: ``pasdebonneoudemauvaisesituation/scripts/exp_online_centroid_rules.py`` replays the
+#: clusterer over 8 full AMI meetings (4 speakers each) using the shipped TitaNet
+#: embeddings. Raw labels before the close-of-stream repair:
+#:
+#: ===========  ==================  ================
+#: threshold    speakers found      confusion median
+#: ===========  ==================  ================
+#: 0.30         **87** (true 4)     0.234
+#: 0.40         58                  0.137
+#: **0.50**     **28**              **0.095**
+#: 0.60         13                  0.125
+#: ===========  ==================  ================
+#:
+#: End-to-end, with the close repair applied, 0.50 lowers median confusion from 0.101 to
+#: 0.074 and the worst meeting from 0.154 to 0.117. It is a free improvement: no new model,
+#: no extra pass, one number.
+#:
+#: 0.60 finds a count closer to the truth but costs accuracy (confusion 0.113) — it starts
+#: forcing genuinely different people together, which is the unrecoverable direction.
+JOIN_THRESHOLD = 0.50
+
 #: Cosine distance below which two provisional speakers are taken to be the same person.
 #:
 #: Measured, not guessed. ``pasdebonneoudemauvaisesituation/scripts/exp_merge_overclustered.py``
@@ -202,10 +230,7 @@ class OnlineDiarStage:
         TitaNet-large through onnxruntime (no torch) — see :class:`_SherpaEmbedder`.
     join_threshold : float
         Cosine-distance threshold below which a new segment joins an
-        existing centroid. Default 0.30 — calibrated on AMI dev-slice
-        N=8 in 2026-06-30 stitch_threshold sweep, where the
-        pyannote/embedding distribution exhibits a clear DER minimum
-        at the 0.30-0.45 plateau.
+        existing centroid. See :data:`JOIN_THRESHOLD`.
     ema_alpha : float
         Exponential-moving-average coefficient for centroid updates.
         Default 0.1.
@@ -238,7 +263,7 @@ class OnlineDiarStage:
         # prohibitive (NeMo + torch is ~ 5 GB ; pyannote alone is
         # ~ 500 MB). Pass ``backend="pyannote"`` explicitly to opt out.
         backend: BackendName = "nemo",
-        join_threshold: float = 0.30,
+        join_threshold: float = JOIN_THRESHOLD,
         ema_alpha: float = 0.1,
         min_segment_ms: int = 500,
         device: str | None = None,
