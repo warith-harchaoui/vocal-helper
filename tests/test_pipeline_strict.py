@@ -66,8 +66,9 @@ def test_leniency_is_available_but_has_to_be_asked_for() -> None:
 
 
 def test_the_error_names_every_stage_that_died() -> None:
-    err = StageCrashed([("voh.offline.source", RuntimeError("x")),
-                        ("voh.offline.asr", ValueError("y"))])
+    err = StageCrashed(
+        [("voh.offline.source", RuntimeError("x")), ("voh.offline.asr", ValueError("y"))]
+    )
     assert "voh.offline.source" in str(err) and "voh.offline.asr" in str(err)
     assert "incomplete" in str(err)
     assert len(err.failures) == 2

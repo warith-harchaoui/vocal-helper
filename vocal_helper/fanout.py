@@ -73,8 +73,9 @@ class Sink:
         rather than to "somewhere in the pipeline".
     """
 
-    def __init__(self, queue: "asyncio.Queue[T | None]", *,
-                 policy: str = LOSSLESS, name: str = "") -> None:
+    def __init__(
+        self, queue: asyncio.Queue[T | None], *, policy: str = LOSSLESS, name: str = ""
+    ) -> None:
         if policy not in (LOSSLESS, LOSSY):
             raise ValueError(f"unknown sink policy {policy!r}; expected {LOSSLESS} or {LOSSY}")
         self.queue = queue
@@ -86,8 +87,8 @@ class Sink:
 
 
 async def fanout(
-    source: "asyncio.Queue[T | None]",
-    sinks: Sequence[Sink | "asyncio.Queue[T | None]"],
+    source: asyncio.Queue[T | None],
+    sinks: Sequence[Sink | asyncio.Queue[T | None]],
     *,
     on_wait: Callable[[str, float], None] | None = None,
 ) -> None:
@@ -119,13 +120,35 @@ async def fanout(
                 return
     except asyncio.CancelledError:
         # Tear-down: every consumer still gets its end-of-stream, or it waits forever on a
-        # session that no longer exists.
+        # session that no longer exists. Nothing here may await — we are unwinding a
+        # cancellation — so the sentinel makes room for itself instead of blocking.
         for sink in wrapped:
-            try:
-                sink.queue.put_nowait(None)
-            except asyncio.QueueFull:
-                pass
+            _force_sentinel(sink)
         raise
+
+
+def _force_sentinel(sink: Sink) -> None:
+    """Put the end-of-stream marker without ever blocking and without ever losing it.
+
+    Both callers need exactly this and neither may wait: the lossy branch would hang on a
+    queue nobody drains, and the cancellation handler is unwinding and cannot await at all.
+    So room is made the way the lossy policy makes room for data — drop the oldest pending
+    item and retry — until the sentinel is in.
+
+    This applies to a LOSSLESS sink too, during tear-down only. Discarding a frame from a
+    session that is being destroyed costs nothing; discarding its end-of-stream leaves the
+    consumer waiting forever, which is the failure this whole function exists to prevent.
+    """
+    while True:
+        try:
+            sink.queue.put_nowait(None)
+            return
+        except asyncio.QueueFull:
+            try:
+                sink.queue.get_nowait()
+                sink.dropped += 1
+            except asyncio.QueueEmpty:  # pragma: no cover - drained concurrently
+                pass
 
 
 async def _put(sink: Sink, item, on_wait: Callable[[str, float], None] | None) -> None:
@@ -135,16 +158,8 @@ async def _put(sink: Sink, item, on_wait: Callable[[str, float], None] | None) -
         # queue that nobody is draining would hang the tear-down forever. Make room the same
         # way the policy makes room for data — this deadlocked the first version, and the
         # test that caught it is the one named for it.
-        while True:
-            try:
-                sink.queue.put_nowait(None)
-                return
-            except asyncio.QueueFull:
-                try:
-                    sink.queue.get_nowait()
-                    sink.dropped += 1
-                except asyncio.QueueEmpty:  # pragma: no cover - drained concurrently
-                    pass
+        _force_sentinel(sink)
+        return
 
     if item is None or sink.policy == LOSSLESS:
         if on_wait is None:

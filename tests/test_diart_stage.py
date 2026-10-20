@@ -47,6 +47,7 @@ def test_the_same_start_under_another_speaker_is_a_different_segment() -> None:
 
 # --- the stage ----------------------------------------------------------------------------- #
 
+
 def test_labels_are_mapped_to_this_package_s_stable_ids() -> None:
     stage = DiartDiarStage()
     out = stage.consume_snapshot([(0.0, 1.0, "speaker_7"), (1.0, 2.0, "speaker_3")])

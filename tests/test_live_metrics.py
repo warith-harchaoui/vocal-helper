@@ -11,6 +11,7 @@ def _m() -> LiveMetrics:
 
 # --- latency ----------------------------------------------------------------------------- #
 
+
 def test_latency_is_counted_from_the_end_of_the_speech() -> None:
     """CADENCE.md's own example: a 3 s line delivered at 3.85 s is 0.85 s late, not 3.85 s.
 
@@ -26,8 +27,7 @@ def test_quantiles_report_an_observed_sample_not_an_interpolation() -> None:
     """Small samples: an interpolated p95 over a handful of points invents a number."""
     m = _m()
     for i, lat in enumerate([0.5, 0.6, 0.7, 5.0]):
-        m.record(speaker="S0", t0=float(i), t1=float(i) + 1, text=f"t{i}",
-                 now_s=float(i) + 1 + lat)
+        m.record(speaker="S0", t0=float(i), t1=float(i) + 1, text=f"t{i}", now_s=float(i) + 1 + lat)
     r = m.report()
     # Nearest rank over four samples puts p95 on the last one — a latency that really
     # happened, rather than a weighted blend of 0.7 and 5.0 that nobody experienced.
@@ -46,6 +46,7 @@ def test_an_empty_session_reports_nothing_rather_than_zero() -> None:
 
 
 # --- flicker ----------------------------------------------------------------------------- #
+
 
 def test_rewriting_an_already_shown_item_is_a_revision() -> None:
     m = _m()
@@ -74,13 +75,15 @@ def test_a_finalise_then_emit_pipeline_cannot_flicker() -> None:
     """Zero is not automatically good — it is paid for in latency, which is why both ship."""
     m = _m()
     for i in range(5):
-        m.record(speaker="S0", t0=float(i), t1=float(i) + 1, text=f"phrase {i}",
-                 now_s=float(i) + 1.4)
+        m.record(
+            speaker="S0", t0=float(i), t1=float(i) + 1, text=f"phrase {i}", now_s=float(i) + 1.4
+        )
     assert m.revision_rate() == 0.0
     assert m.report()["latency_p50_s"] == pytest.approx(0.4)
 
 
 # --- where the wait came from -------------------------------------------------------------- #
+
 
 def test_queue_waits_are_reported_per_stage() -> None:
     """A slow total with no queue wait is a slow model; with one, a starved consumer."""
@@ -109,6 +112,7 @@ def test_a_negative_wait_is_refused_rather_than_averaged_in() -> None:
 
 # --- the invariant ------------------------------------------------------------------------- #
 
+
 def test_an_item_emitted_before_its_audio_existed_is_flagged() -> None:
     """CADENCE.md's one rule, turned into something a test can fail on.
 
@@ -129,6 +133,7 @@ def test_a_well_behaved_session_has_no_violation() -> None:
 
 
 # --- wired into the live pipeline ---------------------------------------------------------- #
+
 
 def test_the_pipeline_records_what_the_consumer_sees(monkeypatch) -> None:
     """The collector has to sit at the yield, not earlier.

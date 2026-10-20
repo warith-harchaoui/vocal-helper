@@ -30,6 +30,7 @@ def test_backend_name_is_case_and_space_insensitive() -> None:
 
 def test_sherpa_accepts_an_explicit_model_path_without_resolving_anything(monkeypatch) -> None:
     """An explicit path must not trigger resolution — that is the point of passing one."""
+
     def explode() -> None:
         raise AssertionError("resolution must not run when a path is given")
 

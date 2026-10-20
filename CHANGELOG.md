@@ -6,6 +6,128 @@ on, **breaking behaviour and default changes land only in MAJOR releases; MINOR
 adds features compatibly; PATCH is bug-fixes and docs.** The public API is the
 names exported from `vocal_helper.__all__` plus the documented CLI flags.
 
+## [3.0.0] - 2026-10-20
+
+A major release because two **defaults change**, which this project's own
+versioning rule puts in MAJOR and nowhere else. Both are a correction of
+something that was quietly wrong, and both are reversible by a keyword.
+
+### Changed
+
+- **A run that lost a stage no longer reports success.** `Pipeline.run()`
+  used to log a crashed stage and return a normal, EMPTY transcript: the
+  caller saw silence with no reason for it. The helper was named
+  `_await_task_swallow`, and its own docstring recorded that this shape of
+  failure once hid a broken pyannote API "undetected for hours" — the author
+  had moved from silent to logged, and a log is still invisible to a program.
+
+  Crashes are now recorded per stage and `run()` raises `StageCrashed` at the
+  end if any happened. Draining still continues past a dead stage, so one
+  failure never leaves the others un-awaited, and `stage_failures` is
+  populated either way. **`strict=False` restores the previous leniency** —
+  a choice somebody makes on purpose rather than one inherited by accident.
+
+  Verified end to end on real audio, not against the suite: the exact mistake
+  that used to yield "0 utterances, no error" now names the stage and the
+  `TypeError`, and a correct run produces 11 utterances with zero failures.
+
+- **The offline pyannote checkpoint defaults to `community-1` instead of
+  3.1.** On AMI the two tie exactly at a 0.116 median DER, so a median alone
+  says there is nothing to choose. The whole difference is in the tail: 3.1's
+  worst meeting is 0.474 against community-1's 0.149, and the spread collapses
+  from 0.412 to 0.086 — one meeting, ES2011d, carries all of it, where
+  community-1 is 3.3x better. On three real 64-minute six-speaker panels it
+  also over-splits least of everything measured: 2.7x, against 3.0x for 3.1,
+  3.7x for Sortformer and 19.7x for the sherpa path. Same price in every other
+  respect, so the one with no catastrophic case wins.
+
+  `checkpoint="3.1"` selects the old weights. A bundle that predates
+  community-1 degrades to 3.1 with a warning rather than failing.
+
+### Added
+
+- **`diart` as the online diarizer** (`DiartDiarStage`), joined to
+  `OnlineDiarStage` rather than replacing it, because the two regimes have
+  different winners and both are measured: online, diart reaches 6.04 %
+  speaker error against 11.7 %, with a first label in 500 ms against 20 s;
+  offline, community-1 wins on every axis above. The caveat the 6.04 % hides
+  is kept in the docs: that call had two speakers, its easy case.
+
+  The port's real content is `snapshot_to_delta`. diart re-emits its entire
+  running annotation at every step, which is fine for a list and impossible
+  for a queue — a consumer cannot un-receive what it already got. Snapshots
+  are diffed against what has gone out, keyed by `(start, speaker)`: unseen
+  keys are new, a key whose end time moved is a revision, forwarded because a
+  segment that grew is news and counted because that count is the honest price
+  of the 500 ms first label. The label mapping is per instance; at class level
+  one session's speakers would leak into the next.
+
+- **`vocal_helper.bench`** — scoring that answers the product's question, not
+  only the leaderboard's. `speaker_label_error` ignores boundary slop, which
+  DER charges for and no reader perceives: it asks how often the name against
+  a paragraph is wrong. `der_report` keeps DER for ranking engines but
+  decomposed, and with collar 0 and overlap scored — the conventional 0.25 s
+  collar with overlap skipped deletes exactly the regions an interruption
+  study is about. Miss, false alarm and confusion are never collapsed: they
+  have different cures, and on the 2026-10-19 AMI bench the two local paths
+  had near-identical DERs and opposite failures. `cpWER` scores under the best
+  speaker mapping, so a transcript only wins when the words *and* the person
+  are right; `term_error_rate` scores only the words an average hides.
+
+- **`vocal_helper.live_metrics`** — offline quality had WER and DER, live had
+  nothing. Latency is measured from the END of the speech, because that is
+  when a listener starts waiting and measuring from the start rewards chopping
+  speech into fragments. It ships with revision rate and never alone: text
+  that jumps is unusable at any word error rate, and a pipeline that emits
+  early and corrects often posts a flattering latency while being worse to
+  watch. Per-queue wait separates a slow model from a starved consumer, which
+  have opposite fixes. An item delivered before its audio was captured is
+  counted as a violation, and the summary then says outright not to trust the
+  rest.
+
+- **`fanout`** — one producer, several consumers, with the backpressure made
+  explicit rather than carried in a docstring. The slowest sink pacing every
+  other one is the right default and a real trap, so it is a parameter: a
+  stage whose output must be complete waits, a sink that only shows the
+  present drops its oldest frame. `on_wait` reports how long each put blocked
+  and which sink caused it. One deadlock was found by its own test — the
+  sentinel was awaited unconditionally, so tear-down hung forever on a full
+  lossy queue nobody drains; it now makes room for itself the way data does.
+
+- **`make_embedder` and `resolve_sherpa_models` are public.** Three
+  repositories were importing `_TitaNetEmbedder`, `_SherpaEmbedder` and
+  `_resolve_sherpa_models`. A leading underscore depended on across
+  repositories is not a dependency, it is a promise nobody made.
+
+- **`StageCrashed`**, exported, so a caller can catch exactly this.
+
+### Fixed
+
+- **A cancelled fan-out could still lose its end-of-stream.** The normal path
+  was fixed so the sentinel makes room for itself rather than blocking on a
+  queue nobody drains; the cancellation handler kept the first version's
+  shape — `put_nowait` with `QueueFull` swallowed — so tearing down a session
+  whose sink was full dropped the marker and left that consumer waiting
+  forever. Same failure, in the path where a full queue is likeliest and the
+  docstring two lines above promised it could not happen. Both paths now go
+  through one helper that never blocks and never drops; on a lossless sink
+  during tear-down it discards a frame to do so, which costs nothing on a
+  session being destroyed. Pinned by a test confirmed to fail beforehand.
+
+### Documentation
+
+- `LANDSCAPE.md` / `PAYSAGE.md` rebuilt from measurements rather than
+  impressions: seventeen entries regenerated through standpoint, with the
+  source CSV and the coordinate YAML committed next to the figure so the map
+  is auditable rather than decorative. Four ratings come from our own benches.
+  It also states what the map cannot say — the two axes carry 72 % of eight
+  criteria — and keeps the section on when to pick something else.
+
+- README and LISEZMOI no longer claim online cosine clustering is *the*
+  diarization answer; after the 2026-10-19 benches that is a third of the
+  picture. Both carry the two regimes with their numbers, in step section for
+  section.
+
 ## [2.0.6] - 2026-10-19
 
 ### Fixed

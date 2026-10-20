@@ -80,6 +80,7 @@ from vocal_helper.diar import (
     make_embedder,
     resolve_sherpa_models,
 )
+from vocal_helper.fanout import LOSSLESS, LOSSY, Sink, fanout
 from vocal_helper.lid import (
     LangRegion,
     RegionVerdict,
@@ -90,7 +91,6 @@ from vocal_helper.lid import (
     detect_language_speechbrain,
     language_posterior_curve,
 )
-from vocal_helper.fanout import LOSSLESS, LOSSY, Sink, fanout
 from vocal_helper.live_metrics import LiveMetrics
 from vocal_helper.llm import GemmaAnalystStage
 from vocal_helper.pipeline import (
@@ -200,4 +200,4 @@ __all__ = [
 
 __author__ = "Warith Harchaoui, Ph.D."
 __email__ = "warithmetics@deraison.ai"
-__version__ = "2.0.6"
+__version__ = "3.0.0"

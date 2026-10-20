@@ -4,8 +4,8 @@ import pytest
 
 from vocal_helper import bench
 
-
 # --- normalisation ------------------------------------------------------------------------ #
+
 
 def test_apostrophes_survive_so_french_clitics_stay_one_token() -> None:
     assert bench.normalize_fr("C'est l'État, qu'il dit !") == "c'est l'état qu'il dit"
@@ -28,6 +28,7 @@ def test_plain_mode_leaves_disfluencies_alone() -> None:
 
 # --- WER ------------------------------------------------------------------------------------ #
 
+
 def test_a_perfect_transcript_scores_zero() -> None:
     assert bench.wer_report("le chat dort", "le chat dort")["wer"] == 0.0
 
@@ -46,13 +47,14 @@ def test_style_tolerance_can_turn_a_bad_score_into_a_fair_one() -> None:
 
 # --- term error rate -------------------------------------------------------------------- #
 
+
 def test_only_terms_the_reference_actually_uses_are_scored() -> None:
     """Otherwise the rate depends on the glossary's length, not on the transcription."""
-    out = bench.term_error_rate("on parle du Figaro", "on parle du Fégaro",
-                                ["Le Figaro", "Mediapart"])
+    out = bench.term_error_rate(
+        "on parle du Figaro", "on parle du Fégaro", ["Le Figaro", "Mediapart"]
+    )
     assert out["present"] == 0  # "le figaro" as a phrase is not in the reference
-    out = bench.term_error_rate("on parle du Figaro", "on parle du Fégaro",
-                                ["Figaro", "Mediapart"])
+    out = bench.term_error_rate("on parle du Figaro", "on parle du Fégaro", ["Figaro", "Mediapart"])
     assert out["present"] == 1 and out["found"] == 0
     assert out["error_rate"] == 1.0 and out["missed"] == ["Figaro"]
 
@@ -68,6 +70,7 @@ def test_no_term_present_reports_none_not_zero() -> None:
 
 
 # --- cpWER ------------------------------------------------------------------------------- #
+
 
 def _turns(*rows):
     return [{"speaker": s, "t0": t, "text": txt} for s, t, txt in rows]
@@ -92,8 +95,9 @@ def test_words_crossed_between_speakers_is_the_error_plain_wer_cannot_see() -> N
     """
     ref = _turns(("A", 0, "le chat dort"), ("B", 1, "le chien court"))
     crossed = _turns(("S0", 0, "le chat court"), ("S1", 1, "le chien dort"))
-    assert bench.wer_report("le chat dort le chien court",
-                            "le chat court le chien dort")["wer"] > 0  # order differs here
+    assert (
+        bench.wer_report("le chat dort le chien court", "le chat court le chien dort")["wer"] > 0
+    )  # order differs here
     # The decisive part: concatenated, both sides hold the same four content words.
     assert bench.cpwer(ref, crossed)["cpwer"] > 0
 
@@ -116,8 +120,7 @@ def test_inventing_a_speaker_is_charged_too() -> None:
 
 def test_the_speaker_counts_come_back_so_a_bad_score_can_be_read() -> None:
     ref = _turns(("A", 0, "un deux trois"), ("B", 1, "quatre cinq six"))
-    hyp = _turns(("S0", 0, "un deux trois"), ("S1", 1, "quatre cinq six"),
-                 ("S2", 2, "sept huit"))
+    hyp = _turns(("S0", 0, "un deux trois"), ("S1", 1, "quatre cinq six"), ("S2", 2, "sept huit"))
     out = bench.cpwer(ref, hyp)
     assert out["n_ref_speakers"] == 2 and out["n_hyp_speakers"] == 3
     assert out["cpwer"] == pytest.approx(2 / 6, abs=1e-4)  # the two invented words
@@ -128,6 +131,7 @@ def test_cpwer_on_an_empty_reference_reports_a_hole() -> None:
 
 
 # --- speaker label error: the product's question, not the diarizer's --------------------- #
+
 
 def test_boundary_slop_is_ignored_because_nobody_reads_a_boundary() -> None:
     """DER charges every millisecond at the edge of a turn. A reader sees a name.
@@ -142,10 +146,16 @@ def test_boundary_slop_is_ignored_because_nobody_reads_a_boundary() -> None:
 
 
 def test_a_genuinely_wrong_name_is_counted() -> None:
-    ref = [{"speaker": "A", "t0": 0.0, "t1": 5.0}, {"speaker": "B", "t0": 5.0, "t1": 10.0},
-           {"speaker": "A", "t0": 10.0, "t1": 15.0}]
-    hyp = [{"speaker": "S0", "t0": 0.0, "t1": 5.0}, {"speaker": "S1", "t0": 5.0, "t1": 10.0},
-           {"speaker": "S1", "t0": 10.0, "t1": 15.0}]  # third turn attributed to B
+    ref = [
+        {"speaker": "A", "t0": 0.0, "t1": 5.0},
+        {"speaker": "B", "t0": 5.0, "t1": 10.0},
+        {"speaker": "A", "t0": 10.0, "t1": 15.0},
+    ]
+    hyp = [
+        {"speaker": "S0", "t0": 0.0, "t1": 5.0},
+        {"speaker": "S1", "t0": 5.0, "t1": 10.0},
+        {"speaker": "S1", "t0": 10.0, "t1": 15.0},
+    ]  # third turn attributed to B
     out = bench.speaker_label_error(ref, hyp)
     assert out["errors"] == 1 and out["error_rate"] == pytest.approx(1 / 3, abs=1e-4)
 
@@ -163,6 +173,7 @@ def test_label_error_on_an_empty_reference_reports_a_hole() -> None:
 
 
 # --- DER report --------------------------------------------------------------------------- #
+
 
 def test_der_defaults_score_overlap_and_use_no_collar() -> None:
     """The usual 0.25 s collar with overlap skipped deletes what an interruption study is about."""

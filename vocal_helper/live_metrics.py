@@ -108,8 +108,9 @@ class LiveMetrics:
 
     # -- recording ------------------------------------------------------------------- #
 
-    def record(self, *, speaker: str, t0: float, t1: float, text: str,
-               now_s: float | None = None) -> None:
+    def record(
+        self, *, speaker: str, t0: float, t1: float, text: str, now_s: float | None = None
+    ) -> None:
         """Record one item reaching the consumer.
 
         ``t0``/``t1`` are positions in the AUDIO timeline; ``now_s`` is the monotonic clock
@@ -125,11 +126,15 @@ class LiveMetrics:
         if float(t1) > elapsed + 1e-6:
             # The audio this claims to transcribe had not been captured yet. A clock, a
             # buffer or a mock is lying, and every latency computed beside it is fiction.
-            self._violations.append({
-                "speaker": speaker, "t0": t0, "t1": t1,
-                "elapsed_s": round(elapsed, 3),
-                "ahead_by_s": round(float(t1) - elapsed, 3),
-            })
+            self._violations.append(
+                {
+                    "speaker": speaker,
+                    "t0": t0,
+                    "t1": t1,
+                    "elapsed_s": round(elapsed, 3),
+                    "ahead_by_s": round(float(t1) - elapsed, 3),
+                }
+            )
 
         previous = self._latest.get(key)
         if previous is not None and previous.text != em.text:

@@ -58,13 +58,24 @@ SPACE_RE = re.compile(r"\s+")
 #: French disfluencies. Deliberately short: a long list starts eating real content, and the
 #: cost of missing one filler is far smaller than the cost of deleting a word somebody said.
 FR_FILLERS = {
-    "euh", "euhh", "hein", "ben", "bah", "heu", "hum",
-    "mh", "mhmh", "mhh", "mmh", "uh", "uhm", "um",
+    "euh",
+    "euhh",
+    "hein",
+    "ben",
+    "bah",
+    "heu",
+    "hum",
+    "mh",
+    "mhmh",
+    "mhh",
+    "mmh",
+    "uh",
+    "uhm",
+    "um",
 }
 
 
-def normalize_fr(text: str, *, drop_fillers: bool = False,
-                 collapse_repeats: bool = False) -> str:
+def normalize_fr(text: str, *, drop_fillers: bool = False, collapse_repeats: bool = False) -> str:
     """Normalise a French transcript for scoring.
 
     Always: NFKC, lowercase, punctuation stripped (apostrophes kept), whitespace collapsed.
@@ -105,7 +116,7 @@ def _collapse_repeats(tokens: list[str], max_phrase_len: int = 4) -> list[str]:
         while skipped:
             skipped = False
             for length in range(min(max_phrase_len, len(out)), 0, -1):
-                if tokens[i + 1: i + 1 + length] == out[-length:]:
+                if tokens[i + 1 : i + 1 + length] == out[-length:]:
                     i += length
                     skipped = True
                     break
@@ -177,14 +188,12 @@ def _concat_by_speaker(turns: list[dict]) -> dict[str, str]:
     for t in turns:
         spk = str(t.get("speaker", ""))
         buckets.setdefault(spk, []).append((float(t.get("t0", 0.0)), str(t.get("text") or "")))
-    return {
-        spk: " ".join(txt for _t0, txt in sorted(items))
-        for spk, items in buckets.items()
-    }
+    return {spk: " ".join(txt for _t0, txt in sorted(items)) for spk, items in buckets.items()}
 
 
-def cpwer(reference_turns: list[dict], hypothesis_turns: list[dict], *,
-          style_tolerant: bool = False) -> dict:
+def cpwer(
+    reference_turns: list[dict], hypothesis_turns: list[dict], *, style_tolerant: bool = False
+) -> dict:
     """Concatenated minimum-permutation WER — words and speaker, priced together.
 
     Each side is concatenated per speaker into one stream per voice, then speakers are
@@ -255,7 +264,8 @@ def cpwer(reference_turns: list[dict], hypothesis_turns: list[dict], *,
             best_cost = float(cost[rows, cols].sum())
             best_map = {
                 hyp_keys[j]: ref_keys[i]
-                for i, j in zip(rows, cols)
+                # Square cost matrix, so the solver returns one column per row.
+                for i, j in zip(rows, cols, strict=True)
                 if i < len(ref_keys) and j < len(hyp_keys)
             }
         except ImportError:
@@ -267,14 +277,16 @@ def cpwer(reference_turns: list[dict], hypothesis_turns: list[dict], *,
             for perm in itertools.permutations(hyp_keys, min(len(ref_keys), len(hyp_keys))):
                 total = 0.0
                 used = set()
-                for r, h in zip(ref_keys, perm):
+                # perm is the shorter side by construction; the ref_keys it does not
+                # reach are charged below as unmatched, so truncating here is the point.
+                for r, h in zip(ref_keys, perm, strict=False):
                     total += _errors(ref_by[r], hyp_by[h])
                     used.add(h)
-                total += sum(unmatched_ref[r] for r in ref_keys[len(perm):])
+                total += sum(unmatched_ref[r] for r in ref_keys[len(perm) :])
                 total += sum(v for k, v in unmatched_hyp.items() if k not in used)
                 if best_cost is None or total < best_cost:
                     best_cost = total
-                    best_map = dict(zip(perm, ref_keys))
+                    best_map = dict(zip(perm, ref_keys, strict=False))
     else:
         best_cost = sum(unmatched_ref.values()) + sum(unmatched_hyp.values())
 
@@ -350,7 +362,8 @@ def speaker_label_error(reference_turns: list[dict], hypothesis_turns: list[dict
             rows, cols = linear_sum_assignment(gain)
             mapping = {
                 hyp_labels[j]: ref_labels[i]
-                for i, j in zip(rows, cols)
+                # Square gain matrix, so the solver returns one column per row.
+                for i, j in zip(rows, cols, strict=True)
                 if i < len(ref_labels) and j < len(hyp_labels)
             }
         except ImportError:
@@ -373,8 +386,13 @@ def speaker_label_error(reference_turns: list[dict], hypothesis_turns: list[dict
     }
 
 
-def der_report(reference_turns: list[dict], hypothesis_turns: list[dict], *,
-               collar: float = 0.0, skip_overlap: bool = False) -> dict:
+def der_report(
+    reference_turns: list[dict],
+    hypothesis_turns: list[dict],
+    *,
+    collar: float = 0.0,
+    skip_overlap: bool = False,
+) -> dict:
     """DER broken into its parts, plus JER and both speaker counts.
 
     The defaults are **collar 0 and overlap scored**, which is not the convention. The usual

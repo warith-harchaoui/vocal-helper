@@ -46,8 +46,8 @@ try:
 except Exception:  # pragma: no cover — optional
     SemanticEOTStage = None  # type: ignore[assignment, misc]
 
-from vocal_helper.llm import GemmaAnalystStage
 from vocal_helper.live_metrics import LiveMetrics
+from vocal_helper.llm import GemmaAnalystStage
 from vocal_helper.types import (
     DiarizedSegment,
     PcmFrame,
@@ -119,8 +119,9 @@ class StageCrashed(RuntimeError):
         self.failures = failures
 
 
-async def _drain_task(t: asyncio.Task,
-                      failures: list[tuple[str, BaseException]] | None = None) -> None:
+async def _drain_task(
+    t: asyncio.Task, failures: list[tuple[str, BaseException]] | None = None
+) -> None:
     """Await a cancelled / long-running task on pipeline shutdown.
 
     ``asyncio.CancelledError`` is expected — the task got the ``cancel()``
@@ -249,7 +250,7 @@ class Pipeline:
         *,
         source: SourceFactory,
         config: PipelineConfig | None = None,
-        metrics: "LiveMetrics | None" = None,
+        metrics: LiveMetrics | None = None,
         strict: bool = True,
     ) -> None:
         """Wire up queues, stages and subscriber lists from ``config``.

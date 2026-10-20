@@ -1,6 +1,7 @@
 """Forking one queue into several: delivery, backpressure, and who gets to stall whom."""
 
 import asyncio
+import contextlib
 
 import pytest
 
@@ -46,7 +47,7 @@ async def test_a_slow_lossless_sink_paces_the_producer() -> None:
 
     task = asyncio.ensure_future(fanout(src, [slow]))
     await asyncio.sleep(0.02)
-    assert not task.done()              # blocked: the sink is full and nothing was dropped
+    assert not task.done()  # blocked: the sink is full and nothing was dropped
     assert slow.dropped == 0
     seen = []
     while not task.done() or not slow.queue.empty():
@@ -109,10 +110,8 @@ async def test_queue_waits_are_reported_with_the_sink_that_caused_them() -> None
     task = asyncio.ensure_future(fanout(src, [slow], on_wait=lambda n, s: waits.append((n, s))))
     await asyncio.sleep(0.05)
     while not task.done():
-        try:
+        with contextlib.suppress(asyncio.QueueEmpty):
             slow.queue.get_nowait()
-        except asyncio.QueueEmpty:
-            pass
         await asyncio.sleep(0.01)
     await asyncio.wait_for(task, timeout=2)
     assert any(name == "asr" and seconds > 0 for name, seconds in waits)
@@ -125,3 +124,30 @@ def test_an_unknown_policy_is_refused_at_construction() -> None:
 
 def test_the_default_policy_loses_nothing() -> None:
     assert Sink(asyncio.Queue()).policy == LOSSLESS
+
+
+@pytest.mark.asyncio
+async def test_a_cancelled_fanout_still_delivers_the_sentinel_to_a_full_sink() -> None:
+    """Tear-down is exactly when a full queue is likeliest, and when losing the marker costs most.
+
+    The non-cancelled path was fixed to make room for the sentinel rather than block on it.
+    The cancellation path kept the first version's shape — ``put_nowait`` with ``QueueFull``
+    swallowed — so on a sink nobody was draining the end-of-stream was silently dropped and
+    the consumer waited forever on a session that no longer existed. That is the same failure
+    the docstring promises cancellation is free of.
+    """
+    src: asyncio.Queue = asyncio.Queue()
+    for policy in (LOSSLESS, LOSSY):
+        sink = Sink(asyncio.Queue(maxsize=2), policy=policy, name=policy)
+        sink.queue.put_nowait("stale")
+        sink.queue.put_nowait("staler")  # full, and nobody is draining it
+        task = asyncio.ensure_future(fanout(src, [sink]))
+        await asyncio.sleep(0.05)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+        delivered = []
+        while not sink.queue.empty():
+            delivered.append(sink.queue.get_nowait())
+        assert None in delivered, f"{policy} sink lost its end-of-stream during tear-down"
