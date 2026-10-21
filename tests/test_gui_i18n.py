@@ -178,6 +178,24 @@ def test_the_build_declares_the_locale_file_as_package_data() -> None:
     )
 
 
+def test_the_declared_os_helper_floor_carries_the_loader() -> None:
+    """`osh.Locales` landed in os-helper 2.4.0; a lower floor is a lie.
+
+    The GUI resolves every string through the shared loader, so a user who
+    installs this package against an older os-helper gets an AttributeError
+    out of the `/gui` route. Neither CI nor a developer machine catches it:
+    pip resolves the NEWEST os-helper, never the floor, so the declaration can
+    be wrong for months without a single red build.
+    """
+    text = (_ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    bound = re.search(r'"os-helper>=(\d+)\.(\d+)(?:\.(\d+))?', text)
+    assert bound, "pyproject.toml declares no os-helper lower bound"
+    floor = tuple(int(part or 0) for part in bound.groups())
+    assert floor >= (2, 4, 0), (
+        f"declared floor {bound.group(0)!r} predates os_helper.Locales (2.4.0)"
+    )
+
+
 def test_the_locale_file_is_tracked_by_git() -> None:
     """Living inside the package and being declared is still not enough.
 

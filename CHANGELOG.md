@@ -6,6 +6,24 @@ on, **breaking behaviour and default changes land only in MAJOR releases; MINOR
 adds features compatibly; PATCH is bug-fixes and docs.** The public API is the
 names exported from `vocal_helper.__all__` plus the documented CLI flags.
 
+## [3.1.1] - 2026-10-21
+
+### Fixed
+
+- **The declared `os-helper` floor was a lie as of 3.1.0.** It read
+  `>=2.0.0`, while the GUI released one commit earlier resolves every string
+  through `os_helper.Locales` — which landed in os-helper **2.4.0**. A user
+  installing against os-helper 2.0.x gets an `AttributeError` out of the
+  `/gui` route.
+
+  Nothing would have caught it: pip resolves the NEWEST os-helper, never the
+  floor, so neither CI nor a developer machine ever installs the version the
+  declaration permits. The build was green the whole time.
+
+  `tests/test_gui_i18n.py` now asserts the floor against the feature that
+  needs it, so the next member to adopt a new os-helper API cannot forget.
+  Verified by lowering the line and watching the guard fire.
+
 ## [3.1.0] - 2026-10-21
 
 ### Added
