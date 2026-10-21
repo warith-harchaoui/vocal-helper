@@ -56,6 +56,13 @@ names exported from `vocal_helper.__all__` plus the documented CLI flags.
   dependency and it fails for whoever added it, not in CI. Verified by
   removing the line and watching the guard fire.
 
+- **`assets/landscape.svg` had no final newline**, which fails this
+  repository's `end-of-file-fixer` pre-commit hook — and the CI job that
+  mirrors those hooks, so that job was red alongside the test job. The file
+  comes from the standpoint figure generator, which emits every `.svg` without
+  one; vocal-helper is the only member whose CI runs that hook, which is why
+  it is the only one that noticed.
+
 - **A GUI test asserted the default language rather than the page's
   identity.** It looked for the literals `"transcript viewer"`, `"paste a
   url"` and `"rolling summary"`, which is no longer what a French default
