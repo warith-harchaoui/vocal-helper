@@ -1122,6 +1122,17 @@ class _TitaNetEmbedder:
         return np.asarray(emb.squeeze(0).cpu().numpy(), dtype=np.float32)
 
 
+# sherpa-onnx ships TitaNet-large as an ONNX graph whose attention mask was
+# exported with a *static* sequence length of 12288 frames. At the model's 10 ms
+# hop that is 122.88 s, and one frame past it the graph raises rather than
+# degrading : "Attempting to broadcast an axis by a dimension other than 1.
+# 12288 by 12298". Measured 2026-10-21 on the mirrored model : 120 s embeds,
+# 123 s raises. It is a property of the export, not of the machine or of the
+# audio, so no amount of memory moves it and no caller can be trusted to know
+# it — hence :meth:`_SherpaEmbedder.embed` windows past this and pools.
+SHERPA_MAX_EMBED_S = 120.0
+
+
 class _SherpaEmbedder:
     """Torch-free ONNX speaker embedder via sherpa-onnx.
 
@@ -1179,13 +1190,22 @@ class _SherpaEmbedder:
             sherpa_onnx.SpeakerEmbeddingExtractorConfig(model=self._model_path)
         )
 
+    def _embed_one(self, pcm: NDArray[np.float32], sr: int) -> NDArray[np.float32]:
+        """Embed one buffer that is known to fit under :data:`SHERPA_MAX_EMBED_S`."""
+        # One-shot stream: feed the whole segment, then read the embedding.
+        stream = self._extractor.create_stream()
+        stream.accept_waveform(sr, pcm)
+        stream.input_finished()
+        return np.asarray(self._extractor.compute(stream), dtype=np.float32)
+
     def embed(self, pcm: NDArray[np.float32], sr: int) -> NDArray[np.float32]:
         """Return a single TitaNet-large speaker embedding for one segment (ONNX path).
 
         Parameters
         ----------
         pcm : NDArray[np.float32]
-            Mono PCM samples for the segment.
+            Mono PCM samples for the segment. Any length : audio longer than
+            :data:`SHERPA_MAX_EMBED_S` is embedded in windows and pooled.
         sr : int
             Sample rate of ``pcm``.
 
@@ -1193,15 +1213,78 @@ class _SherpaEmbedder:
         -------
         NDArray[np.float32]
             The speaker embedding vector.
+
+        Raises
+        ------
+        RuntimeError
+            If no window of a long buffer could be embedded. Raised rather than
+            returned as a zero vector : a caller pooling voiceprints across a
+            corpus cannot tell a zero vector from a quiet speaker, and the
+            failure this replaces was already silent once.
+
+        Notes
+        -----
+        Below the cap this is one call and the result is bit-for-bit what it
+        always was ; the windowing only exists above it. A pooled embedding is a
+        different statistic from one whole-buffer pass, so the windows are made
+        as long as the cap allows — the fewer and longer they are, the less the
+        answer moves.
         """
         # sherpa needs contiguous float32; coerce defensively.
         if pcm.dtype != np.float32:
             pcm = pcm.astype(np.float32, copy=False)
-        # One-shot stream: feed the whole segment, then read the embedding.
-        stream = self._extractor.create_stream()
-        stream.accept_waveform(sr, pcm)
-        stream.input_finished()
-        return np.asarray(self._extractor.compute(stream), dtype=np.float32)
+        cap = int(SHERPA_MAX_EMBED_S * sr)
+        if pcm.shape[0] <= cap:
+            return self._embed_one(pcm, sr)
+
+        # Equal split rather than cap-sized windows plus whatever is left over :
+        # a 125 s buffer would otherwise be 120 s against a 5 s tail, and the
+        # tail would carry the same vote as two full minutes of speech.
+        n_win = int(np.ceil(pcm.shape[0] / cap))
+        bounds = np.linspace(0, pcm.shape[0], n_win + 1).astype(int)
+        vecs: list[NDArray[np.float32]] = []
+        weights: list[float] = []
+        norms: list[float] = []
+        for lo, hi in zip(bounds[:-1], bounds[1:], strict=True):
+            win = pcm[lo:hi]
+            if win.shape[0] < sr // 2:
+                continue  # under half a second carries no speaker identity
+            try:
+                vec = np.asarray(self._embed_one(win, sr), dtype=np.float32)
+            except Exception as exc:  # noqa: BLE001 — one bad window, not the speaker
+                # Losing a window costs a share of the audio; losing the call costs
+                # the whole voiceprint. Pool what worked, and say what did not, so
+                # the next reader is not left guessing why a vector looks thin.
+                import os_helper as osh  # local, matching this module's style
+
+                osh.warning(
+                    f"  embed: window {lo / float(sr):.0f}-{hi / float(sr):.0f}s "
+                    f"failed ({exc}); pooling the rest"
+                )
+                continue
+            nrm = float(np.linalg.norm(vec))
+            if nrm <= 1e-9:
+                continue
+            vecs.append(vec / nrm)
+            weights.append(float(win.shape[0]))
+            norms.append(nrm)
+        if not vecs:
+            raise RuntimeError(
+                f"sherpa embedder: none of the {n_win} window(s) of a "
+                f"{pcm.shape[0] / float(sr):.1f}s buffer could be embedded"
+            )
+
+        # Windows are unit-normalised before averaging, so the mean is a
+        # direction rather than a tug-of-war between magnitudes. The scale of
+        # the single-call path is then restored, so a caller that skips its own
+        # normalisation sees the same magnitude either side of the cap.
+        w = np.asarray(weights, dtype=np.float32)
+        pooled = (np.stack(vecs) * w[:, None]).sum(axis=0)
+        nrm = float(np.linalg.norm(pooled))
+        if nrm > 1e-9:
+            pooled = pooled / nrm
+        scale = float((w * np.asarray(norms, dtype=np.float32)).sum() / float(w.sum()))
+        return (pooled * scale).astype(np.float32)
 
 
 # ===========================================================================
@@ -1573,7 +1656,18 @@ class OfflineDiarStage:
                     cat = np.concatenate([cat, pad], axis=0)
                 try:
                     emb = self._embedder.embed(cat, sr)
-                except Exception:  # noqa: BLE001
+                except Exception as exc:  # noqa: BLE001
+                    # Giving up here deletes every one of this speaker's turns from
+                    # the stitched output, which DER then books as missed speech. It
+                    # must not pass in silence: the more a speaker talks the more
+                    # audio gets concatenated, so the likeliest victim is the
+                    # dominant voice — the opposite of a harmless failure.
+                    import os_helper as osh  # local, matching this module's style
+
+                    osh.warning(
+                        f"  diar: no embedding for {spk} over "
+                        f"{cat.shape[0] / float(sr):.0f}s ({exc}); its turns are dropped"
+                    )
                     continue
                 emb = np.asarray(emb, dtype=np.float32)
                 nrm = float(np.linalg.norm(emb))
