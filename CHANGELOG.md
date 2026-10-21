@@ -6,6 +6,30 @@ on, **breaking behaviour and default changes land only in MAJOR releases; MINOR
 adds features compatibly; PATCH is bug-fixes and docs.** The public API is the
 names exported from `vocal_helper.__all__` plus the documented CLI flags.
 
+## [3.2.0] - 2026-10-21
+
+### Changed
+
+- **The GUI's strings moved from `locales/i18n.yaml` to a `gettext`
+  catalogue**, the suite-wide mechanism as of os-helper 2.6.0. The English is
+  now the source, written in the markup itself as `{{_("…")}}`; the French
+  lives in `vocal_helper/locales/fr/LC_MESSAGES/vocal_helper.po` and is read
+  through `os_helper.Catalog`.
+
+  A string the French catalogue has not caught up with renders as **readable
+  English** instead of as a key. The cost is the mirror image — rewording the
+  English orphans its French entry, and gettext would quietly serve the
+  English — so `tests/test_gui_i18n.py` hands every source string to
+  `Catalog.problems`, which names both halves of that fault.
+
+  The URL placeholder is written in the markup directly: it is the same example
+  in every language. The language toggle is computed rather than translated —
+  its three parts all mean "the other language", which is data, not copy.
+
+- `tests/test_api.py` asked the locale file for the page's name and two of its
+  affordances. It now reads the rendered `<title>` for the first and asks the
+  catalogue by English source for the others.
+
 ## [3.1.1] - 2026-10-21
 
 ### Fixed

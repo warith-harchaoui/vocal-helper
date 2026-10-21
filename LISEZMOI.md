@@ -280,12 +280,15 @@ serveur supplémentaire) et ne contacte que le serveur local : votre audio ne
 quitte jamais la machine.
 
 La page parle **français et anglais**. `GET /gui?lang=fr|en` choisit la langue,
-un drapeau dans l'en-tête bascule de l'une à l'autre, et un code que le fichier
-de locales ne porte pas retombe sur la langue par défaut au lieu d'échouer.
-Toutes les chaînes vivent dans
-[`vocal_helper/locales/i18n.yaml`](https://github.com/warith-harchaoui/vocal-helper/blob/main/vocal_helper/locales/i18n.yaml),
-lu par `os_helper.Locales` — le chargeur partagé par la suite — si bien que
-traduire la page n'oblige jamais à ouvrir un fichier Python.
+un drapeau dans l'en-tête bascule de l'une à l'autre, et un code qu'aucun
+catalogue ne porte retombe sur la langue par défaut au lieu d'échouer.
+L'anglais est la source, écrite dans le balisage lui-même ; le français vit dans
+[`vocal_helper/locales/fr/LC_MESSAGES/vocal_helper.po`](https://github.com/warith-harchaoui/vocal-helper/blob/main/vocal_helper/locales/fr/LC_MESSAGES/vocal_helper.po),
+un catalogue `gettext` standard lu par `os_helper.Catalog` — le chargeur
+partagé par la suite — si bien qu'un traducteur travaille dans le format que
+tous les outils de traduction parlent déjà, sur de vraies phrases plutôt que
+sur des noms de clés. Modifiez le `.po`, puis recompilez par
+`python -c "import os_helper as osh; osh.compile_catalogs('vocal_helper/locales')"`.
 
 ### En tant que skill d'agent
 

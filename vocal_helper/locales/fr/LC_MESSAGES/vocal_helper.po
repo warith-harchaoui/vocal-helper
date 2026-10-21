@@ -1,0 +1,87 @@
+# fr catalogue for vocal-helper.
+#
+# msgid is the English source string as it appears in the code, so a
+# reworded source needs its entry reworded too — os_helper.Catalog.problems
+# reports the mismatch rather than letting the page half-revert to English.
+msgid ""
+msgstr ""
+"Project-Id-Version: vocal-helper\n"
+"Language: fr\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+msgid "('auto' detects it)"
+msgstr "(« auto » la détecte)"
+
+msgid "(YouTube / podcast RSS / direct media — needs the [stream] extra)"
+msgstr "(YouTube / flux RSS de podcast / média direct — nécessite l'extra [stream])"
+
+msgid "(no speech detected — empty or silent audio)"
+msgstr "(aucune parole détectée — audio vide ou silencieux)"
+
+msgid "Add a local LLM rolling summary"
+msgstr "Ajouter un résumé glissant par LLM local"
+
+msgid "Audio source"
+msgstr "Source audio"
+
+msgid "Choose an audio file"
+msgstr "Choisir un fichier audio"
+
+msgid "Done — {count} utterance(s), processed locally."
+msgstr "Terminé — {count} énoncé(s), traités en local."
+
+msgid "Drop a file here, or click to choose"
+msgstr "Déposez un fichier ici ou cliquez pour en choisir un"
+
+msgid "Drop an audio file or paste a URL, run diarized transcription locally, then read a speaker-labelled, colour-coded transcript and rolling summary."
+msgstr "Déposez un fichier audio ou collez une URL, lancez la transcription diarisée en local, puis lisez une transcription colorée par locuteur et son résumé glissant."
+
+msgid "Error "
+msgstr "Erreur "
+
+msgid "Pick a file or paste a URL first."
+msgstr "Choisissez d'abord un fichier ou collez une URL."
+
+msgid "Request failed: {error}. Is the local server running?"
+msgstr "Échec de la requête : {error}. Le serveur local tourne-t-il ?"
+
+msgid "Rolling summary"
+msgstr "Résumé glissant"
+
+msgid "Runs locally — your audio never leaves this machine"
+msgstr "Tout en local — votre audio ne quitte jamais cette machine"
+
+msgid "Speakers"
+msgstr "Locuteurs"
+
+msgid "Transcribe locally"
+msgstr "Transcrire en local"
+
+msgid "Transcribing locally…"
+msgstr "Transcription en local…"
+
+msgid "Vocal Helper — Transcript Viewer"
+msgstr "Vocal Helper — Lecteur de transcription"
+
+msgid "auto — router picks by length"
+msgstr "auto — le routeur choisit selon la durée"
+
+msgid "diarization backend"
+msgstr "moteur de diarisation"
+
+msgid "language"
+msgstr "langue"
+
+msgid "nemo (short ≤4-speaker)"
+msgstr "nemo (courts, ≤ 4 locuteurs)"
+
+msgid "pyannote (robust, long)"
+msgstr "pyannote (robuste, longs enregistrements)"
+
+msgid "sherpa (torch-free ONNX)"
+msgstr "sherpa (ONNX, sans torch)"
+
+msgid "…or paste a URL"
+msgstr "…ou collez une URL"

@@ -9,11 +9,18 @@ static asset the API returns verbatim.
 
 Where the words live
 --------------------
-Not here. Every human-readable string comes from ``locales/i18n.yaml``
-through :class:`os_helper.Locales`, the loader shared across the suite
-(``CODING.md`` 21.3). The markup below is tokenised — ``{{TOKEN}}`` in HTML,
-and a ``T`` object injected for the script — so one template serves every
-language and a translator never touches Python.
+In the markup, in English. Each one is wrapped as ``{{_("…")}}`` in the HTML,
+or listed in :data:`_JS_NAME_TO_SOURCE` for the script, and
+:class:`os_helper.Catalog` translates it through the compiled ``gettext``
+catalogues under ``locales/`` (``CODING.md`` 21.3).
+
+English is the msgid, so it needs no catalogue and cannot fall out of sync with
+one; a string the French catalogue has not caught up with renders as readable
+English instead of as a key. The cost is the mirror image: rewording the
+English here orphans its French entry, and gettext would quietly serve the
+English. ``tests/test_gui_i18n.py`` exists to catch that — it hands every
+source string to :meth:`os_helper.Catalog.problems`, so an orphaned
+translation is a red build rather than a half-reverted page.
 
 :func:`render_gui` resolves a language and returns the finished page.
 
@@ -53,6 +60,7 @@ from __future__ import annotations
 import functools
 import html
 import json
+import re
 from pathlib import Path
 
 import os_helper as osh
@@ -60,78 +68,71 @@ import os_helper as osh
 # Inside the package, not beside it: a file one level up is not package data
 # and does not travel in the wheel. best-engine shipped exactly that bug —
 # `pip install` gave a package whose every GUI string raised FileNotFoundError.
-_LOCALES_PATH = Path(__file__).resolve().parent / "locales" / "i18n.yaml"
+_LOCALES_DIR = Path(__file__).resolve().parent / "locales"
 
-#: The section of the locale file this module reads.
-_GUI_SECTION = "gui"
+#: The gettext domain, and therefore each ``.mo`` file's stem.
+_DOMAIN = "vocal_helper"
+
+#: The language served when the request names one we cannot render.
+_DEFAULT_LANGUAGE = "fr"
 
 
 @functools.lru_cache(maxsize=1)
-def _locales() -> osh.Locales:
-    """Parse ``locales/i18n.yaml`` once, through the suite's shared loader."""
-    return osh.Locales.from_path(_LOCALES_PATH)
+def _catalog() -> osh.Catalog:
+    """Resolve the catalogue directory once, through the suite's shared loader."""
+    return osh.Catalog.from_package(_LOCALES_DIR, _DOMAIN, default_language=_DEFAULT_LANGUAGE)
 
 
 def supported_languages() -> tuple[str, ...]:
-    """Language codes the GUI can render, as declared by the locale file."""
-    return tuple(_locales().supported_locales)
+    """Language codes the GUI can render: English plus every compiled catalogue."""
+    return _catalog().languages
 
 
 def default_language() -> str:
     """The language an unknown or absent ``?lang=`` falls back to."""
-    return _locales().default_locale
+    return _catalog().default_language
 
 
-# Two vocabularies meet here: the template's tokens and the locale file's
-# semantic keys. These maps bridge them. `_HTML_TOKEN_TO_KEY` fills {{TOKEN}}
-# placeholders; `_JS_NAME_TO_KEY` builds the `const T = {...}` the script reads.
-_HTML_TOKEN_TO_KEY: dict[str, str] = {
-    "PAGE_TITLE": "page_title",
-    "HERO_TITLE": "hero_title",
-    "HERO_P": "hero_subtitle",
-    "LOCAL_BADGE": "local_badge",
-    "SOURCE_LABEL": "source_label",
-    "DROP_ARIA": "drop_aria",
-    "DROP_HINT": "drop_hint",
-    "URL_LABEL": "url_label",
-    "URL_NOTE": "url_label_note",
-    "URL_PLACEHOLDER": "url_placeholder",
-    "LANGUAGE_LABEL": "language_label",
-    "LANGUAGE_NOTE": "language_note",
-    "DIAR_LABEL": "diar_label",
-    "DIAR_AUTO": "diar_auto",
-    "DIAR_PYANNOTE": "diar_pyannote",
-    "DIAR_NEMO": "diar_nemo",
-    "DIAR_SHERPA": "diar_sherpa",
-    "LLM_LABEL": "llm_label",
-    "RUN_BUTTON": "run_button",
-    "SUMMARY_H2": "summary_heading",
-    "LEGEND_ARIA": "legend_aria",
-    "LANG_HREF": "lang_toggle_href",
-    "LANG_FLAG": "lang_toggle_flag",
-    "LANG_ARIA": "lang_toggle_aria",
-}
+# The language toggle is computed, not translated. Its three parts all mean
+# "the other language", which is data rather than copy: a msgid of
+# ``/gui?lang=fr`` whose translation is ``/gui?lang=en`` would be nonsense, and
+# `Catalog.problems` would rightly treat it as prose that had drifted.
+#
+#: Flag shown for a language — the flag of that language, not of the page.
+_FLAGS: dict[str, str] = {"fr": "🇫🇷", "en": "🇬🇧"}
 
-_JS_NAME_TO_KEY: dict[str, str] = {
-    "needSource": "js_need_source",
-    "transcribing": "js_transcribing",
-    "errorPrefix": "js_error_prefix",
-    "noSpeech": "js_no_speech",
-    "done": "js_done",
-    "requestFailed": "js_request_failed",
+#: How each language names itself. Deliberately NOT translated: a French page
+#: offering English says "English version" in English, which is what a reader
+#: scanning for their own language actually looks for.
+_ENDONYMS: dict[str, str] = {"fr": "Version française", "en": "English version"}
+
+
+# The inline script's strings. The JS names are the contract between this
+# module and the script below; the English beside each one is the msgid, so
+# the script's copy lives in the same place as the markup's and is checked
+# by the same test. Injected as JSON, which is the one encoding an
+# apostrophe cannot break out of — and French copy is full of them.
+_JS_NAME_TO_SOURCE: dict[str, str] = {
+    "needSource": "Pick a file or paste a URL first.",
+    "transcribing": "Transcribing locally…",
+    "errorPrefix": "Error ",
+    "noSpeech": "(no speech detected — empty or silent audio)",
+    "done": "Done — {count} utterance(s), processed locally.",
+    "requestFailed": "Request failed: {error}. Is the local server running?",
 }
 
 
-# One template, every language. Human-facing text is tokenised as {{TOKEN}}
-# (HTML) or read from the injected `T` object (JavaScript); `render_gui` fills
-# both. Tailwind is pulled from a CDN so there is no build step; the JavaScript
-# is a single inline ES module talking to the existing ``/pipeline`` endpoint.
+#: One ``{{_("…")}}`` site in the template. Non-greedy and newline-free, so a
+#: run of them on one line stays separate and an unterminated one is left
+#: alone rather than swallowing the rest of the page.
+_SOURCE_RE = re.compile(r'\{\{_\("(.*?)"\)\}\}')
+
 _GUI_TEMPLATE: str = r"""<!doctype html>
 <html lang="{{LANG}}" class="h-full">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>{{PAGE_TITLE}}</title>
+  <title>{{_("Vocal Helper — Transcript Viewer")}}</title>
   <!-- Tailwind via CDN: keeps the page a single self-contained file, no build. -->
   <script src="https://cdn.tailwindcss.com"></script>
   <style>
@@ -153,34 +154,34 @@ _GUI_TEMPLATE: str = r"""<!doctype html>
       <!-- Language toggle: a flag that links to the other locale of this page. -->
       <a href="{{LANG_HREF}}" aria-label="{{LANG_ARIA}}"
          class="float-right text-xl hover:opacity-70">{{LANG_FLAG}}</a>
-      <h1 class="text-2xl font-semibold tracking-tight">{{HERO_TITLE}}</h1>
+      <h1 class="text-2xl font-semibold tracking-tight">{{_("Vocal Helper — Transcript Viewer")}}</h1>
       <p class="mt-1 text-sm text-slate-600 dark:text-slate-400">
-        {{HERO_P}}
+        {{_("Drop an audio file or paste a URL, run diarized transcription locally, then read a speaker-labelled, colour-coded transcript and rolling summary.")}}
       </p>
       <p class="mt-2 inline-block rounded-full border border-slate-300 px-3 py-0.5 text-xs
                 text-slate-600 dark:border-slate-600 dark:text-slate-400">
-        {{LOCAL_BADGE}}
+        {{_("Runs locally — your audio never leaves this machine")}}
       </p>
     </header>
 
     <!-- 1) Source: a local file (kept client-side) OR a URL (fetched by the
          LOCAL server, not the browser). One of the two is required. -->
     <section class="mb-5">
-      <label for="file" class="block text-sm font-medium mb-1">{{SOURCE_LABEL}}</label>
-      <div id="drop" tabindex="0" role="button" aria-label="{{DROP_ARIA}}"
+      <label for="file" class="block text-sm font-medium mb-1">{{_("Audio source")}}</label>
+      <div id="drop" tabindex="0" role="button" aria-label="{{_("Choose an audio file")}}"
            class="flex flex-col items-center justify-center rounded-xl border-2 border-dashed
                   border-slate-300 bg-white px-4 py-8 text-center cursor-pointer
                   focus:outline-none focus:ring-2 focus:ring-blue-500 hover:border-blue-400
                   dark:border-slate-600 dark:bg-slate-800">
-        <p class="text-sm text-slate-500 dark:text-slate-400">{{DROP_HINT}}</p>
+        <p class="text-sm text-slate-500 dark:text-slate-400">{{_("Drop a file here, or click to choose")}}</p>
         <p id="filename" class="mt-2 text-sm font-medium text-slate-800 dark:text-slate-200"></p>
         <input id="file" type="file" accept="audio/*,video/*" class="hidden" />
       </div>
       <div class="mt-3">
-        <label for="url" class="block text-xs font-medium mb-1">{{URL_LABEL}}
-          <span class="font-normal text-slate-500">{{URL_NOTE}}</span>
+        <label for="url" class="block text-xs font-medium mb-1">{{_("…or paste a URL")}}
+          <span class="font-normal text-slate-500">{{_("(YouTube / podcast RSS / direct media — needs the [stream] extra)")}}</span>
         </label>
-        <input id="url" type="url" inputmode="url" spellcheck="false" placeholder="{{URL_PLACEHOLDER}}"
+        <input id="url" type="url" inputmode="url" spellcheck="false" placeholder="https://…"
                class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm
                       dark:border-slate-600 dark:bg-slate-800" />
       </div>
@@ -189,27 +190,27 @@ _GUI_TEMPLATE: str = r"""<!doctype html>
     <!-- 2) Options: language, diarization backend, optional rolling summary. -->
     <section class="mb-5 grid grid-cols-2 gap-3">
       <div>
-        <label for="language" class="block text-xs font-medium mb-1">{{LANGUAGE_LABEL}}
-          <span class="font-normal text-slate-500">{{LANGUAGE_NOTE}}</span>
+        <label for="language" class="block text-xs font-medium mb-1">{{_("language")}}
+          <span class="font-normal text-slate-500">{{_("('auto' detects it)")}}</span>
         </label>
         <input id="language" value="auto" spellcheck="false"
                class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm
                       dark:border-slate-600 dark:bg-slate-800" />
       </div>
       <div>
-        <label for="diar_backend" class="block text-xs font-medium mb-1">{{DIAR_LABEL}}</label>
+        <label for="diar_backend" class="block text-xs font-medium mb-1">{{_("diarization backend")}}</label>
         <select id="diar_backend"
                 class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm
                        dark:border-slate-600 dark:bg-slate-800">
-          <option value="auto">{{DIAR_AUTO}}</option>
-          <option value="pyannote">{{DIAR_PYANNOTE}}</option>
-          <option value="nemo">{{DIAR_NEMO}}</option>
-          <option value="sherpa">{{DIAR_SHERPA}}</option>
+          <option value="auto">{{_("auto — router picks by length")}}</option>
+          <option value="pyannote">{{_("pyannote (robust, long)")}}</option>
+          <option value="nemo">{{_("nemo (short ≤4-speaker)")}}</option>
+          <option value="sherpa">{{_("sherpa (torch-free ONNX)")}}</option>
         </select>
       </div>
       <div class="col-span-2 flex items-center gap-2">
         <input id="llm" type="checkbox" class="h-4 w-4" />
-        <label for="llm" class="text-sm">{{LLM_LABEL}}</label>
+        <label for="llm" class="text-sm">{{_("Add a local LLM rolling summary")}}</label>
       </div>
     </section>
 
@@ -219,7 +220,7 @@ _GUI_TEMPLATE: str = r"""<!doctype html>
               class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white
                      hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500
                      disabled:opacity-50">
-        {{RUN_BUTTON}}
+        {{_("Transcribe locally")}}
       </button>
       <span id="status" class="ml-3 text-sm text-slate-600 dark:text-slate-400"
             role="status" aria-live="polite"></span>
@@ -228,13 +229,13 @@ _GUI_TEMPLATE: str = r"""<!doctype html>
     <!-- 4) Rolling summary panel (only shown when the LLM stage ran). -->
     <section id="summary-panel" class="mb-6 hidden rounded-xl border border-amber-200 bg-amber-50 p-4
                                        dark:border-amber-900 dark:bg-amber-950/40">
-      <h2 class="mb-2 text-sm font-semibold">{{SUMMARY_H2}}</h2>
+      <h2 class="mb-2 text-sm font-semibold">{{_("Rolling summary")}}</h2>
       <p id="summary" class="text-sm whitespace-pre-wrap"></p>
     </section>
 
     <!-- 5) Speaker legend + colour-coded transcript. -->
     <section>
-      <div id="legend" class="mb-3 flex flex-wrap gap-2" aria-label="{{LEGEND_ARIA}}"></div>
+      <div id="legend" class="mb-3 flex flex-wrap gap-2" aria-label="{{_("Speakers")}}"></div>
       <div id="transcript" class="space-y-1" aria-live="polite"></div>
     </section>
   </div>
@@ -402,7 +403,7 @@ def render_gui(lang: str = "") -> str:
     ----------
     lang : str
         Two-letter language code. Anything outside the locale file's
-        ``meta.supported_locales`` — including the empty string — falls back
+        a compiled catalogue — including the empty string — falls back
         to ``meta.default_locale``, so an unknown ``?lang=`` never 500s.
 
     Returns
@@ -417,21 +418,35 @@ def render_gui(lang: str = "") -> str:
     >>> render_gui("tlh") == render_gui(default_language())
     True
     """
-    resolved = lang if lang in supported_languages() else default_language()
-    loc = _locales()
+    cat = _catalog()
+    resolved = cat.resolve(lang)
+    translate = cat.translator_for(resolved).gettext
 
-    page = _GUI_TEMPLATE.replace("{{LANG}}", html.escape(resolved, quote=True))
-    for token, key in _HTML_TOKEN_TO_KEY.items():
-        # Escape every value: these land in attributes (placeholder, aria,
-        # href) as readily as in text nodes, and a stray quote would break out
-        # of the attribute it sits in.
-        value = html.escape(loc.text(_GUI_SECTION, key, resolved), quote=True)
-        page = page.replace("{{" + token + "}}", value)
+    # The other language, for the toggle. With two languages this is "the one
+    # that is not current"; with more it is the next one round, which keeps the
+    # flag a cycle rather than a dead end.
+    languages = cat.languages
+    other = languages[(languages.index(resolved) + 1) % len(languages)]
+
+    def _render_source(match: re.Match[str]) -> str:
+        """Translate one ``{{_("…")}}`` site and escape it for HTML.
+
+        Escaping is not optional: these land in attributes (placeholder, alt,
+        aria, title) as readily as in text nodes, and a French apostrophe in an
+        attribute would close it early.
+        """
+        return html.escape(translate(match.group(1)), quote=True)
+
+    page = _SOURCE_RE.sub(_render_source, _GUI_TEMPLATE)
+    page = page.replace("{{LANG}}", html.escape(resolved, quote=True))
+    page = page.replace("{{LANG_HREF}}", html.escape(f"/gui?lang={other}", quote=True))
+    page = page.replace("{{LANG_FLAG}}", _FLAGS.get(other, other.upper()))
+    page = page.replace("{{LANG_ARIA}}", html.escape(_ENDONYMS.get(other, other), quote=True))
 
     # The script's strings go in as JSON rather than as substituted text: it is
     # the encoding that cannot be broken out of by an apostrophe, and French
     # copy is full of them.
-    table = {name: loc.text(_GUI_SECTION, key, resolved) for name, key in _JS_NAME_TO_KEY.items()}
+    table = {name: translate(source) for name, source in _JS_NAME_TO_SOURCE.items()}
     return page.replace("{{T_JSON}}", json.dumps(table, ensure_ascii=False))
 
 

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "vocal-helper"
-version = "3.1.1"
+version = "3.2.0"
 description = "Vocal Helper — async producer/consumer pipeline turning a live PCM stream into diarized, transcribed utterances and (optionally) a rolling LLM summary. Stages: Voice Activity Detection → online speaker diarization (Hungarian-style cosine clustering on backend embeddings) → STT (pywhispercpp turbo) → optional analyst (a local model served via Ollama or vLLM, resolved by best-engine-ai-helper from a committed brief)."
 readme = "README.md"
 requires-python = ">=3.10,<3.14"
@@ -46,7 +46,7 @@ classifiers = [
 #   summary buffer ; everything older than ``recent_window_s`` (default 60 s)
 #   gets folded into the summary.
 dependencies = [
-    "os-helper>=2.4.0,<3",
+    "os-helper>=2.6.0,<3",
     # best-engine-ai-helper owns the LLM contract: the analyst (llm.py) and EOT
     # (eot.py) stages resolve the committed ``vocal_helper/llm.brief.yaml`` into a
     # machine-specific engine descriptor (via ``beh.ensure``) and route every
@@ -187,7 +187,7 @@ exclude = ["tests*", "assets*", "examples*", "studies*", "doc*"]
 [tool.setuptools.package-data]
 # The GUI's localization catalogue travels with the package: living
 # inside vocal_helper/ is necessary, declaring it here is what ships it.
-"vocal_helper" = ["py.typed", "locales/*.yaml"]
+"vocal_helper" = ["py.typed", "locales/*/LC_MESSAGES/*.po", "locales/*/LC_MESSAGES/*.mo"]
 
 [tool.pytest.ini_options]
 markers = [

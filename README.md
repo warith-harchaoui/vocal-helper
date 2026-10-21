@@ -360,11 +360,15 @@ only the local server, so your audio never leaves the machine. Utterances reveal
 progressively (motion-guarded) so a long transcript reads as if it streams in.
 
 The page speaks **French and English**. `GET /gui?lang=fr|en` picks one, a flag
-in the header toggles between them, and a code the locale file does not carry
-falls back to the default rather than failing. Every string lives in
-[`vocal_helper/locales/i18n.yaml`](https://github.com/warith-harchaoui/vocal-helper/blob/main/vocal_helper/locales/i18n.yaml),
-read through `os_helper.Locales` — the loader shared across the suite — so
-translating the page never means opening a Python file.
+in the header toggles between them, and a code no catalogue carries falls back
+to the default rather than failing. The English is the source, written in the
+markup itself; the French lives in
+[`vocal_helper/locales/fr/LC_MESSAGES/vocal_helper.po`](https://github.com/warith-harchaoui/vocal-helper/blob/main/vocal_helper/locales/fr/LC_MESSAGES/vocal_helper.po),
+a standard `gettext` catalogue read through `os_helper.Catalog` — the loader
+shared across the suite — so a translator works in the format every translation
+tool already speaks, on real sentences rather than on key names. Edit the
+`.po`, then recompile with
+`python -c "import os_helper as osh; osh.compile_catalogs('vocal_helper/locales')"`.
 
 ### Use it as an agent skill
 
