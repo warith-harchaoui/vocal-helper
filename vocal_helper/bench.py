@@ -124,13 +124,33 @@ def _collapse_repeats(tokens: list[str], max_phrase_len: int = 4) -> list[str]:
     return out
 
 
+def _jiwer():
+    """Return the ``jiwer`` module, or say which extra installs it.
+
+    The word-error metrics are an evaluation surface, not something a
+    transcription run needs, so jiwer is an extra rather than a core
+    dependency. It was neither: the import was bare and the package was
+    declared nowhere, so ``pip install vocal-helper`` gave a published
+    ``wer_report`` that raised a naked ModuleNotFoundError — and CI, which
+    installs only ``.[dev]``, was red on nine tests for the same reason.
+    """
+    try:
+        import jiwer
+    except ImportError as exc:  # pragma: no cover — exercised only without the extra
+        raise ImportError(
+            "The word-error metrics need jiwer. Install the extra:\n"
+            '    pip install "vocal-helper[bench]"'
+        ) from exc
+    return jiwer
+
+
 def wer_report(reference: str, hypothesis: str, *, style_tolerant: bool = False) -> dict:
     """WER, MER, WIL and CER between two transcripts, plus token counts.
 
     Returns ``{"wer": None, "error": ...}`` rather than raising on an empty reference: a
     sweep over many recordings must report the hole and carry on, not die on one bad file.
     """
-    import jiwer
+    jiwer = _jiwer()
 
     ref = normalize_fr(reference, drop_fillers=style_tolerant, collapse_repeats=style_tolerant)
     hyp = normalize_fr(hypothesis, drop_fillers=style_tolerant, collapse_repeats=style_tolerant)
@@ -214,7 +234,7 @@ def cpwer(
     mis-attribution without re-running anything. ``n_ref_speakers`` vs ``n_hyp_speakers`` is
     often the whole story.
     """
-    import jiwer
+    jiwer = _jiwer()
 
     ref_by = _concat_by_speaker(reference_turns)
     hyp_by = _concat_by_speaker(hypothesis_turns)

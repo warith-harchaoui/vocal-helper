@@ -65,13 +65,22 @@ def test_transcript_viewer_gui_served_at_gui(client: TestClient) -> None:
     body = r.text.lower()
     # It is the transcript viewer, not an API JSON error.
     assert "<!doctype html>" in body
-    assert "transcript viewer" in body
+    # Ask the locale file what the page is called rather than hard-coding one
+    # language's wording: the page renders in French by default, and a test
+    # that asserts the English copy is testing the default locale, not the
+    # page's identity.
+    from vocal_helper import gui
+
+    def wording(key: str) -> str:
+        return gui._locales().text("gui", key).lower()
+
+    assert wording("hero_title") in body
     # Core promises of this GUI: colour-coded speakers, a URL field, a summary
     # panel, and same-origin POSTs to /pipeline. Assert each is present so the
     # page can never silently regress to the old form-only log.
     assert "palette" in body  # per-speaker colour palette (colourFor)
-    assert "paste a url" in body  # URL ingest affordance
-    assert "rolling summary" in body  # summary panel
+    assert wording("url_label") in body  # URL ingest affordance
+    assert wording("summary_heading") in body  # summary panel
     assert "/pipeline" in r.text  # talks to the real endpoint
 
 

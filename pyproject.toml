@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "vocal-helper"
-version = "3.0.0"
+version = "3.1.0"
 description = "Vocal Helper — async producer/consumer pipeline turning a live PCM stream into diarized, transcribed utterances and (optionally) a rolling LLM summary. Stages: Voice Activity Detection → online speaker diarization (Hungarian-style cosine clustering on backend embeddings) → STT (pywhispercpp turbo) → optional analyst (a local model served via Ollama or vLLM, resolved by best-engine-ai-helper from a committed brief)."
 readme = "README.md"
 requires-python = ">=3.10,<3.14"
@@ -143,12 +143,25 @@ lid = [
 all = [
     "vocal-helper[cli,api,mcp,mic,stream,pyannote,nemo,sherpa,llm,lid]",
 ]
+# Word-error metrics (``vocal_helper.bench``): WER / MER / WIL / CER and cpWER
+# all come from jiwer. An evaluation surface, not something a transcription run
+# needs — hence an extra. It used to be neither an extra nor a dependency, just
+# a bare ``import jiwer`` inside a public function.
+bench = [
+    "jiwer>=3",
+]
 dev = [
     "pytest>=8", "pytest-timeout>=2.3",
+    # The fan-out and strict-pipeline tests are `async def` carrying
+    # @pytest.mark.asyncio. Without this plugin pytest does not skip them, it
+    # FAILS them — eleven red tests in CI for a missing line here.
+    "pytest-asyncio>=0.23",
     "click>=8.1,<9",
     "fastapi>=0.115",
     "httpx>=0.27",
     "python-multipart>=0.0.9",
+    # tests/test_bench.py asserts real WER figures rather than skipping.
+    "jiwer>=3",
 ]
 
 [project.urls]
@@ -172,7 +185,9 @@ exclude = ["tests*", "assets*", "examples*", "studies*", "doc*"]
 # PEP 561 — expose the py.typed marker so mypy / pyright pick up our
 # inline type hints for downstream consumers.
 [tool.setuptools.package-data]
-"vocal_helper" = ["py.typed"]
+# The GUI's localization catalogue travels with the package: living
+# inside vocal_helper/ is necessary, declaring it here is what ships it.
+"vocal_helper" = ["py.typed", "locales/*.yaml"]
 
 [tool.pytest.ini_options]
 markers = [

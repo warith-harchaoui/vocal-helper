@@ -6,6 +6,73 @@ on, **breaking behaviour and default changes land only in MAJOR releases; MINOR
 adds features compatibly; PATCH is bug-fixes and docs.** The public API is the
 names exported from `vocal_helper.__all__` plus the documented CLI flags.
 
+## [3.1.0] - 2026-10-21
+
+### Added
+
+- **The transcript-viewer GUI speaks French and English.** Every string it
+  shows now comes from `vocal_helper/locales/i18n.yaml` through
+  `os_helper.Locales`, the loader shared across the suite (CODING.md 21.3),
+  instead of being written into the markup. `GET /gui?lang=fr|en` picks the
+  language; anything the file does not carry — including a mistyped code and
+  the empty default — falls back to the declared default locale, so a bad
+  `?lang=` returns a page rather than a 500. A flag in the header toggles
+  between the two.
+
+  The template is tokenised (`{{TOKEN}}` in HTML, a `T` object for the
+  script), so one piece of markup serves both languages and a translator never
+  opens a Python file. The script's strings are injected as JSON rather than
+  substituted as text: it is the encoding an apostrophe cannot break out of,
+  and French copy is full of them. The two sentences the script builds carry
+  named fields (`{count}`, `{error}`) rather than being concatenated, so a
+  translator can reorder them.
+
+  `GUI_HTML` still resolves, via a module-level `__getattr__` that renders on
+  access — importers that predate this keep working, and the locale file is
+  not read by callers that never serve the GUI.
+
+### Fixed
+
+- **CI was red, and had been since 2026-10-20, on two undeclared
+  dependencies.** Found while running the suite before touching it, not by
+  reading the code.
+
+  `tests/test_fanout.py` and `tests/test_pipeline_strict.py` are `async def`
+  tests carrying `@pytest.mark.asyncio`, and `pytest-asyncio` was in no extra.
+  Pytest does not *skip* an async test it has no plugin for — it **fails**
+  it. Eleven red tests for one missing line.
+
+  `jiwer` was declared nowhere in `pyproject.toml` at all, while
+  `bench.wer_report` and `bench.cpwer_report` — both public — imported it
+  bare. That is not only a CI problem: `pip install vocal-helper` shipped two
+  documented functions that raise `ModuleNotFoundError: No module named
+  'jiwer'` with nothing to tell the caller what to install. jiwer is now a
+  `[bench]` extra, the import names it, and `[dev]` carries it so the
+  assertions actually run instead of being quietly red.
+
+  Both were invisible on a developer machine, where the packages happened to
+  be installed. `tests/test_dev_extra_runs_the_suite.py` ties the declaration
+  to the need: add an async test or a metric-backed assertion without its
+  dependency and it fails for whoever added it, not in CI. Verified by
+  removing the line and watching the guard fire.
+
+- **A GUI test asserted the default language rather than the page's
+  identity.** It looked for the literals `"transcript viewer"`, `"paste a
+  url"` and `"rolling summary"`, which is no longer what a French default
+  renders. It now asks the locale file what the page is called, so the copy
+  can change without touching the test.
+
+### Notes
+
+- The locale file lives **inside** the package and is declared in
+  `package-data`; three tests hold that, plus the fact that git tracks it.
+  The suite has shipped this bug twice by two different routes:
+  best-engine-ai-helper published wheels with no data at all until 1.6.1
+  (data beside the package, patterns matching nothing), and youtube-helper's
+  blanket `*.yaml` would have kept its catalogue out of git — therefore out
+  of the sdist, therefore out of the wheel. Both are invisible locally, where
+  the file sits on disk either way.
+
 ## [3.0.0] - 2026-10-20
 
 A major release because two **defaults change**, which this project's own

@@ -279,6 +279,14 @@ résumé glissant. Elle appelle le même endpoint `/pipeline` (aucune logique
 serveur supplémentaire) et ne contacte que le serveur local : votre audio ne
 quitte jamais la machine.
 
+La page parle **français et anglais**. `GET /gui?lang=fr|en` choisit la langue,
+un drapeau dans l'en-tête bascule de l'une à l'autre, et un code que le fichier
+de locales ne porte pas retombe sur la langue par défaut au lieu d'échouer.
+Toutes les chaînes vivent dans
+[`vocal_helper/locales/i18n.yaml`](https://github.com/warith-harchaoui/vocal-helper/blob/main/vocal_helper/locales/i18n.yaml),
+lu par `os_helper.Locales` — le chargeur partagé par la suite — si bien que
+traduire la page n'oblige jamais à ouvrir un fichier Python.
+
 ### En tant que skill d'agent
 
 `skills/vocal-helper/` empaquette vocal-helper comme **skill Claude** *et* skill
