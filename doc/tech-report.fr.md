@@ -11,14 +11,14 @@ bibliography: refs.bib
 `vocal-helper` est un **pipeline vocal producteur/consommateur**
 asynchrone pour `Python ≥ 3.10`. Il transforme un flux PCM
 (modulation d'impulsions codées) en
-direct ou enregistré en énoncés diarisés, transcrits, et (en
+direct ou enregistré en énoncés diarisés, transcrits et (en
 option) en résumé glissant produit par un LLM (grand modèle de langue). Deux pipelines :
-`Pipeline` pour le streaming (microphone, URL, flux podcast), et
+`Pipeline` pour le streaming (microphone, URL, flux podcast) et
 `OfflinePipeline` pour le batch (enregistrements de réunion,
 archives de messagerie vocale). Chaque défaut de ce rapport est
 justifié par une étude empirique sous `studies/` dont le log + le
 JSON vit sur le disque de recherche. La bibliothèque est sous
-licence BSD-3-Clause, local-first, et pensée pour s'intégrer au
+licence BSD-3-Clause, local-first et pensée pour s'intégrer au
 reste de la suite [AI Helpers](https://deraison.ai/ai-helpers)
 (la base de recherche amont est `pdbms` [@pdbms]).
 
@@ -104,7 +104,7 @@ les humains répondent naturellement après 200-300 ms.
 ## 3.2 Diarisation online — embeddings TitaNet (défaut)
 
 `OnlineDiarStage` consomme les événements `VoicedSegment` du VAD,
-calcule un embedding par segment, et fait tourner un clusterer cosinus à
+calcule un embedding par segment et fait tourner un clusterer cosinus à
 moyenne mobile sur la liste globale des locuteurs.
 Trois backends d'embedding sont câblés :
 
@@ -291,7 +291,7 @@ deux sweeps complémentaires :
   RTF 0.278 / cos_sim 0.339 ; n=20 donne RTF 0.369 / cos_sim
   0.354. L'écart de 0.015 cos_sim est dans le bruit
   inter-meeting (cos_sim varie de 0.279 à 0.471 pour le même
-  config), et t=60s est 25 % plus rapide.
+  config) et t=60s est 25 % plus rapide.
 
 ![Cadence LLM — Pareto mono-meeting vs multi-meeting (t=60s au point de fonctionnement retenu)](figures/fig-llm-cadence.svg)
 

@@ -23,7 +23,7 @@ et ces mesures en ont déplacé deux.
 | **diart** atteint 6,04 % d'erreur de locuteur contre 11,7 % pour le chemin community-1 sur un appel long à deux voix, avec un premier label en **500 ms contre 20 s** | `diart` à 5 en direct |
 
 Ce dernier point mérite la réserve que le chiffre seul escamote : l'appel comptait **deux**
-locuteurs, ce qui est le cas facile de diart, et la littérature le donne régulièrement *moins*
+locuteurs, ce qui est le cas facile de diart et la littérature le donne régulièrement *moins*
 précis que les chaînes par regroupement sur du matériel multi-locuteurs difficile. À lire comme
 « le plus rapide à produire un label utilisable », pas comme « le plus exact ».
 
@@ -60,14 +60,14 @@ Représentation en deux dimensions du tableau ci-dessus, produite avec
 ![Carte de positionnement](https://raw.githubusercontent.com/warith-harchaoui/vocal-helper/main/assets/landscape.png)
 
 Les axes se lisent **horizontalement : Adaptable ↔ Polyvalent**, **verticalement : Indépendant ↔
-Complet**, et ils portent **72 %** de l'information des huit critères (46 % et 26 %). La carte
+Complet** et ils portent **72 %** de l'information des huit critères (46 % et 26 %). La carte
 est donc une forme, pas un classement : deux points proches s'accordent sur l'essentiel de ce
-qui a été noté, et peuvent malgré tout différer sur le critère qui vous importe.
+qui a été noté et peuvent malgré tout différer sur le critère qui vous importe.
 
 L'intéressant est le regroupement. Les services cloud (Deepgram, Gladia) sont proches de
 `vocal-helper` en *capacité* et loin de lui en indépendance : c'est exactement l'échange qu'ils
 proposent. Les moteurs de transcription purs se massent en bas à droite — indépendants,
-polyvalents, et sans aucune opinion sur qui parle. Les piles de recherche en diarisation
+polyvalents et sans aucune opinion sur qui parle. Les piles de recherche en diarisation
 (pyannote.audio, NeMo, Nemotron-3, SpeechBrain) sont à gauche : profondes sur un axe, pas faites
 pour être une chaîne.
 <!-- FIGURE:END -->
@@ -77,8 +77,8 @@ pour être une chaîne.
 `vocal-helper` se tient là où l'**ergonomie de whisper.cpp** (local, peu cher, pas de GPU
 obligatoire) rencontre la **diarisation en direct et l'analyste courant** que la plupart des
 piles renvoient à une couche par lot. Il ne cherche à battre ni pyannote en diarisation ni
-whisper en transcription : il les utilise, et prend en charge ce que personne d'autre ne prend
-— la chaîne producteur/consommateur entre les deux, et la mesure de ce qu'elle coûte à la
+whisper en transcription : il les utilise et prend en charge ce que personne d'autre ne prend
+— la chaîne producteur/consommateur entre les deux et la mesure de ce qu'elle coûte à la
 personne qui regarde.
 
 Concrètement, ce qui est ici et rare ailleurs :
@@ -101,7 +101,7 @@ La moitié honnête d'un document de paysage.
 - **Vous voulez seulement la transcription d'un fichier.** Prenez `faster-whisper` ou
   `whisper.cpp` directement : tout ce qui est ici sur les files et la latence est du poids mort
   pour vous.
-- **Vous voulez la meilleure diarisation hors ligne, et rien d'autre.** Prenez `pyannote.audio`
+- **Vous voulez la meilleure diarisation hors ligne et rien d'autre.** Prenez `pyannote.audio`
   avec community-1 — c'est précisément ce que `vocal-helper` fait en dessous, donc la seule
   question est de savoir si vous voulez la chaîne autour.
 - **Vous travaillez en mandarin, cantonais, japonais ou coréen.** `FunASR` est fait pour ces
@@ -109,4 +109,4 @@ La moitié honnête d'un document de paysage.
 - **Vous devez tourner sur un Raspberry Pi.** `Moonshine` vise ce matériel ; notre chemin local
   vise une machine de classe portable.
 - **Vous voulez un engagement de service, pas une bibliothèque.** Deepgram, Gladia, AssemblyAI.
-  L'échange est la souveraineté : l'audio quitte la machine, et la facture suit les heures.
+  L'échange est la souveraineté : l'audio quitte la machine et la facture suit les heures.

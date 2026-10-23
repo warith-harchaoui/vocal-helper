@@ -280,7 +280,7 @@ serveur supplémentaire) et ne contacte que le serveur local : votre audio ne
 quitte jamais la machine.
 
 La page parle **français et anglais**. `GET /gui?lang=fr|en` choisit la langue,
-un drapeau dans l'en-tête bascule de l'une à l'autre, et un code qu'aucun
+un drapeau dans l'en-tête bascule de l'une à l'autre et un code qu'aucun
 catalogue ne porte retombe sur la langue par défaut au lieu d'échouer.
 L'anglais est la source, écrite dans le balisage lui-même ; le français vit dans
 [`vocal_helper/locales/fr/LC_MESSAGES/vocal_helper.po`](https://github.com/warith-harchaoui/vocal-helper/blob/main/vocal_helper/locales/fr/LC_MESSAGES/vocal_helper.po),
@@ -386,8 +386,8 @@ Sortformer 4spk-v1 et **×19,7** pour le chemin sherpa-onnx. C'est le défaut de
 
 **Online — `diart`.** Verdict inverse, issu de la mesure qu'`operator-assistance-streaming`
 avait déjà faite : **6,04 %** d'erreur de locuteur contre **11,7 %** pour le chemin community-1
-sur sa référence longue, et un premier label en **500 ms contre 20 s**. `DiartDiarStage` est le
-portage. Il coûte un environnement à part, et il révise ce qu'il a déjà émis — diart renvoie
+sur sa référence longue et un premier label en **500 ms contre 20 s**. `DiartDiarStage` est le
+portage. Il coûte un environnement à part et il révise ce qu'il a déjà émis — diart renvoie
 toute son annotation à chaque pas, donc `snapshot_to_delta` en fait un flux et **compte les
 révisions**, qui sont le prix honnête des 500 ms. À lire à côté de la latence, jamais seule.
 
@@ -413,7 +413,7 @@ les métriques qui ne le sont pas.
 ## Sessions live : `vocal_helper.live_metrics`
 
 La qualité offline a le WER et le DER ; le live a la latence, le scintillement et l'attente en
-file, et aucun des trois ne répond seul.
+file et aucun des trois ne répond seul.
 
 ```python
 m = voh.LiveMetrics()
@@ -430,12 +430,12 @@ avec une grosse attente est un consommateur affamé. Correctifs opposés.
 
 `violations` fait respecter la seule règle sur laquelle repose toute la conception live :
 **aucune mise à jour n'apparaît avant l'audio qui la produit**. Un compte non nul signifie
-qu'une horloge, un tampon ou un bouchon ment, et tout chiffre à côté est une fiction.
+qu'une horloge, un tampon ou un bouchon ment et tout chiffre à côté est une fiction.
 
 ## Les échecs sont bruyants
 
 Une chaîne qui perdait un étage rendait une transcription normale et **vide**, la raison restant
-dans un log. `run()` lève désormais `StageCrashed` en nommant chaque étage mort, et
+dans un log. `run()` lève désormais `StageCrashed` en nommant chaque étage mort et
 `pipeline.stage_failures` porte les exceptions. `strict=False` redonne l'indulgence — un choix
 qu'on fait, pas qu'on hérite.
 
