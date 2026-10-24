@@ -231,7 +231,7 @@ async def main():
 asyncio.run(main())
 ```
 
-Quel pipeline utiliser, sachant que le [routeur](#routeur-de-backend-laiguilleur) choisit le backend pour vous :
+Quel pipeline utiliser, sachant que le [routeur](#routeur-de-backend--laiguilleur) choisit le backend pour vous :
 
 | Cas d'usage | Pipeline | Backend (choix du routeur) | Pourquoi |
 |---|---|---|---|
