@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import pytest
 
-from vocal_helper import cli_argparse as cli
+from vocal_helper import cli
 
 # A neutral base config — the backend now flows in via ``requested_backend``,
 # not via this dict, so it must never leak through as the chosen backend.

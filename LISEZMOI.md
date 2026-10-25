@@ -124,7 +124,7 @@ L'extra `[all]` installe les sources micro et stream, chaque backend de diarisat
 | `[sherpa]` | `sherpa-onnx` | `diar={'backend': 'sherpa'}`, le même TitaNet via onnxruntime : **sans PyTorch** et léger |
 | `[llm]` | `best-engine-ai-helper` (déjà une dépendance cœur ; cet extra ne fait que la relister par intention) | Aucune installation séparée nécessaire, l'analyste LLM est déjà dans l'installation de base |
 | `[lid]` | `speechbrain`, `torchaudio` | `voh.lid.cross_check_regions(...)`, une vérification croisée indépendante de la langue |
-| `[cli]` / `[api]` / `[mcp]` | click, FastAPI + uvicorn, fastapi-mcp | Le CLI click, la surface HTTP et la surface MCP (voir le tableau des surfaces plus bas) |
+| `[api]` / `[mcp]` | FastAPI + uvicorn, fastapi-mcp | La surface HTTP et la surface MCP (voir le tableau des surfaces plus bas). Le CLI ne demande aucun extra : `click` est une dépendance cœur |
 | `[all]` | Tous les extras ci-dessus sauf `[studies]` | Installation en une ligne |
 
 L'analyste LLM est déjà dans l'installation de base, mais il faut tout de même
@@ -242,23 +242,19 @@ Quel pipeline utiliser, sachant que le [routeur](#routeur-de-backend--laiguilleu
 
 ## Exposition multi-surface
 
-`vocal-helper` expose la même pipeline via des surfaces cohérentes, une bibliothèque Python, deux CLI, une API HTTP (interface de programmation), un agent compatible MCP (Model Context Protocol) et une **interface web de lecture de transcription**, sans re-câbler la logique ailleurs.
+`vocal-helper` expose la même pipeline via des surfaces cohérentes, une bibliothèque Python, un CLI, une API HTTP (interface de programmation), un agent compatible MCP (Model Context Protocol) et une **interface web de lecture de transcription**, sans re-câbler la logique ailleurs.
 
 | Surface | Point d'entrée | Extra | Usage |
 |---|---|---|---|
-| CLI argparse | `vocal-helper` | (aucun, livré avec l'install de base) | Scripts shell, cron, CI headless, redirection vers `jq`. |
-| CLI click | `vocal-helper-click` | `[cli]` | `--help` riche, complétion shell, sous-commandes chaînées. |
+| CLI | `vocal-helper` | (aucun, livré avec l'install de base) | Scripts shell, cron, CI headless, redirection vers `jq` ; `--help` riche, `-h` / `-V`, complétion shell. |
 | HTTP FastAPI | `uvicorn vocal_helper.api:app` | `[api]` | Derrière un reverse proxy : upload d'un fichier (ou champ `url`), réponse transcription/événements, `GET /docs` pour l'OpenAPI. |
 | Outils MCP | `vocal-helper-mcp` | `[api,mcp]` | N'importe quel hôte compatible MCP (runtimes d'agent, intégrations IDE) : publie `transcribe` et `pipeline` comme outils natifs. |
 | Interface web | `GET /gui` (servie par l'API) | `[api]` | Une page navigateur sans build : déposez un fichier ou collez une URL → **transcription colorée par locuteur + résumé glissant**. `/` y redirige. |
 
 ```bash
-# argparse ; la langue est découverte par défaut ('auto'), --language xx ne sert qu'à la forcer
+# la langue est découverte par défaut ('auto'), --language xx ne sert qu'à la forcer
 vocal-helper transcribe clip.wav
 vocal-helper file reunion.wav --offline --llm
-
-# jumeau click
-vocal-helper-click transcribe clip.wav
 
 # surface HTTP + interface web (ouvrez http://127.0.0.1:8000/gui)
 uvicorn vocal_helper.api:app --host 0.0.0.0 --port 8000 &
@@ -367,7 +363,7 @@ print(voh.select_diarization(live=False, duration_s=1800.0).backend)  # 'pyannot
 ```
 
 Le routeur est **appliqué, pas indicatif** : `--diar-backend` vaut **`auto`** par
-défaut sur les deux CLI et sur `POST /pipeline` ; la durée réelle du fichier est
+défaut sur le CLI et sur `POST /pipeline` ; la durée réelle du fichier est
 sondée puis routée (court → `nemo`, long → `pyannote`) sans choix manuel. Passez
 un `pyannote` / `nemo` / `sherpa` explicite pour forcer.
 

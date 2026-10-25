@@ -31,13 +31,13 @@ metadata:
 rolling LLM summary. It answers three questions at once: *what was said*
 (whisper.cpp STT), *who spoke when* (VAD + speaker diarization), and — with the
 analyst stage — *what does it all mean* (local Gemma summary). The same pipeline
-is reachable five ways (library, two CLIs, HTTP API, MCP, GUI) so an agent can
+is reachable five ways (library, CLI, HTTP API, MCP, GUI) so an agent can
 pick whichever fits. Nothing leaves the machine.
 
 ## Before anything: verify it is installed
 
 ```bash
-vocal-helper --version            # argparse CLI (always installed with the pkg)
+vocal-helper --version            # or -V; the CLI ships with the package
 python -c "import vocal_helper"   # library import check
 ```
 
@@ -51,7 +51,7 @@ pip install 'vocal-helper[nemo]'               # + NeMo Sortformer diarization (
 pip install 'vocal-helper[llm]'                # + local Gemma rolling summary (Ollama)
 pip install 'vocal-helper[stream]'             # + URL ingest (YouTube / RSS / direct, yt-dlp)
 pip install 'vocal-helper[mic]'                # + live microphone input
-pip install 'vocal-helper[cli,api,mcp]'        # + click CLI, FastAPI HTTP, MCP tools
+pip install 'vocal-helper[api,mcp]'            # + FastAPI HTTP, MCP tools (the CLI needs no extra)
 pip install 'vocal-helper[all]'                # everything (heavy; pulls NeMo torch)
 ```
 

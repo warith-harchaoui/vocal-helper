@@ -1,7 +1,7 @@
 # vocal-helper non-CLI surfaces
 
-The same pipeline is reachable through five surfaces. The Python library and
-argparse CLI are always available; the others live behind optional extras.
+The same pipeline is reachable through five surfaces. The Python library and the
+CLI are always available; the others live behind optional extras.
 
 ## 1. Python library (default)
 
@@ -40,11 +40,10 @@ voh.sources.from_numpy_array(pcm, sample_rate=..., frame_ms=20)
 
 The public API is fixed via `vocal_helper.__all__`; treat those names as stable.
 
-## 2. CLI — argparse (default) and click
+## 2. CLI
 
-`vocal-helper` (base) and `vocal-helper-click` (`[cli]` extra) — same
-subcommands (`transcribe` / `file` / `url` / `mic`) and flags. See
-`cli-reference.md`.
+`vocal-helper` (base install, no extra) — subcommands `transcribe` / `file` /
+`url` / `mic`. See `cli-reference.md`.
 
 ## 3. FastAPI HTTP surface (`[api]` extra)
 

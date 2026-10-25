@@ -155,7 +155,7 @@ def test_resolve_offline_backend_routes_by_duration(monkeypatch) -> None:
     """``_resolve_offline_backend`` routes short→nemo / long→pyannote, honours overrides."""
     # Model-free: pin both availability probes so the router exercises its
     # length crossover without importing pyannote / NeMo.
-    from vocal_helper import cli_argparse as cli
+    from vocal_helper import cli
     from vocal_helper.api import _resolve_offline_backend
 
     monkeypatch.setattr(cli, "_offline_pyannote_available", lambda: True)

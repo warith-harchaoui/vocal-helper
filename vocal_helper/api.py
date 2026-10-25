@@ -312,7 +312,7 @@ def _resolve_offline_backend(diar_backend: str, n_samples: int, sr: int) -> str:
         return diar_backend
     # Import lazily so the base [api] install (no pyannote/nemo extras) still
     # boots for /health without pulling the availability probes' dependencies.
-    from vocal_helper.cli_argparse import _offline_nemo_available, _offline_pyannote_available
+    from vocal_helper.cli import _offline_nemo_available, _offline_pyannote_available
     from vocal_helper.router import select_diarization
 
     # Duration from the decoded buffer — O(1), already in memory. sr==0 (unknown)

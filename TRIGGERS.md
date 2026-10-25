@@ -23,10 +23,9 @@ audio files, synthesize voices, or fetch media just for storage.
 | Live mic transcription | `vocal-helper mic` | `Pipeline` + `sources.from_microphone` | — |
 | Detect spoken language / regions | — | `detect_language`, `detect_language_regions` | — |
 
-Every subcommand is also reachable through the click CLI (`vocal-helper-click …`,
-same flags), the MCP tools (`vocal-helper-mcp`), and the browser **transcript
-viewer** at `GET /gui` (drop a file or paste a URL → colour-coded, speaker-
-labelled transcript + summary).
+Every subcommand is also reachable through the MCP tools (`vocal-helper-mcp`)
+and the browser **transcript viewer** at `GET /gui` (drop a file or paste a URL
+→ colour-coded, speaker-labelled transcript + summary).
 
 ## Natural-language phrasings that should fire
 

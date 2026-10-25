@@ -6,6 +6,82 @@ on, **breaking behaviour and default changes land only in MAJOR releases; MINOR
 adds features compatibly; PATCH is bug-fixes and docs.** The public API is the
 names exported from `vocal_helper.__all__` plus the documented CLI flags.
 
+## [3.3.0] - 2026-10-25
+
+### Changed
+
+- **One command line, built with click.** The two CLI surfaces collapse into a
+  single module, `vocal_helper/cli.py`. `vocal_helper/cli_argparse.py` and
+  `vocal_helper/cli_click.py` are gone, as is the `vocal-helper-click` entry
+  point. A flag naming the parsing library describes the implementation, not
+  the interface, so there was nothing left for it to distinguish.
+
+  Parity was measured before anything was deleted, by diffing the two parsers
+  through their own introspection rather than by reading them: identical
+  subcommands (`file` / `mic` / `transcribe` / `url`), identical long-option
+  sets per subcommand, identical positionals, identical `--diar-backend`
+  choices and no default drift on any shared option. No scenario existed only
+  on the argparse side, so the surviving surface needed nothing ported into it;
+  the tests that drove the old parser were rewritten against the click one
+  (`click.Command.make_context` is the `parse_args` analogue — it runs the whole
+  option stack without invoking the callback).
+
+- **`click` moved out of the `[cli]` extra into the core dependencies, and the
+  extra is deleted.** The CLI *is* the `vocal-helper` entry point now, so its
+  parser cannot be optional — an undeclared click would ship a package whose
+  command fails on a clean install while passing every test, because click is
+  always present in a dev environment.
+
+- `vocal_helper/cli.py` used to be a backwards-compat shim re-exporting the
+  argparse module. It is now the CLI itself, and it owns the diarization-router
+  choke-points (`_route_backend`, `_choose_file_diar`, `_offline_*_available`)
+  that the click surface used to import *from* the argparse module — and that
+  `vocal_helper/api.py` still imports. Deleting the argparse file without
+  moving those across first would have broken the HTTP surface, not just the
+  CLI.
+
+- The `os-helper` cap widens from `<3` to `<4`: os-helper 3.0.0's only breaking
+  change was dropping its own CLI, which nothing here calls.
+
+### Fixed
+
+- **reStructuredText markup leaked into the terminal.** Three command
+  docstrings wrote the extras as RST literals, so `--help` printed the double
+  backticks around `[mic]` and `[stream]` verbatim, and the group help
+  advertised itself as the "click twin of the argparse CLI" — an architecture
+  that no longer exists. This is invisible by reading the source, where the
+  markup looks correct; only running the command shows it. `tests/test_cli.py`
+  now renders every help screen and fails on a literal double backtick in any
+  of them.
+
+- **`-h` and `-V` were missing.** The group now carries
+  `help_option_names = ["-h", "--help"]` and a `-V` / `--version` option, with
+  the version passed explicitly from `vocal_helper.__version__` rather than
+  read from the installed distribution metadata — in an editable checkout that
+  metadata reports whatever was last pip-installed, so `-V` would have lied
+  about the code actually being run.
+
+- **`skills/vocal-helper/references/cli-reference.md` documented a
+  `--llm-model` flag that does not exist** (the analyst's model is resolved per
+  machine by best-engine-ai-helper from the committed brief, never a CLI
+  lever), omitted `--jsonl` while telling readers to use the HTTP endpoint for
+  machine-readable output, and gave the wrong utterance and summary formats.
+  Found by running the command and diffing against the real `--help`.
+
+### Migration
+
+- `vocal-helper-click <cmd>` → `vocal-helper <cmd>`. The subcommands, flags and
+  defaults are unchanged, so nothing but the program name moves.
+- `pip install "vocal-helper[cli]"` now fails on an unknown extra. Drop it:
+  `pip install vocal-helper` already ships the CLI. `[all]` no longer lists
+  `cli` either.
+- `from vocal_helper.cli_argparse import …` / `from vocal_helper.cli_click
+  import …` → `from vocal_helper.cli import …`. The argparse-only names
+  `build_parser` and `_build_pipeline_config` (re-exported as
+  `cli._build_config`) are gone; the single config builder is
+  `vocal_helper.cli._pipeline_config`, which takes the options as keyword
+  arguments instead of an `argparse.Namespace`.
+
 ## [3.2.0] - 2026-10-21
 
 ### Changed

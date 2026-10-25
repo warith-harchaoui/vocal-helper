@@ -129,7 +129,7 @@ print(voh.select_diarization(live=False, duration_s=1800.0).backend)  # 'pyannot
 ```
 
 The router is **enforced, not advisory**: `--diar-backend` defaults to **`auto`**
-on both CLIs and `POST /pipeline`, so a file's real duration is probed and routed
+on the CLI and on `POST /pipeline`, so a file's real duration is probed and routed
 (short → `nemo`, long → `pyannote`) without you choosing. Pass an explicit
 `pyannote` / `nemo` / `sherpa` to override.
 
@@ -186,7 +186,7 @@ The `[all]` extra brings the mic and stream sources, every diarization backend (
 | `[sherpa]` | `sherpa-onnx` | `diar={'backend': 'sherpa'}`, the same TitaNet through onnxruntime: **torch-free** and light |
 | `[llm]` | `best-engine-ai-helper` (already a core dependency; this extra just re-lists it for intent) | No separate install needed; the LLM analyst ships in the base install |
 | `[lid]` | `speechbrain`, `torchaudio` | `voh.lid.cross_check_regions(...)`, an independent language-ID cross-check |
-| `[cli]` / `[api]` / `[mcp]` | click, FastAPI + uvicorn, fastapi-mcp | The click CLI, HTTP surface, and MCP surface (see the surfaces table below) |
+| `[api]` / `[mcp]` | FastAPI + uvicorn, fastapi-mcp | The HTTP surface and the MCP surface (see the surfaces table below). The CLI needs no extra: `click` is a core dependency |
 | `[all]` | Every extra above except `[studies]` | One-line install |
 
 The LLM analyst ships in the base install, but it still needs an engine resolved
@@ -326,19 +326,15 @@ to a remote service.
 | Surface | Entry point | Extra | Kind of use |
 |---|---|---|---|
 | Python library | `import vocal_helper as voh` | (none) | Compose the stages into your own app; full typed Application Programming Interface (API). |
-| argparse CLI | `vocal-helper` | (none, ships with the base install) | Shell scripts, cron, headless CI, pipes to `jq`. |
-| click CLI | `vocal-helper-click` | `[cli]` | Rich `--help`, shell completion, **composable** sub-commands. |
+| CLI | `vocal-helper` | (none, ships with the base install) | Shell scripts, cron, headless CI, pipes to `jq`; rich `--help`, `-h` / `-V`, shell completion. |
 | FastAPI HTTP | `uvicorn vocal_helper.api:app` | `[api]` | A local HTTP surface: upload a file (or pass a `url`), get a transcript / event list; `GET /docs` for the Swagger UI. |
 | MCP tools | `vocal-helper-mcp` | `[api,mcp]` | Any Model Context Protocol (MCP)-aware host (agent runtimes, IDEs): publishes `transcribe` + `pipeline` as local first-class tools. |
 | Transcript-viewer GUI | `GET /gui` (served by the API) | `[api]` | A build-step-free browser page: drop a file or paste a URL → **speaker colour-coded transcript + rolling summary**. `/` redirects to it. |
 
 ```bash
-# argparse; language is discovered by default ('auto'), pass --language xx only to force one
+# language is discovered by default ('auto'), pass --language xx only to force one
 vocal-helper transcribe clip.wav
 vocal-helper file meeting.wav --offline --llm
-
-# click twin: same operations, composable sub-commands
-vocal-helper-click transcribe clip.wav
 
 # local HTTP surface + transcript-viewer GUI (open http://127.0.0.1:8000/gui)
 uvicorn vocal_helper.api:app --host 127.0.0.1 --port 8000 &

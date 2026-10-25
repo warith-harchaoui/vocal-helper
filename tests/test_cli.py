@@ -1,23 +1,32 @@
 """Tests for the ``vocal-helper`` CLI surface.
 
-Construction-only — we never call ``asyncio.run(_amain(...))`` because
-that would require a real source and load the heavy stages. The goal
-is to assert that argparse and the config builders do the right thing
-(no HuggingFace token is involved anywhere).
+Construction-only — we never drain a real pipeline, because that would need a
+real source and would load the heavy stages. The goal is to assert that the
+shipped click parser and the config builder do the right thing (no HuggingFace
+token is involved anywhere).
 
-The tests are organised as a handful of scenarios that each drive a
-realistic slice of the CLI end-to-end — parse representative ``argv``
-through the *real* shipped parser, build the pipeline config, and assert
-the derived fields together — rather than one micro-test per flag.
+The tests are organised as a handful of scenarios that each drive a realistic
+slice of the CLI end-to-end — parse representative ``argv`` through the *real*
+shipped commands, build the pipeline config, and assert the derived fields
+together — rather than one micro-test per flag.
+
+Parsing goes through :meth:`click.Command.make_context`, which runs the whole
+option stack (``Choice``, ``Path(exists=True)``, type coercion, defaults)
+without invoking the callback — the click analogue of ``parse_args``.
 """
 
 from __future__ import annotations
 
-import argparse
+import inspect
+import json as _json
 
+import click
 import pytest
+from click.testing import CliRunner
 
-from vocal_helper import cli
+import vocal_helper as voh
+from vocal_helper import cli as cli_mod
+from vocal_helper.cli import _pipeline_config, cli
 
 # A resolved engine descriptor, as ``resolve_engine`` (best-engine-ai-helper)
 # would return. The CLI threads this into the LLM/EOT stage configs. Tests patch
@@ -29,232 +38,58 @@ FAKE_ENGINE = {
     "llm": {"model": "test-model:latest"},
 }
 
+# The shared levers ``_pipeline_config`` consumes. Derived from its signature so
+# a newly added shared option flows into these scenarios instead of being
+# silently dropped from the parsed params.
+_SHARED_LEVERS = tuple(inspect.signature(_pipeline_config).parameters)
+
 
 def _patch_engine(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Make the argparse config builder resolve to :data:`FAKE_ENGINE`."""
-    import vocal_helper.cli_argparse as cli_argparse
-
-    monkeypatch.setattr(cli_argparse, "resolve_engine", lambda **_: FAKE_ENGINE)
+    """Make the config builder resolve to :data:`FAKE_ENGINE`."""
+    monkeypatch.setattr(cli_mod, "resolve_engine", lambda **_: FAKE_ENGINE)
 
 
-def _ns(**overrides: object) -> argparse.Namespace:
-    """Build a minimal Namespace matching ``add_common`` defaults.
+def _parse(command: str, argv: list[str]) -> dict:
+    """Parse ``argv`` through the real shipped command without running it.
 
     Parameters
     ----------
-    **overrides
-        Fields to override on top of the ``add_common`` defaults.
+    command : str
+        Subcommand name (e.g. ``"mic"``).
+    argv : list of str
+        Command-line tokens for that subcommand.
 
     Returns
     -------
-    argparse.Namespace
-        A namespace ready to feed :func:`vocal_helper.cli._build_config`.
+    dict
+        The parsed parameters, exactly as click would hand them to the callback.
     """
-    base: dict[str, object] = {
-        "whisper_model": "large-v3-turbo-q5_0",
-        "language": "auto",
-        "threads": 6,
-        "diar_backend": "pyannote",
-        "join_threshold": None,
-        "llm": False,
-        "llm_recent_window_s": 60.0,
-        "endpoint": None,
-        "jsonl": False,
-    }
-    base.update(overrides)
-    return argparse.Namespace(**base)
+    cmd = cli.commands[command]
+    with cmd.make_context(command, list(argv)) as ctx:
+        return dict(ctx.params)
 
 
-def _real_parser() -> argparse.ArgumentParser:
-    """Return the real shipped argparse parser so tests never drift from it.
-
-    Returns
-    -------
-    argparse.ArgumentParser
-        The parser wired into the ``vocal-helper`` entry point.
-    """
-    from vocal_helper.cli_argparse import build_parser
-
-    return build_parser()
-
-
-def _argparse_config(argv: list[str]):
-    """Parse ``argv`` through the real parser and build the shipped pipeline config.
+def _config(command: str, argv: list[str]):
+    """Parse ``argv`` through the real command and build the shipped pipeline config.
 
     Parameters
     ----------
-    argv
-        Command-line tokens (e.g. ``["mic", "--llm"]``).
+    command : str
+        Subcommand name (e.g. ``"mic"``).
+    argv : list of str
+        Command-line tokens for that subcommand.
 
     Returns
     -------
-    object
-        The pipeline config produced by the shipped builder.
+    PipelineConfig
+        The config produced by the shipped builder from those options.
     """
-    from vocal_helper.cli_argparse import _build_pipeline_config, build_parser
-
-    args = build_parser().parse_args(argv)
-    return _build_pipeline_config(args)
+    params = _parse(command, argv)
+    return _pipeline_config(**{k: v for k, v in params.items() if k in _SHARED_LEVERS})
 
 
 # ---------------------------------------------------------------------------
-# cli._build_config — the legacy builder (ASR / diar / llm blocks + no HF token)
-# ---------------------------------------------------------------------------
-
-
-def test_build_config_end_to_end(monkeypatch: pytest.MonkeyPatch) -> None:
-    """``cli._build_config`` maps a namespace to ASR / diar blocks and never leaks HF.
-
-    Walks the legacy builder through three coherent facets at once: the bare
-    happy path (ASR fields + minimal diar block + no LLM), the optional
-    ``--join-threshold`` landing in the diar block, and the guarantee that no
-    ``hf_token`` ever appears — weights come from the self-hosted bundle, so an
-    ambient ``HF_TOKEN`` must not leak in.
-    """
-    # Ambient HF_TOKEN must be ignored by the builder (bundle-only weights).
-    monkeypatch.setenv("HF_TOKEN", "hf_SHOULD_BE_IGNORED")
-
-    cfg = cli._build_config(_ns())
-    assert cfg.asr["model"] == "large-v3-turbo-q5_0"
-    assert cfg.asr["language"] == "auto"
-    assert cfg.asr["threads"] == 6
-    assert cfg.diar == {"backend": "pyannote"}  # minimal diar block, no join key
-    assert cfg.llm is None  # --llm off → no LLM block at all
-    assert "hf_token" not in cfg.diar  # HF is never involved
-
-    # A supplied --join-threshold lands verbatim in the diar block.
-    cfg_join = cli._build_config(_ns(join_threshold=0.42))
-    assert cfg_join.diar["join_threshold"] == 0.42
-
-
-def test_build_config_llm_block(monkeypatch: pytest.MonkeyPatch) -> None:
-    """``--llm`` builds the LLM block carrying the resolved engine, not a model tag.
-
-    The model is never a flag: best-engine-ai-helper resolves it from the
-    committed brief. The builder threads that engine descriptor into the LLM
-    stage config alongside the verbatim window; no ``model`` / ``host`` keys.
-    """
-    _patch_engine(monkeypatch)
-
-    cfg = cli._build_config(_ns(llm=True))
-    assert cfg.llm == {"engine": FAKE_ENGINE, "recent_window_s": 60.0}
-    assert "model" not in cfg.llm  # model lives in the engine, not the block
-    assert "host" not in cfg.llm
-
-
-# ---------------------------------------------------------------------------
-# The real shipped argparse parser — parsing behaviour
-# ---------------------------------------------------------------------------
-
-
-def test_real_parser_parses_and_validates() -> None:
-    """The shipped parser defaults ``mic``, round-trips ``file`` flags, and rejects junk.
-
-    Drives the real ``build_parser`` through three parsing facets: ``mic`` with
-    no flags (diar backend defaults to ``auto`` — the router decides at run
-    time), ``file`` with a positional path plus a mix of value and boolean
-    flags round-tripping onto the namespace, and an unlisted ``--diar-backend``
-    value making argparse ``SystemExit``.
-    """
-    mic = _real_parser().parse_args(["mic"])
-    assert mic.command == "mic"
-    # 'auto' means the aiguilleur picks the backend per run (live → nemo).
-    assert mic.diar_backend == "auto"
-
-    file_args = _real_parser().parse_args(
-        ["file", "/tmp/in.wav", "--language", "fr", "--llm", "--no-real-time"]
-    )
-    assert file_args.command == "file"
-    assert file_args.path == "/tmp/in.wav"
-    assert file_args.language == "fr"
-    assert file_args.llm is True
-    assert file_args.no_real_time is True
-
-    # An unknown backend choice must be rejected by argparse, not silently kept.
-    with pytest.raises(SystemExit):
-        _real_parser().parse_args(["mic", "--diar-backend", "kaldi"])
-
-
-# ---------------------------------------------------------------------------
-# CLI surface — both frontends expose the same subcommands and clean --help
-# ---------------------------------------------------------------------------
-
-
-def test_argparse_cli_surface(capsys: pytest.CaptureFixture) -> None:
-    """The argparse CLI ships the four subcommands and every ``--help`` exits 0.
-
-    Asserts the whole argparse surface in one scenario: the parser builds with
-    the ``{mic, file, url, transcribe}`` subcommands wired in, top-level
-    ``--help`` exits 0 while printing usage, and each subcommand's ``--help``
-    also exits 0 (no wiring bug in any subparser).
-    """
-    from vocal_helper.cli_argparse import build_parser, main
-
-    parser = build_parser()
-    subparsers_action = next(
-        a for a in parser._actions if a.__class__.__name__ == "_SubParsersAction"
-    )
-    expected = {"mic", "file", "url", "transcribe"}
-    assert expected.issubset(set(subparsers_action.choices.keys()))
-
-    # Top-level --help exits cleanly and prints the program name.
-    with pytest.raises(SystemExit) as exc:
-        main(["--help"])
-    assert exc.value.code == 0
-    assert "vocal-helper" in capsys.readouterr().out.lower()
-
-    # Every subcommand's --help exits 0 — proves each subparser is wired.
-    for sub in sorted(expected):
-        with pytest.raises(SystemExit) as sub_exc:
-            main([sub, "--help"])
-        assert sub_exc.value.code == 0, sub
-
-
-def test_click_cli_surface() -> None:
-    """The optional click CLI mirrors the argparse subcommands with clean ``--help``.
-
-    ``click`` lives in the ``[cli]`` extra, so the whole scenario is skipped when
-    absent. When present it must expose the same ``{mic, file, url, transcribe}``
-    subcommands and exit 0 for both the group ``--help`` and every subcommand
-    ``--help`` — i.e. stay in lockstep with the argparse frontend.
-    """
-    pytest.importorskip("click")  # optional [cli] extra — skip cleanly if absent
-    from click.testing import CliRunner
-
-    from vocal_helper.cli_click import cli as click_cli
-
-    expected = {"mic", "file", "url", "transcribe"}
-    assert expected.issubset(set(click_cli.commands.keys()))
-
-    runner = CliRunner()
-    group_help = runner.invoke(click_cli, ["--help"])
-    assert group_help.exit_code == 0
-    assert "vocal helper" in group_help.output.lower()
-
-    for sub in sorted(expected):
-        result = runner.invoke(click_cli, [sub, "--help"])
-        assert result.exit_code == 0, sub
-
-
-def test_argparse_main_prints_clean_error_on_a_real_library_exception(
-    capsys: pytest.CaptureFixture,
-) -> None:
-    """A library exception (not a usage error) prints ``Error: ...`` + exit 1.
-
-    ``transcribe`` takes no ``argparse.FileType``/existence guard on its
-    ``path`` positional — a non-existent file reaches ``audio_helper.load_audio``
-    and raises there. Before this fix that propagated as a raw Python
-    traceback instead of a clean CLI error.
-    """
-    from vocal_helper.cli_argparse import main
-
-    code = main(["transcribe", "/no/such/file.wav"])
-    assert code == 1
-    assert "Error:" in capsys.readouterr().err
-
-
-# ---------------------------------------------------------------------------
-# Canonical shipped config builder — vocal_helper.cli_argparse._build_pipeline_config
+# The shipped config builder — vocal_helper.cli._pipeline_config
 #
 # This is the builder wired into the shipped ``vocal-helper`` entry point, so
 # its defaults are what users actually get. Driving it through the real parser
@@ -263,7 +98,47 @@ def test_argparse_main_prints_clean_error_on_a_real_library_exception(
 # ---------------------------------------------------------------------------
 
 
-def test_argparse_file_config_end_to_end(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_config_builder_end_to_end(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The builder maps options to ASR / diar blocks and never leaks HF.
+
+    Walks the builder through three coherent facets at once: the bare happy
+    path (ASR fields + minimal diar block + no LLM), the optional
+    ``--join-threshold`` landing in the diar block, and the guarantee that no
+    ``hf_token`` ever appears — weights come from the self-hosted bundle, so an
+    ambient ``HF_TOKEN`` must not leak in.
+    """
+    # Ambient HF_TOKEN must be ignored by the builder (bundle-only weights).
+    monkeypatch.setenv("HF_TOKEN", "hf_SHOULD_BE_IGNORED")
+
+    cfg = _config("mic", ["--diar-backend", "pyannote"])
+    assert cfg.asr["model"] == "large-v3-turbo-q5_0"
+    assert cfg.asr["language"] == "auto"
+    assert cfg.asr["threads"] == 6
+    assert cfg.diar == {"backend": "pyannote"}  # minimal diar block, no join key
+    assert cfg.llm is None  # --llm off → no LLM block at all
+    assert "hf_token" not in cfg.diar  # HF is never involved
+
+    # A supplied --join-threshold lands verbatim in the diar block.
+    cfg_join = _config("mic", ["--diar-backend", "pyannote", "--join-threshold", "0.42"])
+    assert cfg_join.diar["join_threshold"] == 0.42
+
+
+def test_config_builder_llm_block(monkeypatch: pytest.MonkeyPatch) -> None:
+    """``--llm`` builds the LLM block carrying the resolved engine, not a model tag.
+
+    The model is never a flag: best-engine-ai-helper resolves it from the
+    committed brief. The builder threads that engine descriptor into the LLM
+    stage config alongside the verbatim window; no ``model`` / ``host`` keys.
+    """
+    _patch_engine(monkeypatch)
+
+    cfg = _config("mic", ["--llm"])
+    assert cfg.llm == {"engine": FAKE_ENGINE, "recent_window_s": 60.0}
+    assert "model" not in cfg.llm  # model lives in the engine, not the block
+    assert "host" not in cfg.llm
+
+
+def test_shipped_config_defaults_and_opt_ins(monkeypatch: pytest.MonkeyPatch) -> None:
     """The shipped builder wires backend/LLM/prompt/EOT defaults and opt-ins correctly.
 
     One scenario spanning every derived field of the shipped config: the bare
@@ -275,24 +150,129 @@ def test_argparse_file_config_end_to_end(monkeypatch: pytest.MonkeyPatch) -> Non
     """
     _patch_engine(monkeypatch)
 
-    base = _argparse_config(["mic"])
+    base = _config("mic", [])
     assert base.diar["backend"] == "auto"  # router decides at run time
     assert base.asr["initial_prompt"] == ""  # generic transcription by default
     assert base.eot is None  # one extra LLM hop is opt-in, not free
 
     # --llm attaches the analyst with the resolved engine; no model tag flag.
-    assert _argparse_config(["mic", "--llm"]).llm == {
-        "engine": FAKE_ENGINE,
-        "recent_window_s": 60.0,
-    }
+    assert _config("mic", ["--llm"]).llm == {"engine": FAKE_ENGINE, "recent_window_s": 60.0}
 
     # --initial-prompt reaches the ASR config as the whisper bias prompt.
-    prompted = _argparse_config(["mic", "--initial-prompt", "telemedicine consult"])
+    prompted = _config("mic", ["--initial-prompt", "telemedicine consult"])
     assert prompted.asr["initial_prompt"] == "telemedicine consult"
 
     # --eot opts in; the resolved engine is threaded into the SemanticEOTStage.
-    eot = _argparse_config(["mic", "--eot"])
-    assert eot.eot == {"engine": FAKE_ENGINE}
+    assert _config("mic", ["--eot"]).eot == {"engine": FAKE_ENGINE}
+
+
+# ---------------------------------------------------------------------------
+# The real shipped parser — parsing behaviour
+# ---------------------------------------------------------------------------
+
+
+def test_real_parser_parses_and_validates(tmp_path) -> None:
+    """The shipped parser defaults ``mic``, round-trips ``file`` flags, and rejects junk.
+
+    Drives the real commands through three parsing facets: ``mic`` with no flags
+    (diar backend defaults to ``auto`` — the router decides at run time),
+    ``file`` with a positional path plus a mix of value and boolean flags
+    round-tripping onto the parsed params, and an unlisted ``--diar-backend``
+    value raising a click usage error rather than being silently kept.
+    """
+    mic = _parse("mic", [])
+    # 'auto' means the aiguilleur picks the backend per run (live → nemo).
+    assert mic["diar_backend"] == "auto"
+
+    # click.Path(exists=True) guards the positional, so the file must be real.
+    wav = tmp_path / "in.wav"
+    wav.write_bytes(b"")
+    file_params = _parse("file", [str(wav), "--language", "fr", "--llm", "--no-real-time"])
+    assert file_params["path"] == str(wav)
+    assert file_params["language"] == "fr"
+    assert file_params["llm"] is True
+    assert file_params["no_real_time"] is True
+
+    # An unknown backend choice must be rejected at parse time, not silently kept.
+    with pytest.raises(click.UsageError):
+        _parse("mic", ["--diar-backend", "kaldi"])
+
+
+# ---------------------------------------------------------------------------
+# CLI surface — subcommands, help, and the short flags oncall people type
+# ---------------------------------------------------------------------------
+
+
+def test_cli_surface() -> None:
+    """The CLI ships the four subcommands and every help screen exits 0.
+
+    Asserts the whole surface in one scenario: the group carries the
+    ``{mic, file, url, transcribe}`` subcommands, the group help exits 0 while
+    naming the tool, and each subcommand's ``--help`` also exits 0 (no wiring
+    bug in any command). The group help must describe what the tool *does* —
+    it used to advertise itself as the "click twin of the argparse CLI", an
+    architecture that no longer exists.
+    """
+    expected = {"mic", "file", "url", "transcribe"}
+    assert expected.issubset(set(cli.commands.keys()))
+
+    runner = CliRunner()
+    group_help = runner.invoke(cli, ["--help"])
+    assert group_help.exit_code == 0
+    assert "diarized" in group_help.output.lower()
+    assert "twin" not in group_help.output.lower()  # no dead architecture in the help
+
+    for sub in sorted(expected):
+        result = runner.invoke(cli, [sub, "--help"])
+        assert result.exit_code == 0, sub
+
+
+def test_help_screens_carry_no_rst_markup() -> None:
+    """No help screen may show raw ``...`` RST literals to a user.
+
+    click renders a callback's docstring verbatim, so reStructuredText markup
+    written for Sphinx reaches the terminal as literal double backticks. Three
+    docstrings shipped that way — the group's and ``mic`` / ``url``'s extra
+    names — and it is invisible by reading the source, because the markup looks
+    correct there. Covers the option help strings too, since they go through the
+    same renderer.
+    """
+    runner = CliRunner()
+
+    screens = {"<group>": runner.invoke(cli, ["--help"]).output}
+    for sub in sorted(cli.commands):
+        screens[sub] = runner.invoke(cli, [sub, "--help"]).output
+
+    offenders = sorted(name for name, text in screens.items() if "``" in text)
+    assert not offenders, f"RST literals leaked into these help screens: {offenders}"
+
+
+def test_short_help_and_version_flags() -> None:
+    """``-h`` mirrors ``--help`` and ``-V`` reports the source version.
+
+    Both short flags are the ones people reach for first and neither is wired by
+    click out of the box. ``-V`` is capital because ``-v`` reads as verbose; it
+    must report :data:`vocal_helper.__version__` — the version of the code being
+    run — rather than the installed distribution metadata, which in an editable
+    checkout reports whatever was last pip-installed.
+    """
+    runner = CliRunner()
+
+    short = runner.invoke(cli, ["-h"])
+    long = runner.invoke(cli, ["--help"])
+    assert short.exit_code == 0
+    assert short.output == long.output
+
+    for flag in ("-V", "--version"):
+        result = runner.invoke(cli, [flag])
+        assert result.exit_code == 0, flag
+        assert "vocal-helper" in result.output
+        assert voh.__version__ in result.output, flag
+
+
+# ---------------------------------------------------------------------------
+# The router choke-point the CLI and the HTTP surface share.
+# ---------------------------------------------------------------------------
 
 
 def test_router_backend_resolution() -> None:
@@ -304,7 +284,7 @@ def test_router_backend_resolution() -> None:
     backend passes through verbatim with no note (an operator override must not
     be second-guessed).
     """
-    from vocal_helper.cli_argparse import _route_backend
+    from vocal_helper.cli import _route_backend
 
     backend, note = _route_backend(requested_backend="auto", live=True, duration_s=None)
     assert backend == "nemo"
@@ -316,26 +296,16 @@ def test_router_backend_resolution() -> None:
 
 
 # ---------------------------------------------------------------------------
-# click CLI — argument validation, error exit codes, and a mocked happy path.
+# Argument validation, error exit codes, and a mocked happy path.
 #
-# These drive the *shipped* click commands through click's CliRunner so the
-# whole option stack (Path(exists=True), Choice, version) is exercised. Every
-# model / decode boundary is mocked, so nothing here touches ffmpeg, numpy of
-# real size, whisper.cpp, or a diarizer — only the CLI plumbing is under test.
+# These drive the *shipped* commands through click's CliRunner so the whole
+# option stack (Path(exists=True), Choice, version) is exercised. Every model /
+# decode boundary is mocked, so nothing here touches ffmpeg, numpy of real
+# size, whisper.cpp, or a diarizer — only the CLI plumbing is under test.
 # ---------------------------------------------------------------------------
 
 
-def _click_runner():
-    """Return (click_cli, CliRunner) or skip cleanly when the [cli] extra is absent."""
-    pytest.importorskip("click")  # optional [cli] extra
-    from click.testing import CliRunner
-
-    from vocal_helper.cli_click import cli as click_cli
-
-    return click_cli, CliRunner()
-
-
-def test_click_rejects_missing_path() -> None:
+def test_rejects_missing_path() -> None:
     """``file`` / ``transcribe`` with a non-existent path must exit non-zero (usage error).
 
     ``click.Path(exists=True)`` is the guard: a path the user typo'd or that was
@@ -343,63 +313,47 @@ def test_click_rejects_missing_path() -> None:
     any model loads. click reports this as exit code 2 and mentions the bad path,
     so the user gets an actionable message instead of a deep stack trace.
     """
-    click_cli, runner = _click_runner()
+    runner = CliRunner()
 
     # Both file-consuming commands share the same existence guard; check each.
     for sub in ("file", "transcribe"):
-        result = runner.invoke(click_cli, [sub, "/no/such/file.wav"])
+        result = runner.invoke(cli, [sub, "/no/such/file.wav"])
         # Exit 2 is click's canonical "usage error" code.
         assert result.exit_code == 2, sub
         # The offending path is surfaced so the message is actionable.
         assert "/no/such/file.wav" in result.output
 
 
-def test_click_rejects_unknown_diar_backend() -> None:
-    """An out-of-choice ``--diar-backend`` must be rejected by click, not silently kept.
+def test_rejects_unknown_diar_backend() -> None:
+    """An out-of-choice ``--diar-backend`` must be rejected, not silently kept.
 
     ``--diar-backend`` is a ``click.Choice`` over the supported engines. A value
     outside that set (a stale ``kaldi`` from muscle memory) has to fail at parse
-    time with exit 2, mirroring the argparse twin's rejection — otherwise the bad
-    backend would only blow up later when a stage tries to load it.
+    time with exit 2 — otherwise the bad backend would only blow up later when a
+    stage tries to load it.
     """
-    click_cli, runner = _click_runner()
+    runner = CliRunner()
 
-    result = runner.invoke(click_cli, ["mic", "--diar-backend", "kaldi"])
+    result = runner.invoke(cli, ["mic", "--diar-backend", "kaldi"])
     assert result.exit_code == 2
     # click echoes the invalid value in its Choice error.
     assert "kaldi" in result.output
 
 
-def test_click_version_flag_exits_zero() -> None:
-    """``--version`` prints the program name + version and exits cleanly.
-
-    ``version_option`` is wired at the group; this proves the package metadata
-    lookup resolves (a broken ``package_name`` would raise here) and that the
-    prog name matches the ``vocal-helper-click`` entry point.
-    """
-    click_cli, runner = _click_runner()
-
-    result = runner.invoke(click_cli, ["--version"])
-    assert result.exit_code == 0
-    assert "vocal-helper-click" in result.output
-
-
-def test_click_main_prints_clean_error_on_a_real_library_exception(
+def test_main_prints_clean_error_on_a_real_library_exception(
     capsys: pytest.CaptureFixture, monkeypatch: pytest.MonkeyPatch, tmp_path
 ) -> None:
     """The ``main()`` console-script wrapper turns a library exception into exit 1.
 
-    ``CliRunner.invoke`` (used by every other click test here) catches
-    exceptions itself, so it never exercises ``main()`` — the actual
-    ``vocal-helper-click`` entry point. Drive it directly: a real WAV path
-    passes ``click.Path(exists=True)``, then a mocked ``load_audio`` raises,
-    which used to propagate as a raw traceback instead of a clean
-    ``Error: ...`` + exit 1.
+    ``CliRunner.invoke`` (used by every other test here) catches exceptions
+    itself, so it never exercises ``main()`` — the actual ``vocal-helper`` entry
+    point. Drive it directly: a real WAV path passes ``click.Path(exists=True)``,
+    then a mocked ``load_audio`` raises, which used to propagate as a raw
+    traceback instead of a clean ``Error: ...`` + exit 1.
     """
-    pytest.importorskip("click")
     import audio_helper
 
-    from vocal_helper.cli_click import main
+    from vocal_helper.cli import main
 
     wav = tmp_path / "clip.wav"
     wav.write_bytes(b"not a real wav")
@@ -408,7 +362,7 @@ def test_click_main_prints_clean_error_on_a_real_library_exception(
         raise RuntimeError("decode failed")
 
     monkeypatch.setattr(audio_helper, "load_audio", _boom)
-    monkeypatch.setattr("sys.argv", ["vocal-helper-click", "transcribe", str(wav)])
+    monkeypatch.setattr("sys.argv", ["vocal-helper", "transcribe", str(wav)])
 
     with pytest.raises(SystemExit) as exc:
         main()
@@ -416,7 +370,7 @@ def test_click_main_prints_clean_error_on_a_real_library_exception(
     assert "Error:" in capsys.readouterr().err
 
 
-def test_click_transcribe_happy_path(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+def test_transcribe_happy_path(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
     """``transcribe`` decodes + transcribes a real path, printing plain text or JSONL.
 
     The path must exist (``Path(exists=True)``) so we create an empty file, but
@@ -425,15 +379,10 @@ def test_click_transcribe_happy_path(monkeypatch: pytest.MonkeyPatch, tmp_path) 
     the command's two output modes: bare text on stdout by default, and a
     ``{"path", "text"}`` JSON object under ``--jsonl``.
     """
-    pytest.importorskip("click")
-    import json as _json
-
     import audio_helper
     import numpy as np
-    from click.testing import CliRunner
 
     from vocal_helper import asr as asr_mod
-    from vocal_helper.cli_click import cli as click_cli
 
     # A real (empty) file so click's existence check passes; content is unused
     # because the decoder is stubbed out below.
@@ -450,18 +399,18 @@ def test_click_transcribe_happy_path(monkeypatch: pytest.MonkeyPatch, tmp_path) 
     runner = CliRunner()
 
     # Default mode → plain text on stdout.
-    plain = runner.invoke(click_cli, ["transcribe", str(wav)])
+    plain = runner.invoke(cli, ["transcribe", str(wav)])
     assert plain.exit_code == 0
     assert plain.output.strip() == "hello world"
 
     # --jsonl mode → a single JSON object carrying the path and the transcript.
-    jsonl = runner.invoke(click_cli, ["transcribe", str(wav), "--jsonl"])
+    jsonl = runner.invoke(cli, ["transcribe", str(wav), "--jsonl"])
     assert jsonl.exit_code == 0
     payload = _json.loads(jsonl.output.strip())
     assert payload == {"path": str(wav), "text": "hello world"}
 
 
-def test_click_print_event_renders_both_event_shapes(capsys: pytest.CaptureFixture) -> None:
+def test_print_event_renders_both_event_shapes(capsys: pytest.CaptureFixture) -> None:
     """``_print_event`` renders utterance and summary events in both output modes.
 
     The printer is the CLI's rendering choke-point, so it deserves a direct test.
@@ -470,8 +419,7 @@ def test_click_print_event_renders_both_event_shapes(capsys: pytest.CaptureFixtu
     mode both collapse to a single JSON line with the raw ``pcm`` stripped (it is
     un-serialisable and pointless in a log).
     """
-    pytest.importorskip("click")
-    from vocal_helper.cli_click import _print_event
+    from vocal_helper.cli import _print_event
 
     utterance = {"t0": 0.0, "t1": 1.5, "speaker": "S1", "text": "hi", "pcm": [0.0]}
     summary = {"t0": 12.0, "model": "gemma3:4b", "summary": "so far", "recent": "verbatim"}
@@ -488,7 +436,5 @@ def test_click_print_event_renders_both_event_shapes(capsys: pytest.CaptureFixtu
 
     # JSONL mode emits one line and drops the un-serialisable raw PCM.
     _print_event(utterance, jsonl=True)
-    import json as _json
-
     line = _json.loads(capsys.readouterr().out.strip())
     assert "pcm" not in line and line["text"] == "hi"

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "vocal-helper"
-version = "3.2.0"
+version = "3.3.0"
 description = "Vocal Helper — async producer/consumer pipeline turning a live PCM stream into diarized, transcribed utterances and (optionally) a rolling LLM summary. Stages: Voice Activity Detection → online speaker diarization (Hungarian-style cosine clustering on backend embeddings) → STT (pywhispercpp turbo) → optional analyst (a local model served via Ollama or vLLM, resolved by best-engine-ai-helper from a committed brief)."
 readme = "README.md"
 requires-python = ">=3.10,<3.14"
@@ -46,7 +46,11 @@ classifiers = [
 #   summary buffer ; everything older than ``recent_window_s`` (default 60 s)
 #   gets folded into the summary.
 dependencies = [
-    "os-helper>=2.6.0,<3",
+    "os-helper>=2.6.0,<4",
+    # The CLI is the ``vocal-helper`` entry point, not an optional surface, so
+    # click cannot be optional either. It used to be an opt-in extra, back when
+    # a stdlib-argparse CLI shipped alongside and click was the twin.
+    "click>=8.1,<9",
     # best-engine-ai-helper owns the LLM contract: the analyst (llm.py) and EOT
     # (eot.py) stages resolve the committed ``vocal_helper/llm.brief.yaml`` into a
     # machine-specific engine descriptor (via ``beh.ensure``) and route every
@@ -109,11 +113,6 @@ llm = [
 studies = [
     "ollama>=0.4",
 ]
-# Click twin of the argparse CLI. Kept as an extra so the stdlib
-# argparse entry point works with a bare install.
-cli = [
-    "click>=8.1,<9",
-]
 # FastAPI HTTP surface at ``vocal_helper.api:app``. python-multipart is
 # required for the ``UploadFile`` fields on POST /transcribe and /pipeline.
 api = [
@@ -137,11 +136,11 @@ lid = [
 # 2026-06-30 study made TitaNet the default online-diar embedding
 # (76 % wider separability margin vs pyannote/embedding). Skip it
 # explicitly if the ~ 5 GB NeMo install footprint is prohibitive :
-#   pip install 'vocal-helper[cli,api,mcp,mic,stream,pyannote,sherpa,llm]'
+#   pip install 'vocal-helper[api,mcp,mic,stream,pyannote,sherpa,llm]'
 # then pass ``backend="pyannote"`` (or the torch-free ``"sherpa"``) to
 # ``OnlineDiarStage`` / ``OfflineDiarStage``.
 all = [
-    "vocal-helper[cli,api,mcp,mic,stream,pyannote,nemo,sherpa,llm,lid]",
+    "vocal-helper[api,mcp,mic,stream,pyannote,nemo,sherpa,llm,lid]",
 ]
 # Word-error metrics (``vocal_helper.bench``): WER / MER / WIL / CER and cpWER
 # all come from jiwer. An evaluation surface, not something a transcription run
@@ -156,7 +155,8 @@ dev = [
     # @pytest.mark.asyncio. Without this plugin pytest does not skip them, it
     # FAILS them — eleven red tests in CI for a missing line here.
     "pytest-asyncio>=0.23",
-    "click>=8.1,<9",
+    # click is a core dependency now (the CLI is not optional), so it is not
+    # re-listed here.
     "fastapi>=0.115",
     "httpx>=0.27",
     "python-multipart>=0.0.9",
@@ -174,8 +174,7 @@ Changelog = "https://github.com/warith-harchaoui/vocal-helper/blob/main/CHANGELO
 "Study log" = "https://github.com/warith-harchaoui/vocal-helper/tree/main/studies"
 
 [project.scripts]
-vocal-helper = "vocal_helper.cli_argparse:main"
-vocal-helper-click = "vocal_helper.cli_click:main"
+vocal-helper = "vocal_helper.cli:main"
 vocal-helper-mcp = "vocal_helper.mcp:main"
 
 [tool.setuptools.packages.find]

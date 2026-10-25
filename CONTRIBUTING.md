@@ -80,9 +80,9 @@ The unit suite is fast (< 100 ms) and split by surface:
   explicit-path / env-var / file resolution precedence.
 - `tests/test_sources.py`: `from_numpy_array` / `from_wav_file` contracts.
 - `tests/test_pipeline.py`: config defaults, queue sizing, stage validation.
-- `tests/test_cli.py`: argparse + click CLI surfaces, `_build_config`
-  end-to-end wiring (including the LLM engine block), router backend
-  resolution.
+- `tests/test_cli.py`: the CLI surface, `_pipeline_config` end-to-end wiring
+  (including the LLM engine block), router backend resolution, and the help
+  screens (no RST markup, `-h` / `-V` present).
 
 `tests/conftest.py` strips `HF_TOKEN` and `VOCAL_HELPER_SETTINGS` from
 every test so a developer's local `settings.yaml` cannot leak into
