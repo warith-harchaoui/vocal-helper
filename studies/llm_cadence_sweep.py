@@ -51,7 +51,6 @@ Author : Warith HARCHAOUI — 2026-06-30
 
 from __future__ import annotations
 
-import argparse
 import asyncio
 import json
 import re
@@ -59,7 +58,8 @@ import time
 from collections import Counter
 from pathlib import Path
 
-from vocal_helper.llm import GemmaAnalystStage, _extract_response_text
+import click
+
 from vocal_helper.types import Utterance
 
 DEFAULT_RTTM = Path(
@@ -337,6 +337,12 @@ def reference_summary(utts: list[Utterance], model: str, host: str | None) -> tu
     """
     import ollama  # type: ignore
 
+    # Imported here, not at module level: this helper predates the
+    # best-engine engine contract and ``_extract_response_text`` no longer
+    # exists in ``vocal_helper.llm``, so a module-level import would break
+    # even ``--help``. Keeping it local confines the breakage to the sweep.
+    from vocal_helper.llm import _extract_response_text
+
     # Honour an explicit host when given; otherwise talk to the default
     # localhost Ollama daemon.
     client = ollama.Client(host=host) if host else ollama.Client()
@@ -398,6 +404,11 @@ async def candidate_summary(
     attribute wall-time and call count to the LLM alone, isolating it from the
     async queue overhead of the replay harness.
     """
+    # Same reason as in reference_summary: the stage import stays local so
+    # ``--help`` renders even though this call site predates the
+    # best-engine engine contract.
+    from vocal_helper.llm import GemmaAnalystStage
+
     stage = GemmaAnalystStage(
         model=model,
         recent_window_s=recent_window_s,
@@ -458,14 +469,17 @@ async def candidate_summary(
 # ---------------------------------------------------------------------------
 
 
-async def amain(args: argparse.Namespace) -> None:
+async def amain(*, rttm: Path, model: str, host: str | None) -> None:
     """Run the full single-meeting cadence sweep and write the result table.
 
     Parameters
     ----------
-    args : argparse.Namespace
-        Parsed CLI arguments carrying ``rttm`` (corpus path), ``model`` (Ollama
-        model tag) and ``host`` (optional Ollama host URL).
+    rttm : Path
+        Word-level RTTM of the meeting to sweep.
+    model : str
+        Ollama model tag handed to the analyst stage.
+    host : str or None
+        Ollama host URL, or ``None`` for the local default.
 
     Returns
     -------
@@ -499,11 +513,11 @@ async def amain(args: argparse.Namespace) -> None:
 
     # Header block: pin down which corpus and model this run used.
     log("# LLM cadence sweep — 2026-06-30")
-    log(f"# corpus : {args.rttm}")
-    log(f"# model  : {args.model}")
+    log(f"# corpus : {rttm}")
+    log(f"# model  : {model}")
 
     # Load the transcript and derive the audio span (used as the RTF denominator).
-    utts = load_utterances(args.rttm)
+    utts = load_utterances(rttm)
     duration_s = max(u["t1"] for u in utts) - min(u["t0"] for u in utts)
     log(f"# utterances : {len(utts)}")
     log(f"# audio_duration : {duration_s:.1f}s")
@@ -511,7 +525,7 @@ async def amain(args: argparse.Namespace) -> None:
     # ----- reference -----
     # Build the oracle summary first; every candidate is scored against it.
     log("\n[reference] one-shot summary on the full transcript …")
-    ref_text, ref_wall = reference_summary(utts, args.model, args.host)
+    ref_text, ref_wall = reference_summary(utts, model, host)
     log(f"  reference  wall={ref_wall:6.1f}s   chars={len(ref_text)}")
     log(f"  reference RTF (single shot) = {ref_wall / duration_s:.3f}")
     log("\n--- reference summary ---")
@@ -543,8 +557,8 @@ async def amain(args: argparse.Namespace) -> None:
         # flush cadence varies across the sweep.
         text, wall, n = await candidate_summary(
             utts,
-            model=args.model,
-            host=args.host,
+            model=model,
+            host=host,
             recent_window_s=60.0,
             flush_every_n=fn,
             flush_every_s=fs,
@@ -588,7 +602,7 @@ async def amain(args: argparse.Namespace) -> None:
     json_out.write_text(
         json.dumps(
             {
-                "model": args.model,
+                "model": model,
                 "audio_duration_s": duration_s,
                 "reference_wall_s": ref_wall,
                 "reference_rtf": ref_wall / duration_s,
@@ -612,8 +626,43 @@ async def amain(args: argparse.Namespace) -> None:
     log("\n[done]")
 
 
-def main() -> None:
-    """Parse CLI arguments and run the single-meeting cadence sweep.
+# argparse used to hand the module docstring to --help ; it mangled the RST
+# (tables, double backticks) so the rendered help is written for a terminal
+# and the study write-up stays where it belongs, in the module docstring.
+@click.command(context_settings={"help_option_names": ["-h", "--help"]})
+@click.option(
+    "--rttm",
+    # argparse only coerced to Path here — it never checked the file exists,
+    # so no ``exists=True``: a missing corpus still fails in load_utterances.
+    type=click.Path(path_type=Path),
+    default=DEFAULT_RTTM,
+    show_default=True,
+    help="Word-level RTTM of the meeting to sweep.",
+)
+@click.option(
+    "--model",
+    default=DEFAULT_MODEL,
+    show_default=True,
+    help="Ollama model tag for the analyst stage.",
+)
+@click.option("--host", default=None, help="Ollama host URL (default localhost)")
+def main(rttm: Path, model: str, host: str | None) -> None:
+    """Find how often the analyst should refresh its rolling summary.
+
+    Sweeps the flush cadence (every N utterances, or every T seconds of
+    evicted content) on one AMI meeting and reports the RTF × summary
+    cosine-similarity Pareto front.
+
+    \f
+
+    Parameters
+    ----------
+    rttm : Path
+        Word-level RTTM of the meeting to sweep.
+    model : str
+        Ollama model tag handed to the analyst stage.
+    host : str or None
+        Ollama host URL, or ``None`` for the local default.
 
     Returns
     -------
@@ -621,15 +670,11 @@ def main() -> None:
         Delegates to :func:`amain` under the asyncio event loop; all output is
         side-effect (stdout / log / JSON).
     """
-    # Reuse the module docstring as the CLI help text so ``--help`` explains the
-    # study, not just the flags.
-    p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--rttm", type=Path, default=DEFAULT_RTTM)
-    p.add_argument("--model", default=DEFAULT_MODEL)
-    p.add_argument("--host", default=None, help="Ollama host URL (default localhost)")
-    args = p.parse_args()
+    # The ``\f`` closing the summary above is click's help-truncation marker:
+    # click renders the *whole* docstring into ``--help``, so without it the
+    # numpydoc blocks (and their RST double backticks) would reach users.
     # The sweep is async (queue-driven analyst); run it to completion here.
-    asyncio.run(amain(args))
+    asyncio.run(amain(rttm=rttm, model=model, host=host))
 
 
 if __name__ == "__main__":

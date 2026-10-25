@@ -46,14 +46,13 @@ Author : Warith HARCHAOUI — 2026-06-30
 
 from __future__ import annotations
 
-import argparse
 import json
 import statistics
 import time
 from pathlib import Path
 
+import click
 import numpy as np
-import soundfile as sf
 
 from vocal_helper.asr import WhisperStage
 from vocal_helper.types import DiarizedSegment
@@ -152,6 +151,11 @@ def read_mono_wav(path: Path) -> tuple[np.ndarray, int]:
     collapsed by averaging across channels.
     """
     # Decode straight to float32 to skip a later int→float conversion.
+    # soundfile is a study-only dependency (ground-truth tooling, never a
+    # runtime one), so it is imported here rather than at module level —
+    # that keeps ``--help`` working on a machine without it installed.
+    import soundfile as sf
+
     audio, sr = sf.read(str(path), dtype="float32")
     # Fold any multi-channel AMI mix down to mono by channel-averaging.
     if audio.ndim > 1:
@@ -213,13 +217,30 @@ def transcribe(
     return text, wall
 
 
-def main() -> None:
-    """Run the whisper prompt × language-lock sweep and report the winner.
+# Only knob is the model id; the sweep matrix itself is fixed by CONFIGS.
+@click.command(context_settings={"help_option_names": ["-h", "--help"]})
+@click.option(
+    "--model",
+    default=DEFAULT_MODEL,
+    show_default=True,
+    help="Model id recorded with the run (provenance only — the transcriber "
+    "pins the default so the sweep isolates language × prompt).",
+)
+def main(model: str) -> None:
+    """Sweep whisper's bias prompt × language lock and report the winner.
 
-    Sweeps the four (language, prompt) configurations in :data:`CONFIGS`
-    across every AMI meeting, scores WER and RTF per run, prints the
-    pooled-median table, selects the Pareto winner (lowest WER, RTF as
-    tie-break), and persists a JSON sidecar.
+    Scores WER and RTF for each (language, prompt) configuration on every
+    AMI meeting, prints the pooled-median table and picks the Pareto
+    winner (lowest WER, RTF as tie-break).
+
+    \f
+
+    Parameters
+    ----------
+    model : str
+        Model id logged and serialized for provenance. The transcriber
+        itself pins :data:`DEFAULT_MODEL` so the sweep isolates
+        language × prompt.
 
     Returns
     -------
@@ -230,12 +251,9 @@ def main() -> None:
     Missing meeting assets are skipped rather than fatal, so a partial
     corpus still yields a partial sweep.
     """
-    # Only knob is the model id; the sweep matrix itself is fixed by CONFIGS.
-    p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--model", default=DEFAULT_MODEL)
-    args = p.parse_args()
-    # NOTE: --model is logged/serialized for provenance; the transcriber
-    # itself pins DEFAULT_MODEL so the sweep isolates language × prompt.
+    # The ``\f`` closing the summary above is click's help-truncation marker:
+    # click renders the *whole* docstring into ``--help``, so without it the
+    # numpydoc blocks (and their RST double backticks) would reach users.
 
     # Reset the log file for a clean run, then write the header block.
     # Ensure the parent run-logs directory exists before writing.
@@ -244,7 +262,7 @@ def main() -> None:
 
     # Header echoes the run's fixed parameters for reproducibility.
     log(f"# Whisper prompt × language sweep — 2026-06-30")
-    log(f"# model    : {args.model}")
+    log(f"# model    : {model}")
     log(f"# meetings : {MEETINGS}")
     log(f"# bias prompt : {AMI_BIAS_PROMPT!r}")
 
@@ -329,7 +347,7 @@ def main() -> None:
     json_out.write_text(
         json.dumps(
             {
-                "model": args.model,
+                "model": model,
                 "meetings": MEETINGS,
                 "durations_s": durations,
                 "configs": [

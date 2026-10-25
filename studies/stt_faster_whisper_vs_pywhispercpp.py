@@ -26,14 +26,13 @@ Author : Warith HARCHAOUI — 2026-06-30
 
 from __future__ import annotations
 
-import argparse
 import json
 import statistics
 import time
 from pathlib import Path
 
+import click
 import numpy as np
-import soundfile as sf
 
 AMI_ROOT = Path("/Users/warithharchaoui/pasdebonneoudemauvaisesituation/data/ami/dev-slice")
 MEETINGS = ["IS1008a", "ES2011a"]
@@ -110,6 +109,11 @@ def read_mono_wav(path: Path) -> tuple[np.ndarray, int]:
         The mono ``float32`` samples and the file's sample rate. Multi-channel
         inputs are down-mixed by averaging the channels.
     """
+    # soundfile is a study-only dependency (ground-truth tooling, never a
+    # runtime one), so it is imported here rather than at module level —
+    # that keeps ``--help`` working on a machine without it installed.
+    import soundfile as sf
+
     audio, sr = sf.read(str(path), dtype="float32")
     # Both STT engines expect a single channel; average multi-channel audio
     # down to mono and keep float32 to avoid an implicit upcast to float64.
@@ -168,8 +172,15 @@ def bench_faster_whisper(pcm: np.ndarray, sr: int, language: str) -> tuple[str, 
     return text, walls
 
 
+@click.command(context_settings={"help_option_names": ["-h", "--help"]})
 def main() -> None:
-    """Benchmark both STT engines across the AMI meetings and report the winner.
+    """Benchmark faster-whisper against pywhispercpp on the AMI dev-slice.
+
+    Takes no options on purpose: the meetings, the model family, the
+    language and the thread count are pinned constants so two runs on the
+    same machine are comparable.
+
+    \f
 
     For each meeting it loads the mixed audio and reference transcript, times
     pywhispercpp and faster-whisper (median of :data:`N_TIMED` runs, one
@@ -181,9 +192,11 @@ def main() -> None:
     None
         All results go to stdout, the study log, and the sibling JSON file.
     """
-    # The module docstring doubles as the --help text; no real args are used.
-    p = argparse.ArgumentParser(description=__doc__)
-    args = p.parse_args()
+    # The ``\f`` closing the summary above is click's help-truncation marker:
+    # click renders the *whole* docstring into ``--help``, so without it the
+    # numpydoc "Returns" block and the :data: role would reach users verbatim.
+    # argparse used to print the module docstring as the description, mangling
+    # its RST; the rendered help is now written for a terminal instead.
 
     # Start from a clean log so the file holds only this run's transcript.
     DEFAULT_LOG.parent.mkdir(parents=True, exist_ok=True)

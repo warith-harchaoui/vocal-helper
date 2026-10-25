@@ -36,15 +36,14 @@ Author : Warith HARCHAOUI — 2026-06-30
 
 from __future__ import annotations
 
-import argparse
 import json
 import os
 import statistics
 import time
 from pathlib import Path
 
+import click
 import numpy as np
-import soundfile as sf
 
 AMI_ROOT = Path("/Users/warithharchaoui/pasdebonneoudemauvaisesituation/data/ami/dev-slice")
 MEETINGS = ["IS1008a", "ES2011a"]
@@ -95,6 +94,11 @@ def read_mono_wav(path: Path) -> tuple[np.ndarray, int]:
     Both diarization backends expect a single-channel signal, so any
     multi-channel input is collapsed by averaging across channels.
     """
+    # soundfile is a study-only dependency (ground-truth tooling, never a
+    # runtime one), so it is imported here rather than at module level —
+    # that keeps ``--help`` working on a machine without it installed.
+    import soundfile as sf
+
     # soundfile decodes to float32 directly, avoiding a later int→float cast.
     audio, sr = sf.read(str(path), dtype="float32")
     # AMI mixes are sometimes stored multi-channel; fold to mono by
@@ -240,6 +244,9 @@ def run_falcon(audio: np.ndarray, sr: int) -> tuple[list[tuple[float, float, str
             "export the key."
         )
 
+    # Same reason as in read_mono_wav: soundfile stays a function-local import.
+    import soundfile as sf
+
     falcon = pvfalcon.create(access_key=access_key)
     # Falcon's Python API reads from a file, so stage the waveform to a
     # temp PCM_16 WAV (auto-deleted on context exit).
@@ -317,13 +324,57 @@ def run_pyannote(
 # ---------------------------------------------------------------------------
 
 
-def main() -> None:
-    """Run the Falcon-vs-pyannote DER / compute study and report results.
+# CLI surface: the HF token (for the gated pyannote pipeline) and the set of
+# meetings to run, both overridable but with sensible defaults.
+#
+# ``--meetings`` used to be an argparse ``nargs="*"`` flag, i.e. several ids
+# after ONE occurrence. click has no variadic option, and ``multiple=True``
+# alone would silently keep only the first id, so the leftover ids are
+# collected by a variadic argument and recombined below. Both
+# "--meetings A B" and "--meetings A --meetings B" therefore still work.
+@click.command(context_settings={"help_option_names": ["-h", "--help"]})
+@click.option(
+    "--hf-token",
+    default=None,
+    # ``envvar`` is click's own way to express the argparse
+    # ``default=os.environ.get("HF_TOKEN")`` this replaced — same precedence
+    # (flag beats env), but read per invocation instead of at import time.
+    envvar="HF_TOKEN",
+    help="HuggingFace token for the gated pyannote 3.1 pipeline "
+    "(defaults to $HF_TOKEN, then settings.yaml secrets.hf_token).",
+)
+@click.option(
+    "--meetings",
+    multiple=True,
+    help="AMI dev-slice meeting ids to run; several may follow one flag. "
+    f"Default: {' '.join(MEETINGS)}.",
+)
+@click.argument("extra_meetings", nargs=-1, type=click.UNPROCESSED)
+def main(
+    hf_token: str | None,
+    meetings: tuple[str, ...],
+    extra_meetings: tuple[str, ...],
+) -> None:
+    """Compare NVIDIA/Picovoice Falcon against pyannote 3.1 on DER and compute.
 
-    Parses CLI arguments, loads each AMI meeting, diarizes it with both
-    backends, scores DER against the bridged reference, and prints a
-    pooled-median comparison plus a recommendation. Results are also
-    persisted as a JSON sidecar next to :data:`DEFAULT_LOG`.
+    Diarizes each AMI meeting with both backends, scores DER against the
+    bridged word-level reference, then reports pooled medians and a
+    keep-or-switch recommendation.
+
+    Pass several ids after one flag (--meetings IS1008a ES2011a) or repeat
+    the flag; both forms are accepted.
+
+    \f
+
+    Parameters
+    ----------
+    hf_token : str or None
+        Token for the gated pyannote pipeline.
+    meetings : tuple of str
+        Ids bound to the ``--meetings`` occurrences.
+    extra_meetings : tuple of str
+        Ids that followed a ``--meetings`` occurrence beyond the first —
+        click hands them over as positional leftovers.
 
     Returns
     -------
@@ -335,32 +386,33 @@ def main() -> None:
     handled gracefully (logged and skipped) so a partial environment
     still yields a partial — rather than empty — comparison.
     """
-    # CLI surface: the HF token (for the gated pyannote pipeline) and the
-    # set of meetings to run, both overridable but with sensible defaults.
-    p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--hf-token", default=os.environ.get("HF_TOKEN"))
-    p.add_argument("--meetings", nargs="*", default=MEETINGS)
-    args = p.parse_args()
+    # The ``\f`` closing the prose above is click's help-truncation marker:
+    # click renders the *whole* docstring into ``--help``, so without it the
+    # numpydoc blocks (and their RST double backticks) would reach users.
+    #
+    # Rebuild the argparse nargs="*" semantics: flag values first, then the
+    # leftovers click parked in the variadic argument; empty means "default".
+    meeting_ids = [*meetings, *extra_meetings] or list(MEETINGS)
 
     # Start each run from a clean log file, then record the run header.
     DEFAULT_LOG.parent.mkdir(parents=True, exist_ok=True)
     DEFAULT_LOG.write_text("")
     log("# Falcon vs pyannote — 2026-06-30")
-    log(f"# meetings : {args.meetings}")
+    log(f"# meetings : {meeting_ids}")
 
     # Fall back to the project's settings.yaml when no token was passed
     # on the CLI or in the environment.
-    if not args.hf_token:
+    if not hf_token:
         # Read settings.yaml as a last resort.
         try:
             from vocal_helper._settings import resolve_hf_token
 
-            args.hf_token = resolve_hf_token(None)
+            hf_token = resolve_hf_token(None)
         except Exception:
             # No settings file / helper — pyannote will simply be skipped.
             pass
     # Log credential presence (never the values) so runs are reproducible.
-    log(f"# hf_token  : {'<set>' if args.hf_token else '<missing>'}")
+    log(f"# hf_token  : {'<set>' if hf_token else '<missing>'}")
     log(f"# pv_key    : {'<set>' if os.environ.get('PICOVOICE_ACCESS_KEY') else '<missing>'}")
 
     # The DER metric is the one hard dependency: without it there is
@@ -374,7 +426,7 @@ def main() -> None:
     # Accumulate per-backend results keyed by meeting for the pooled pass.
     per_meeting: dict[str, dict[str, dict]] = {}
 
-    for m in args.meetings:
+    for m in meeting_ids:
         # Each meeting ships a mixed-down WAV and a word-level RTTM.
         mdir = AMI_ROOT / m
         wav = mdir / "mix.wav"
@@ -420,7 +472,7 @@ def main() -> None:
         # ---- pyannote ----
         try:
             log("  pyannote 3.1 …")
-            segs, wall = run_pyannote(audio, SR, args.hf_token)
+            segs, wall = run_pyannote(audio, SR, hf_token)
             # Fresh metric per call — DER accumulates state across calls.
             metric = DiarizationErrorRate(collar=0.25, skip_overlap=False)
             der = float(metric(ref_ann, hypothesis_to_annotation(segs)))
@@ -495,7 +547,7 @@ def main() -> None:
     json_out.write_text(
         json.dumps(
             {
-                "meetings": args.meetings,
+                "meetings": meeting_ids,
                 "per_meeting": per_meeting,
                 "pooled": pooled,
             },

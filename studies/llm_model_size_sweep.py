@@ -36,16 +36,20 @@ Author : Warith HARCHAOUI — 2026-06-30
 
 from __future__ import annotations
 
-import argparse
 import asyncio
 import json
 import statistics
-import time
 import sys
+import time
 from pathlib import Path
 
-from vocal_helper.llm import GemmaAnalystStage, _extract_response_text
+import click
 
+# ``GemmaAnalystStage`` / ``_extract_response_text`` used to be imported here
+# and were never referenced — the helpers below come from the sibling
+# single-meeting module. The second name no longer exists in
+# ``vocal_helper.llm`` (the best-engine engine contract removed it), so a
+# dead import at module level would break even ``--help``.
 # Re-use single-meeting helpers.
 _STUDY_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(_STUDY_DIR))
@@ -97,7 +101,7 @@ def log(msg: str) -> None:
         f.write(msg + "\n")
 
 
-async def amain(args: argparse.Namespace) -> None:
+async def amain(*, rttm: Path, host: str | None) -> None:
     """Run the full model sweep and write the result table + JSON dump.
 
     For every candidate in :data:`MODELS` this builds a per-model reference
@@ -108,10 +112,10 @@ async def amain(args: argparse.Namespace) -> None:
 
     Parameters
     ----------
-    args : argparse.Namespace
-        Parsed CLI arguments. Uses ``args.rttm`` (the RTTM transcript to
-        load utterances from) and ``args.host`` (the Ollama host, or
-        ``None`` for the default endpoint).
+    rttm : Path
+        RTTM transcript to load utterances from.
+    host : str or None
+        Ollama host URL, or ``None`` for the default endpoint.
 
     Returns
     -------
@@ -126,13 +130,13 @@ async def amain(args: argparse.Namespace) -> None:
     # Header block: pin the run's provenance (corpus, cadence, model set) so
     # the log is self-describing when read back later.
     log(f"# LLM model-size & family sweep — 2026-06-30")
-    log(f"# corpus : {args.rttm}")
+    log(f"# corpus : {rttm}")
     log(f"# cadence : flush_every_s=60.0 (canonical winner)")
     log(f"# models : {MODELS}")
 
     # Load the transcript once and reuse it for every model — the utterances
     # are identical across candidates, only the LLM changes.
-    utts = load_utterances(args.rttm)
+    utts = load_utterances(rttm)
     # Audio duration = span from first onset to last offset; it is the RTF
     # denominator, so compute it from the extreme timestamps, not len(utts).
     dur = max(u["t1"] for u in utts) - min(u["t0"] for u in utts)
@@ -150,7 +154,7 @@ async def amain(args: argparse.Namespace) -> None:
         # If it fails, record a NaN row and move on rather than aborting the
         # whole sweep on one flaky backend.
         try:
-            ref_text, ref_wall = reference_summary(utts, model, args.host)
+            ref_text, ref_wall = reference_summary(utts, model, host)
         except Exception as exc:  # noqa: BLE001
             log(f"  reference FAILED : {exc!r}")
             rows.append((model, float("nan"), float("nan"), float("nan"), 0, 0.0))
@@ -164,7 +168,7 @@ async def amain(args: argparse.Namespace) -> None:
             text, wall, n_calls = await candidate_summary(
                 utts,
                 model=model,
-                host=args.host,
+                host=host,
                 recent_window_s=60.0,
                 flush_every_n=10_000,
                 flush_every_s=60.0,
@@ -228,7 +232,7 @@ async def amain(args: argparse.Namespace) -> None:
     json_out.write_text(
         json.dumps(
             {
-                "corpus": str(args.rttm),
+                "corpus": str(rttm),
                 "audio_duration_s": dur,
                 "cadence": {"recent_window_s": 60.0, "flush_every_s": 60.0},
                 "rows": [
@@ -250,23 +254,46 @@ async def amain(args: argparse.Namespace) -> None:
     log("\n[done]")
 
 
-def main() -> None:
-    """Parse CLI arguments and drive the async sweep to completion.
+# argparse used to hand the module docstring to --help ; it mangled the RST,
+# so the rendered help is written for a terminal and the study write-up stays
+# where it belongs, in the module docstring.
+@click.command(context_settings={"help_option_names": ["-h", "--help"]})
+@click.option(
+    "--rttm",
+    # argparse only coerced to Path here — it never checked the file exists,
+    # so no ``exists=True``: a missing corpus still fails in load_utterances.
+    type=click.Path(path_type=Path),
+    default=DEFAULT_RTTM,
+    show_default=True,
+    help="Word-level RTTM supplying the transcript every model summarises.",
+)
+@click.option("--host", default=None, help="Ollama host URL (default localhost).")
+def main(rttm: Path, host: str | None) -> None:
+    """Sweep seven Ollama models for the analyst and draw the Pareto front.
+
+    Each candidate is scored against its own one-shot reference summary
+    (cosine similarity) and its RTF at the canonical 60 s cadence.
+
+    \f
+
+    Parameters
+    ----------
+    rttm : Path
+        RTTM transcript to load utterances from.
+    host : str or None
+        Ollama host URL, or ``None`` for the default endpoint.
 
     Returns
     -------
     None
         Delegates all work to :func:`amain` via :func:`asyncio.run`.
     """
-    # __doc__ (the module docstring) doubles as the --help description so the
-    # study's intent shows up on the command line for free.
-    p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--rttm", type=Path, default=DEFAULT_RTTM)
-    p.add_argument("--host", default=None)
-    args = p.parse_args()
+    # The ``\f`` closing the summary above is click's help-truncation marker:
+    # click renders the *whole* docstring into ``--help``, so without it the
+    # numpydoc blocks (and their RST double backticks) would reach users.
     # The sweep is async (candidate_summary streams the LLM); run it on a
     # fresh event loop.
-    asyncio.run(amain(args))
+    asyncio.run(amain(rttm=rttm, host=host))
 
 
 if __name__ == "__main__":

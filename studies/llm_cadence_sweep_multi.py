@@ -28,7 +28,6 @@ Author : Warith HARCHAOUI — 2026-06-30
 
 from __future__ import annotations
 
-import argparse
 import asyncio
 import json
 import statistics
@@ -36,6 +35,8 @@ import statistics
 # Re-use the single-meeting helpers — no duplication.
 import sys
 from pathlib import Path
+
+import click
 
 # Put this study's own directory on ``sys.path`` so the sibling
 # single-meeting module can be imported as a top-level name below.
@@ -73,14 +74,16 @@ CONFIGS: list[tuple[str, int, float | None]] = [
 ]
 
 
-async def amain(args: argparse.Namespace) -> None:
+async def amain(*, model: str, host: str | None) -> None:
     """Run the cadence sweep across all meetings and pool the results.
 
     Parameters
     ----------
-    args : argparse.Namespace
-        Parsed CLI arguments carrying ``model`` (Ollama model tag) and ``host``
-        (optional Ollama host URL). The corpus is fixed via ``MEETINGS``.
+    model : str
+        Ollama model tag handed to the analyst stage.
+    host : str or None
+        Ollama host URL, or ``None`` for the local default. The corpus is
+        fixed via ``MEETINGS``.
 
     Returns
     -------
@@ -112,7 +115,7 @@ async def amain(args: argparse.Namespace) -> None:
             f.write(msg + "\n")
 
     log("# LLM cadence sweep — multi-meeting — 2026-06-30")
-    log(f"# model    : {args.model}")
+    log(f"# model    : {model}")
     log(f"# meetings : {MEETINGS}")
 
     # Per-meeting → per-config → (wall, rtf, n_calls, cos_sim), plus the audio
@@ -135,7 +138,7 @@ async def amain(args: argparse.Namespace) -> None:
         log(f"\n{m}  n_utt={len(utts)}  dur={dur:.0f}s")
 
         # Reference once per meeting — the oracle each candidate is scored on.
-        ref_text, ref_wall = reference_summary(utts, args.model, args.host)
+        ref_text, ref_wall = reference_summary(utts, model, host)
         log(f"  reference  wall={ref_wall:6.1f}s  RTF={ref_wall / dur:.3f}  chars={len(ref_text)}")
 
         # Score each Pareto-front cadence for this meeting.
@@ -144,8 +147,8 @@ async def amain(args: argparse.Namespace) -> None:
             # Fixed 60 s recent window; only the flush cadence varies.
             text, wall, n_calls = await candidate_summary(
                 utts,
-                model=args.model,
-                host=args.host,
+                model=model,
+                host=host,
                 recent_window_s=60.0,
                 flush_every_n=fn,
                 flush_every_s=fs,
@@ -203,7 +206,7 @@ async def amain(args: argparse.Namespace) -> None:
     json_out.write_text(
         json.dumps(
             {
-                "model": args.model,
+                "model": model,
                 "meetings": MEETINGS,
                 "durations_s": durations,
                 "pooled": pooled,
@@ -220,8 +223,30 @@ async def amain(args: argparse.Namespace) -> None:
     log("\n[done]")
 
 
-def main() -> None:
-    """Parse CLI arguments and run the multi-meeting cadence sweep.
+# Model and host only; the meeting corpus is fixed by MEETINGS.
+@click.command(context_settings={"help_option_names": ["-h", "--help"]})
+@click.option(
+    "--model",
+    default=DEFAULT_MODEL,
+    show_default=True,
+    help="Ollama model tag for the analyst stage.",
+)
+@click.option("--host", default=None, help="Ollama host URL (default localhost).")
+def main(model: str, host: str | None) -> None:
+    """Cross-check the analyst cadence over four AMI meetings.
+
+    Replays the three Pareto configs from the single-meeting sweep against
+    every meeting in MEETINGS and reports the median-over-meetings table,
+    which is what tells a per-conversation fluke from a real winner.
+
+    \f
+
+    Parameters
+    ----------
+    model : str
+        Ollama model tag handed to the analyst stage.
+    host : str or None
+        Ollama host URL, or ``None`` for the local default.
 
     Returns
     -------
@@ -229,13 +254,11 @@ def main() -> None:
         Delegates to :func:`amain` under the asyncio event loop; all output is
         side-effect (stdout / log / JSON).
     """
-    # Model and host only; the meeting corpus is fixed by ``MEETINGS``.
-    p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--model", default=DEFAULT_MODEL)
-    p.add_argument("--host", default=None)
-    args = p.parse_args()
+    # The ``\f`` closing the summary above is click's help-truncation marker:
+    # click renders the *whole* docstring into ``--help``, so without it the
+    # numpydoc blocks (and their RST double backticks) would reach users.
     # The sweep is async (queue-driven analyst); run it to completion.
-    asyncio.run(amain(args))
+    asyncio.run(amain(model=model, host=host))
 
 
 if __name__ == "__main__":

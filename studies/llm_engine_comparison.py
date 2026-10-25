@@ -43,11 +43,12 @@ Author : Warith HARCHAOUI — 2026-06-30
 
 from __future__ import annotations
 
-import argparse
 import json
 import statistics
 import time
 from pathlib import Path
+
+import click
 
 # Where the human-readable run log (and, via ``.with_suffix``, the JSON dump)
 # lands on the scratch volume.
@@ -279,8 +280,22 @@ def bench_mlx_lm() -> dict:
     }
 
 
-def main() -> None:
-    """Benchmark all three engines and print the comparison + RTF projection.
+# Only --host is configurable; models and prompt are pinned constants.
+@click.command(context_settings={"help_option_names": ["-h", "--help"]})
+@click.option("--host", default=None, help="Ollama host URL (default localhost).")
+def main(host: str | None) -> None:
+    """Benchmark Ollama vs vLLM vs mlx-lm on the analyst hop.
+
+    Times the same pinned prompt on each engine, prints a median
+    wall-time / chars-per-second table and projects the resulting RTF of
+    the LLM stage on the canonical 869 s session.
+
+    \f
+
+    Parameters
+    ----------
+    host : str or None
+        Ollama base URL, or ``None`` for the local default.
 
     Returns
     -------
@@ -288,10 +303,9 @@ def main() -> None:
         Results are emitted to stdout, appended to ``DEFAULT_LOG`` and dumped to
         a sibling ``.json`` file rather than returned.
     """
-    # Only ``--host`` is configurable; models and prompt are pinned constants.
-    p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--host", default=None)
-    args = p.parse_args()
+    # The ``\f`` closing the summary above is click's help-truncation marker:
+    # click renders the *whole* docstring into ``--help``, so without it the
+    # numpydoc blocks (and their RST double backticks) would reach users.
 
     # Start from a clean log so each comparison run is self-contained.
     DEFAULT_LOG.parent.mkdir(parents=True, exist_ok=True)
@@ -305,7 +319,7 @@ def main() -> None:
     # (never raises) so one unavailable engine doesn't sink the run.
     results = []
     log("=== Ollama ===")
-    r = bench_ollama(args.host)
+    r = bench_ollama(host)
     results.append(r)
     log(json.dumps(r, indent=2, default=str))
     log("")

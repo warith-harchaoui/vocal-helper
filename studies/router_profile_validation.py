@@ -45,14 +45,17 @@ Warith Harchaoui — https://www.linkedin.com/in/warith-harchaoui/
 
 from __future__ import annotations
 
-import argparse
 import asyncio
 import sys
 import time
 from pathlib import Path
 
+import click
 import numpy as np
-from pyannote.metrics.diarization import DiarizationErrorRate
+
+# ``pyannote.metrics`` is a study-only dependency, so it is imported inside
+# :func:`main` — that is what lets ``--help`` render on a machine without the
+# [pyannote] extra.
 
 # Reuse the ground-truth + loading helpers from the sibling study rather than
 # duplicate them (both live in studies/, which is not an importable package).
@@ -141,20 +144,59 @@ async def _vad(pcm: np.ndarray, warm_vad: SileroVADStage) -> list:
     return await _vad_segments(pcm, warm_vad)
 
 
-def main() -> None:
-    """Score DER + RTF for every router path on the chosen corpus and summarise."""
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--bench", required=True, type=Path, help="pdbms benchmark root")
-    ap.add_argument("--corpus", choices=["bagarre", "ami"], default="bagarre")
-    ap.add_argument("--n", type=int, default=30)
-    args = ap.parse_args()
+@click.command(context_settings={"help_option_names": ["-h", "--help"]})
+@click.option(
+    "--bench",
+    required=True,
+    # argparse only coerced to Path here — it never checked the directory
+    # exists, so no ``exists=True``: load_pairs still reports a bad root.
+    type=click.Path(path_type=Path),
+    help="pdbms benchmark root",
+)
+@click.option(
+    "--corpus",
+    type=click.Choice(["bagarre", "ami"]),
+    default="bagarre",
+    show_default=True,
+    help="Which corpus to score: synthetic 3-speaker mixes, or AMI meetings.",
+)
+@click.option("--n", type=int, default=30, show_default=True, help="Clips to score.")
+def main(bench: Path, corpus: str, n: int) -> None:
+    """Re-validate the router profile against ground truth: DER and RTF.
+
+    Scores every path the aiguilleur can pick on the chosen corpus so the
+    routing table is anchored to a real run on this machine. offline_nemo
+    is skipped on the long (ami) corpus, where Sortformer hangs.
+
+    \f
+
+    Parameters
+    ----------
+    bench : Path
+        Root of the off-repo pdbms benchmark tree.
+    corpus : str
+        ``"bagarre"`` (synthetic 3-speaker mixes) or ``"ami"``.
+    n : int
+        Maximum number of clips to score.
+
+    Returns
+    -------
+    None
+    """
+    # The ``\f`` closing the summary above is click's help-truncation marker:
+    # click renders the *whole* docstring into ``--help``, so without it the
+    # numpydoc blocks (and their RST double backticks) would reach users.
+    #
+    # pyannote.metrics ships with the [pyannote] study extra; importing it here
+    # keeps ``--help`` working without it.
+    from pyannote.metrics.diarization import DiarizationErrorRate
 
     # Resolve the (name, wav, rttm) clip triples for the chosen corpus.
-    pairs = load_pairs(args.bench, args.corpus, args.n)
+    pairs = load_pairs(bench, corpus, n)
     # offline_nemo hangs on long meetings → only score it on the short corpus.
-    score_nemo_offline = args.corpus == "bagarre"
+    score_nemo_offline = corpus == "bagarre"
     print(
-        f"corpus={args.corpus} clips={len(pairs)} collar={COLLAR} "
+        f"corpus={corpus} clips={len(pairs)} collar={COLLAR} "
         f"nemo_offline={'on' if score_nemo_offline else 'SKIP (hangs on long)'}",
         flush=True,
     )
@@ -244,7 +286,7 @@ def main() -> None:
             print(f"[{idx + 1}/{len(pairs)}] {name}: SKIP {exc!r}", flush=True)
 
     # Summary: DER (quality) + RTF (speed) per path, to reconcile with _PROFILE.
-    print(f"\n=== {args.corpus} DER+RTF ({time.perf_counter() - t_start:.0f}s) ===", flush=True)
+    print(f"\n=== {corpus} DER+RTF ({time.perf_counter() - t_start:.0f}s) ===", flush=True)
     print(f"  {'path':18s} {'n':>3s}  {'DER_mean':>8s} {'DER_med':>8s}  {'RTF':>7s}", flush=True)
     for key, vals in ders.items():
         # Skip paths with no scores (e.g. offline_nemo on the ami corpus,

@@ -41,15 +41,14 @@ Author : Warith HARCHAOUI — 2026-06-30
 
 from __future__ import annotations
 
-import argparse
 import asyncio
 import json
 import statistics
 import time
 from pathlib import Path
 
+import click
 import numpy as np
-import soundfile as sf
 
 from vocal_helper.eot import SemanticEOTStage
 from vocal_helper.types import PcmFrame, VoicedSegment
@@ -105,6 +104,11 @@ def read_mono_wav(path: Path) -> tuple[np.ndarray, int]:
     collapsed by averaging across channels.
     """
     # Decode straight to float32 to avoid a later int→float conversion.
+    # soundfile is a study-only dependency (ground-truth tooling, never a
+    # runtime one), so it is imported here rather than at module level —
+    # that keeps ``--help`` working on a machine without it installed.
+    import soundfile as sf
+
     audio, sr = sf.read(str(path), dtype="float32")
     # Fold any multi-channel AMI mix down to mono by channel-averaging.
     if audio.ndim > 1:
@@ -387,7 +391,7 @@ def evaluate(segs: list[VoicedSegment], whisper_model, label: str) -> dict:
     }
 
 
-async def amain(args: argparse.Namespace) -> None:
+async def amain(*, meeting: str) -> None:
     """Run the async EOT-vs-Silero benchmark end to end.
 
     Loads one AMI meeting, runs the Silero-only baseline and the
@@ -396,8 +400,8 @@ async def amain(args: argparse.Namespace) -> None:
 
     Parameters
     ----------
-    args : argparse.Namespace
-        Parsed CLI arguments; uses ``args.meeting``.
+    meeting : str
+        AMI dev-slice meeting id to benchmark.
 
     Returns
     -------
@@ -407,10 +411,10 @@ async def amain(args: argparse.Namespace) -> None:
     DEFAULT_LOG.parent.mkdir(parents=True, exist_ok=True)
     DEFAULT_LOG.write_text("")
     log("# Semantic EOT vs Silero-only — 2026-06-30")
-    log(f"# meeting : {args.meeting}")
+    log(f"# meeting : {meeting}")
 
     # Load the mixed meeting audio once; both runs replay the same signal.
-    wav = AMI_ROOT / args.meeting / "mix.wav"
+    wav = AMI_ROOT / meeting / "mix.wav"
     audio, sr = read_mono_wav(wav)
     # Log duration so RTF-style timings later have context.
     log(f"# duration : {audio.shape[0] / SR:.0f}s")
@@ -470,7 +474,7 @@ async def amain(args: argparse.Namespace) -> None:
     json_out.write_text(
         json.dumps(
             {
-                "meeting": args.meeting,
+                "meeting": meeting,
                 "baseline": base_res,
                 "candidate": eot_res,
                 "eot_classifier_walls_s": eot_walls,
@@ -482,22 +486,40 @@ async def amain(args: argparse.Namespace) -> None:
     log("\n[done]")
 
 
-def main() -> None:
-    """Parse CLI arguments and drive the async benchmark.
+# Only knob is which meeting to benchmark.
+@click.command(context_settings={"help_option_names": ["-h", "--help"]})
+@click.option(
+    "--meeting",
+    default=DEFAULT_MEETING,
+    show_default=True,
+    help="AMI dev-slice meeting id to benchmark.",
+)
+def main(meeting: str) -> None:
+    """Measure whether a semantic end-of-turn gate cuts false cut-offs.
+
+    Replays one AMI meeting through Silero VAD alone, then through Silero
+    followed by the semantic EOT classifier, and compares the two
+    false-cut rates plus the classifier's latency.
+
+    \f
 
     Thin synchronous entry point: it exists because :func:`amain` is a
     coroutine (the cascade is async) and needs an event loop to run.
+
+    Parameters
+    ----------
+    meeting : str
+        AMI dev-slice meeting id to benchmark.
 
     Returns
     -------
     None
     """
-    # Only knob is which meeting to benchmark.
-    p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--meeting", default=DEFAULT_MEETING)
-    args = p.parse_args()
+    # The ``\f`` closing the summary above is click's help-truncation marker:
+    # click renders the *whole* docstring into ``--help``, so without it the
+    # numpydoc blocks (and their RST double backticks) would reach users.
     # Bridge sync → async: spin up an event loop for the coroutine.
-    asyncio.run(amain(args))
+    asyncio.run(amain(meeting=meeting))
 
 
 if __name__ == "__main__":

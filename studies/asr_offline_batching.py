@@ -53,16 +53,14 @@ Author : Warith Harchaoui — https://www.linkedin.com/in/warith-harchaoui/
 
 from __future__ import annotations
 
-import argparse
 import json
-import os
 import statistics
 import time
 from dataclasses import dataclass
 from pathlib import Path
 
+import click
 import numpy as np
-import soundfile as sf
 
 DEFAULT_MODEL = "large-v3-turbo-q5_0"
 DEFAULT_THREADS = 6
@@ -234,6 +232,11 @@ def read_mono(path: Path) -> tuple[np.ndarray, int]:
         resampling is done here — the reference clips are already at the
         rate whisper expects.
     """
+    # soundfile is a study-only dependency (ground-truth tooling, never a
+    # runtime one), so it is imported here rather than at module level —
+    # that keeps ``--help`` working on a machine without it installed.
+    import soundfile as sf
+
     audio, sr = sf.read(str(path), dtype="float32")
     # Downmix any stereo/multichannel clip to mono so the whole study
     # works on a single 1-D signal (whisper takes mono anyway).
@@ -454,13 +457,61 @@ def run_batched(
 # --------------------------------------------------------------------------
 
 
-def main() -> None:
-    """Run the batching sweep over the corpus and print/persist results.
+@click.command(context_settings={"help_option_names": ["-h", "--help"]})
+# Data root is off-repo (reference audio is not shipped); accept it via flag
+# or the VH_STUDY_DATA_ROOT env var so CI/headless runs work. ``envvar`` is
+# what click uses for that, so the fallback is visible in --help rather than
+# buried in an os.environ default. Left as a plain string, like argparse had
+# it: the body builds the Path itself with .expanduser().
+@click.option(
+    "--data-root",
+    default="",
+    envvar="VH_STUDY_DATA_ROOT",
+    help="dir containing bagarre-rich/mix_*.wav + .rttm",
+)
+@click.option("--n", type=int, default=12, show_default=True, help="clips to sample")
+# Bound to ``model_tag``, not ``model``: the body already uses ``model`` for
+# the warm whisper instance. The flag spelling is unchanged.
+@click.option("--model", "model_tag", default=DEFAULT_MODEL, show_default=True)
+@click.option("--threads", type=int, default=DEFAULT_THREADS, show_default=True)
+# Comma-separated so several chunk caps can be swept in one run — one value
+# per occurrence (click's multiple=True) would NOT be the same flag.
+@click.option(
+    "--chunk-sizes",
+    "chunk_sizes_csv",
+    default=",".join(str(s) for s in DEFAULT_CHUNK_SIZES_S),
+    show_default=True,
+    help="comma-separated max_chunk_s values",
+)
+def main(
+    data_root: str,
+    n: int,
+    model_tag: str,
+    threads: int,
+    chunk_sizes_csv: str,
+) -> None:
+    """Compare per-segment whisper calls against concatenated batches.
 
-    Parses CLI arguments, loads a single warm whisper model, runs the
-    per-segment baseline and every ``batch_*`` / ``batch_spk_*`` variant
-    on each clip, then prints pooled-median WER / RTF / call-count tables
-    and dumps the same numbers to a JSON sidecar.
+    Runs the per-segment baseline and every batch_* / batch_spk_* variant
+    on each clip of the off-repo bagarre-rich corpus, then prints
+    pooled-median WER / RTF / call-count tables and a JSON sidecar.
+
+    \f
+
+    Parameters
+    ----------
+    data_root : str
+        Directory holding ``bagarre-rich/``; also read from
+        ``$VH_STUDY_DATA_ROOT``. Kept a plain string (argparse never
+        coerced it) because the body builds the ``Path`` itself.
+    n : int
+        Maximum number of clips to sample.
+    model_tag : str
+        pywhispercpp model tag loaded once and reused (``--model``).
+    threads : int
+        whisper.cpp CPU threads.
+    chunk_sizes_csv : str
+        Comma-separated ``max_chunk_s`` sweep points (``--chunk-sizes``).
 
     Returns
     -------
@@ -468,53 +519,43 @@ def main() -> None:
 
     Raises
     ------
-    SystemExit
-        If no ``--data-root`` is given, or no ``mix_*.wav`` clips are
-        found under it.
+    click.UsageError
+        If no ``--data-root`` is given (exit 2, with the usage line).
+    click.ClickException
+        If no ``mix_*.wav`` clips are found under it (exit 1).
     """
-    ap = argparse.ArgumentParser(description=__doc__)
-    # Data root is off-repo (reference audio is not shipped); accept it
-    # via flag or the VH_STUDY_DATA_ROOT env var so CI/headless runs work.
-    ap.add_argument(
-        "--data-root",
-        default=os.environ.get("VH_STUDY_DATA_ROOT", ""),
-        help="dir containing bagarre-rich/mix_*.wav + .rttm",
-    )
-    ap.add_argument("--n", type=int, default=12, help="clips to sample")
-    ap.add_argument("--model", default=DEFAULT_MODEL)
-    ap.add_argument("--threads", type=int, default=DEFAULT_THREADS)
-    # Comma-separated so several chunk caps can be swept in one run.
-    ap.add_argument(
-        "--chunk-sizes",
-        default=",".join(str(s) for s in DEFAULT_CHUNK_SIZES_S),
-        help="comma-separated max_chunk_s values",
-    )
-    args = ap.parse_args()
-
+    # The ``\f`` closing the summary above is click's help-truncation marker:
+    # click renders the *whole* docstring into ``--help``, so without it the
+    # numpydoc blocks (and their RST double backticks) would reach users.
+    #
     # Fail fast with a clear message if the off-repo corpus wasn't pointed at.
-    if not args.data_root:
-        raise SystemExit(
+    # A missing required input is a usage error, so it exits 2 with the usage
+    # line rather than the bare SystemExit(1) argparse left us with.
+    if not data_root:
+        raise click.UsageError(
             "no --data-root ; pass a dir with bagarre-rich/ (or set VH_STUDY_DATA_ROOT)"
         )
     # Resolve the corpus dir and take at most --n clips (sorted for a
     # stable, reproducible sample across runs).
-    rich = Path(args.data_root).expanduser() / "bagarre-rich"
-    wavs = sorted(rich.glob("mix_*.wav"))[: args.n]
+    rich = Path(data_root).expanduser() / "bagarre-rich"
+    wavs = sorted(rich.glob("mix_*.wav"))[:n]
     if not wavs:
-        raise SystemExit(f"no mix_*.wav under {rich}")
+        # The root was given but holds no clips: an environment problem, not a
+        # usage one, so it stays exit 1 — now with click's "Error: " prefix.
+        raise click.ClickException(f"no mix_*.wav under {rich}")
     # Parse the sweep points once up front.
-    chunk_sizes = [float(x) for x in args.chunk_sizes.split(",")]
+    chunk_sizes = [float(x) for x in chunk_sizes_csv.split(",")]
 
     # Truncate any prior transcript, then write the run header.
     _LOG.write_text("")
     log("# Offline ASR batching — per-segment vs concatenated chunks")
-    log(f"# model={args.model} threads={args.threads} clips={len(wavs)} chunks={chunk_sizes}")
+    log(f"# model={model_tag} threads={threads} clips={len(wavs)} chunks={chunk_sizes}")
 
     # One warm model, reused across every strategy/clip (measures inference,
     # not load) — exactly how WhisperStage holds a single lazy instance.
     from pywhispercpp.model import Model  # type: ignore
 
-    model = Model(args.model, n_threads=args.threads, print_realtime=False, print_progress=False)
+    model = Model(model_tag, n_threads=threads, print_realtime=False, print_progress=False)
 
     # jiwer computes WER; install it on demand so a fresh study box still
     # runs without a manual pip step.
@@ -610,8 +651,8 @@ def main() -> None:
     _LOG.with_suffix(".json").write_text(
         json.dumps(
             {
-                "model": args.model,
-                "threads": args.threads,
+                "model": model_tag,
+                "threads": threads,
                 "clips": [w.name for w in wavs],
                 "chunk_sizes_s": chunk_sizes,
                 "pooled": {k: list(v) for k, v in pooled.items()},

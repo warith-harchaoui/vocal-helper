@@ -53,16 +53,21 @@ Warith Harchaoui — https://www.linkedin.com/in/warith-harchaoui/
 
 from __future__ import annotations
 
-import argparse
 import asyncio
 import glob
 import time
 from pathlib import Path
+from typing import TYPE_CHECKING
 
+import click
 import numpy as np
-import soundfile as sf
-from pyannote.core import Annotation, Segment
-from pyannote.metrics.diarization import DiarizationErrorRate
+
+# soundfile and the pyannote ground-truth tooling are study-only
+# dependencies (the ``[pyannote]`` extra plus ``pyannote.metrics``), so each
+# is imported inside the function that needs it. That is what lets ``--help``
+# render on a machine carrying neither.
+if TYPE_CHECKING:  # pragma: no cover — annotations only
+    from pyannote.core import Annotation
 
 from vocal_helper.diar import OfflineDiarStage, OnlineDiarStage
 from vocal_helper.types import PcmFrame
@@ -128,6 +133,8 @@ def load_pcm(wav: Path) -> np.ndarray:
         Mono ``float32`` samples resampled to :data:`SR` (16 kHz) — the
         rate every diarization backend in this study expects.
     """
+    import soundfile as sf
+
     pcm, sr = sf.read(str(wav))
     # Downmix to mono; the diarizers work on a single channel.
     if pcm.ndim > 1:
@@ -156,6 +163,8 @@ def ref_from_rttm(rttm: Path) -> Annotation:
         separated by no more than 0.3 s are merged into one turn, which
         keeps the reference from over-fragmenting into per-word segments.
     """
+    from pyannote.core import Annotation, Segment
+
     # Extract (start, end, speaker) rows from every SPEAKER line.
     rows = []
     for line in rttm.read_text().splitlines():
@@ -199,6 +208,8 @@ def ann_from_segs(segs: list[tuple[float, float, str]]) -> Annotation:
         A pyannote Annotation carrying one labelled segment per input
         tuple, ready to be scored against the reference.
     """
+    from pyannote.core import Annotation, Segment
+
     ann = Annotation()
     # Index each segment (the enumerate i) so identical (t0, t1) spans
     # with different labels don't collide as track keys.
@@ -275,27 +286,56 @@ async def _vad_segments(pcm: np.ndarray, warm_vad: SileroVADStage) -> list:
     return segs
 
 
-def main() -> None:
-    """Score the three paths on the chosen corpus and print a DER summary.
+@click.command(context_settings={"help_option_names": ["-h", "--help"]})
+@click.option(
+    "--bench",
+    required=True,
+    # argparse only coerced to Path here — it never checked the directory
+    # exists, so no ``exists=True``: load_pairs still reports a bad root.
+    type=click.Path(path_type=Path),
+    help="pdbms benchmark root",
+)
+@click.option(
+    "--corpus",
+    type=click.Choice(["bagarre", "ami"]),
+    default="bagarre",
+    show_default=True,
+    help="Which corpus to score: synthetic 3-speaker mixes, or AMI meetings.",
+)
+@click.option("--n", type=int, default=40, show_default=True, help="Clips to score.")
+def main(bench: Path, corpus: str, n: int) -> None:
+    """Score the four diarization paths against ground-truth RTTM.
 
-    Loads the requested corpus, warms every diarization backend once,
-    then for each clip computes the DER of the two offline paths and the
-    two online paths against the ground truth, and prints per-clip lines
-    plus a pooled mean/median summary.
+    Runs the two offline backends (pyannote, NeMo Sortformer) and the two
+    online ones (streaming, streaming + refine_on_close) on each clip and
+    prints per-clip DER plus a pooled mean/median summary.
+
+    \f
+
+    Parameters
+    ----------
+    bench : Path
+        Root of the off-repo pdbms benchmark tree.
+    corpus : str
+        ``"bagarre"`` (synthetic 3-speaker mixes) or ``"ami"``.
+    n : int
+        Maximum number of clips to score.
 
     Returns
     -------
     None
     """
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--bench", required=True, type=Path, help="pdbms benchmark root")
-    ap.add_argument("--corpus", choices=["bagarre", "ami"], default="bagarre")
-    ap.add_argument("--n", type=int, default=40)
-    args = ap.parse_args()
+    # The ``\f`` closing the summary above is click's help-truncation marker:
+    # click renders the *whole* docstring into ``--help``, so without it the
+    # numpydoc blocks (and their RST double backticks) would reach users.
+    #
+    # pyannote.metrics ships with the [pyannote] study extra; importing it here
+    # keeps ``--help`` working without it.
+    from pyannote.metrics.diarization import DiarizationErrorRate
 
     # Resolve the clip list for the chosen corpus up front.
-    pairs = load_pairs(args.bench, args.corpus, args.n)
-    print(f"corpus={args.corpus}  clips={len(pairs)}  collar={COLLAR}")
+    pairs = load_pairs(bench, corpus, n)
+    print(f"corpus={corpus}  clips={len(pairs)}  collar={COLLAR}")
 
     # Warm every backend once so the per-clip loop times inference, not
     # model loading. Two offline diarizers (pyannote + NeMo Sortformer),
@@ -370,7 +410,7 @@ def main() -> None:
             print(f"[{idx + 1}/{len(pairs)}] {name}: SKIP {exc!r}", flush=True)
 
     # Pooled summary: mean + median DER per path over the clips that scored.
-    print(f"\n=== {args.corpus} DER summary ({time.perf_counter() - t0:.0f}s) ===")
+    print(f"\n=== {corpus} DER summary ({time.perf_counter() - t0:.0f}s) ===")
     for key, vals in ders.items():
         # Skip paths with no successful clips.
         if vals:

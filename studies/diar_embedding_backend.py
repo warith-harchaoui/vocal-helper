@@ -47,30 +47,20 @@ Author : Warith HARCHAOUI — 2026-06-30
 
 from __future__ import annotations
 
-import argparse
 import json
 import os
 import statistics
+import sys
 import time
 from pathlib import Path
 
+import click
 import numpy as np
-import soundfile as sf
 
-# Pull the same helpers the production diarizer uses.
-from vocal_helper.diar import _PyannoteEmbedder, _TitaNetEmbedder
-from vocal_helper._settings import resolve_hf_token
-
-# pdbms's VAD utilities — already imported by the pipeline. The pdbms
-# source tree lives off-repo, so prepend it to sys.path before importing
-# its VAD helper (this study reuses the exact same Silero front-end).
-import sys
-
-sys.path.insert(
-    0,
-    "/Users/warithharchaoui/pasdebonneoudemauvaisesituation/src",
-)
-from pdbms.utils.snr import silero_vad_mask  # type: ignore
+# pdbms's VAD utilities live in an off-repo source tree, so its parent
+# directory has to be on ``sys.path`` before the helper can be imported.
+# The import itself happens inside :func:`main` (see there).
+PDBMS_SRC = "/Users/warithharchaoui/pasdebonneoudemauvaisesituation/src"
 
 # Off-repo corpus + fixed run constants. AMI dev-slice supplies the mix
 # clips; the two named meetings are the same pair used by the pdbms study.
@@ -120,6 +110,11 @@ def read_mono_wav(path: Path) -> tuple[np.ndarray, int]:
         Mono ``float32`` samples and their native sample rate (asserted
         to be :data:`SR` by the caller).
     """
+    # soundfile is a study-only dependency (ground-truth tooling, never a
+    # runtime one), so it is imported here rather than at module level —
+    # that keeps ``--help`` working on a machine without it installed.
+    import soundfile as sf
+
     audio, sr = sf.read(str(path), dtype="float32")
     # Collapse any multichannel clip to mono for the single-channel VAD
     # and embedders.
@@ -377,22 +372,44 @@ def evaluate(
     }
 
 
-def main() -> None:
-    """Run the embedding-backend margin sweep and print/persist results.
+@click.command(context_settings={"help_option_names": ["-h", "--help"]})
+@click.option(
+    "--hf-token",
+    default=None,
+    help="HuggingFace token for the gated pyannote/embedding weights "
+    "(falls back to $HF_TOKEN, then settings.yaml secrets.hf_token).",
+)
+def main(hf_token: str | None) -> None:
+    """Compare pyannote/embedding and TitaNet as the online speaker embedder.
 
-    Loads both embedders once, then for each AMI meeting VADs the mix,
-    labels each voiced segment with its dominant ground-truth speaker,
-    evaluates both backends' intra/inter cosine margins, and finally
-    prints a pooled table naming the winner by separability margin and
-    dumps everything to a JSON sidecar.
+    For every AMI meeting: VAD the mix, label each voiced segment with its
+    dominant ground-truth speaker, then score both backends on the
+    intra/inter cosine separability margin the online diarizer clusters on.
+
+    \f
+
+    Parameters
+    ----------
+    hf_token : str or None
+        Token for the gated ``pyannote/embedding`` weights, or ``None`` to
+        let :func:`resolve_hf_token` walk env var then ``settings.yaml``.
 
     Returns
     -------
     None
     """
-    p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--hf-token", default=None)
-    args = p.parse_args()
+    # The ``\f`` closing the summary above is click's help-truncation marker:
+    # click renders the *whole* docstring into ``--help``, so without it the
+    # numpydoc blocks (and their RST double backticks) would reach users.
+    #
+    # The production embedders and the off-repo pdbms VAD helper are imported
+    # here, not at module level, so ``--help`` renders on a machine that has
+    # neither the [pyannote]/[nemo] extras nor the pdbms checkout.
+    from vocal_helper._settings import resolve_hf_token
+    from vocal_helper.diar import _PyannoteEmbedder, _TitaNetEmbedder
+
+    sys.path.insert(0, PDBMS_SRC)
+    from pdbms.utils.snr import silero_vad_mask  # type: ignore
 
     # Ensure the log directory exists, then truncate any prior transcript
     # before writing the run header.
@@ -402,7 +419,7 @@ def main() -> None:
     log(f"# meetings : {MEETINGS}")
 
     # pyannote/embedding is gated on HF; resolve the token once.
-    token = resolve_hf_token(args.hf_token)
+    token = resolve_hf_token(hf_token)
 
     # Build both embedders once.
     pyannote = _PyannoteEmbedder(hf_token=token)
