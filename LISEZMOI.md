@@ -11,15 +11,20 @@
 
 `Vocal Helper` fait partie de la collection `AI Helpers` : des bibliothèques Python pensées pour bâtir des outils d'intelligence artificielle.
 
+[![logo](https://raw.githubusercontent.com/warith-harchaoui/vocal-helper/main/assets/logo.png)](https://deraison.ai/ai-helpers)
+
 [🌍 AI Helpers](https://deraison.ai/ai-helpers)
 
 ## La promesse
 
 **Local d'abord, par conception.** vocal-helper tourne entièrement sur votre machine : transcription (mettre la parole en texte), diarisation (déterminer qui, parmi plusieurs locuteurs possibles, a dit quel passage, en les étiquetant S0, S1, ainsi de suite) et résumé se font en local (whisper.cpp / pyannote / NeMo / Ollama). Votre audio et vos transcriptions ne partent jamais vers un service tiers, aucune télémétrie, aucun compte, aucun verrouillage propriétaire. Votre voix, comme celle de toutes les personnes enregistrées, compte parmi les données les plus personnelles qui soient ; une transcription est le compte rendu mot pour mot de ce qui a été dit et par qui. Garder les deux sur votre propre matériel, c'est ce qui rend l'outil sûr à pointer sur une vraie réunion, un entretien ou une séance. Fait partie de la suite [AI Helpers](https://github.com/warith-harchaoui/ai-helpers) : la souveraineté sur vos données par l'Open Source local d'abord.
 
-Vocal Helper transforme un flux audio PCM (modulation d'impulsions codées) en énoncés diarisés et transcrits, avec en option un résumé glissant produit par un LLM (grand modèle de langue). En interne, c'est un **pipeline producteur/consommateur** : chaque étape de traitement (détecter la parole, identifier le locuteur, transcrire, résumer) tourne comme un poste de travail séparé ; chaque poste transmet son résultat au suivant par une file d'attente, comme une chaîne de boulangerie où la pâte passe du pétrin au four puis au refroidissement, chaque poste traitant un lot différent en même temps plutôt que d'attendre, inactif, que toute la commande soit finie.
+Vocal Helper transforme un flux audio PCM (modulation d'impulsions codées) en énoncés diarisés et transcrits, avec en option un résumé glissant produit par un LLM (grand modèle de langue). En interne, c'est un **pipeline producteur/consommateur** : chaque étape de traitement (détecter la parole, identifier le locuteur, transcrire, résumer) tourne comme un poste de travail séparé ; chaque poste transmet son résultat au suivant par une file d'attente, comme une chaîne de boulangerie où la pâte passe du pétrin au four puis au refroidissement, chaque poste traitant un lot différent en même temps plutôt que d'attendre, inactif, que toute la commande soit finie. Deux chemins sont livrés :
 
-Vocal Helper est éprouvé en production. Le paquet est publié sur [PyPI](https://pypi.org/project/vocal-helper/) sous des tags versionnés selon le [versionnage sémantique](https://semver.org/lang/fr/) (actuellement `v2.0.4`) ; l'intégration continue (CI, une chaîne automatisée qui fait tourner les tests et le linter à chaque envoi) reste au vert sur `main` avant toute publication d'un tag. Il occupe le sommet du graphe de dépendances de la suite AI Helpers, le paquet le plus complet et le plus lourd de la suite. Il s'appuie sur cinq sœurs : [os-helper](https://github.com/warith-harchaoui/os-helper) pour la journalisation et la gestion des fichiers partagées ; [best-engine-ai-helper](https://github.com/warith-harchaoui/best-engine-ai-helper) pour le choix du modèle de langue décrit plus bas ; [audio-helper](https://github.com/warith-harchaoui/audio-helper) pour le décodage indépendant du format ; [capture-helper](https://github.com/warith-harchaoui/capture-helper) pour la source micro en direct ; et [podcast-helper](https://github.com/warith-harchaoui/podcast-helper) pour toute URL qu'un navigateur saurait ouvrir. Chacune de ces cinq bibliothèques doit fonctionner correctement pour qu'une seule transcription sorte juste, ce qui fait de ce paquet le test d'intégration le plus exigeant de la suite au quotidien.
+- **Online** (`voh.Pipeline`) : flux PCM vivant → transcription en direct + résumé en direct. Chaque étage tourne à sa propre cadence, découplé par des files bornées. L'étage STT (transcription de la parole) se préchauffe au démarrage pour que le premier sous-titre n'attende pas l'inférence à froid de whisper.
+- **Offline** (`voh.OfflinePipeline`) : buffer audio complet → diarisation de la meilleure qualité possible (pyannote community-1 traite la réunion entière en un seul appel ; l'étude map-reduce offline du 2026-07-14 a trouvé le buffer entier strictement meilleur en DER, taux d'erreur de diarisation, le découpage-recollage ne survivant que comme garde-fou mémoire au-delà de ~1 h) → **transcription en lot à plein régime** (segments consécutifs concaténés en appels whisper de ≤ 24 s, RTF ~6,5× plus bas pour un WER meilleur selon le balayage du 2026-07-09) → résumé. `OfflinePipelineConfig(asr={"batch": False})` redonne l'ASR segment par segment.
+
+Vocal Helper est éprouvé en production. Le paquet est publié sur [PyPI](https://pypi.org/project/vocal-helper/) sous des tags versionnés selon le [versionnage sémantique](https://semver.org/lang/fr/) (actuellement `v3.3.0`) ; l'intégration continue (CI, une chaîne automatisée qui fait tourner les tests et le linter à chaque envoi) reste au vert sur `main` avant toute publication d'un tag. Il occupe le sommet du graphe de dépendances de la suite AI Helpers, le paquet le plus complet et le plus lourd de la suite. Il s'appuie sur cinq sœurs : [os-helper](https://github.com/warith-harchaoui/os-helper) pour la journalisation et la gestion des fichiers partagées ; [best-engine-ai-helper](https://github.com/warith-harchaoui/best-engine-ai-helper) pour le choix du modèle de langue décrit plus bas ; [audio-helper](https://github.com/warith-harchaoui/audio-helper) pour le décodage indépendant du format ; [capture-helper](https://github.com/warith-harchaoui/capture-helper) pour la source micro en direct ; et [podcast-helper](https://github.com/warith-harchaoui/podcast-helper) pour toute URL qu'un navigateur saurait ouvrir. Chacune de ces cinq bibliothèques doit fonctionner correctement pour qu'une seule transcription sorte juste, ce qui fait de ce paquet le test d'intégration le plus exigeant de la suite au quotidien.
 
 ## Documentation
 
@@ -60,7 +65,7 @@ L'arête pointillée indique que l'analyste LLM est optionnel
 ```mermaid
 flowchart LR
     S([Source<br/><i>buffer PCM complet</i>]):::source
-      --> D[Diar offline<br/><i>pyannote 3.1<br/>buffer entier</i>]:::diar
+      --> D[Diar offline<br/><i>pyannote community-1<br/>buffer entier</i>]:::diar
       --> A[STT<br/><i>whisper.cpp turbo</i>]:::asr
       -.-> L[Analyste LLM<br/><i>modèle best-engine · résumé glissant</i>]:::llm
 
@@ -76,11 +81,16 @@ complet et fait sa propre segmentation.
 | Étage | Modèle | Notes |
 |---|---|---|
 | **VAD** (détection d'activité vocale) | Silero v5 ONNX (CPU, processeur central) | Fenêtre 32 ms, `activity_threshold=0.5`, `min_silence_ms=300` par défaut. |
-| **Diarisation (online)** | `pyannote/embedding` (défaut) ou `nvidia/titanet_large` (NeMo) | Embedding par segment + clustering moyenne-mobile par distance cosinus, `join_threshold=0.30`. Calibré sur AMI dev-slice N=8 (2026-06-30). |
+| **Diarisation (online)** | `nvidia/titanet_large` (NeMo, défaut), `pyannote/embedding` ou `sherpa` (TitaNet ONNX sans torch) | Embedding par segment + clustering moyenne-mobile par distance cosinus, `join_threshold=0.50`. Monté de 0,30 à **0,50** quand TitaNet est devenu l'embedder par défaut : il vit sur une autre échelle de cosinus ; le rejeu sur 8 réunions AMI (`DIARIZATION-TROUBLES.md`, cause racine 5) trouvait 87 locuteurs à 0,30 là où il y en a 4, contre 28 à 0,50, pour une confusion médiane de 0,234 contre 0,095. Le défaut est passé à NeMo au balayage d'embedders du 2026-06-30 (`studies/diar_embedding_backend.py`) : TitaNet gagne **+76 % de marge de séparabilité** (cosinus médian inter − intra = 0,354 contre 0,201 pour pyannote/embedding) sur AMI dev-slice, pour 7× de latence par appel (45 ms contre 6 ms, négligeable par segment voisé). `backend='pyannote'` évite les ~5 Go d'installation NeMo, `backend='sherpa'` le chemin sans torch. |
+| **Diarisation (offline)** | `pyannote` **community-1** (défaut depuis `3.0.0`), `nvidia/diar_sortformer_v1` (NeMo) ou `sherpa` (sans torch) | Appel sur le buffer entier. Au-delà de `ideal_duration_s` (**3600 s** pour pyannote, soit le buffer entier en pratique, le découpage n'étant qu'un garde-fou mémoire ; **60 s** pour NeMo, imposé par le plafond Sortformer de 90 s) l'audio est découpé avec 10 s de recouvrement puis recollé par AHC cosinus à `stitch_threshold=0.35`. **Le backend retenu est décidé par le [routeur](#routeur-de-backend--laiguilleur).** |
 | **STT** (transcription de la parole) | [`pywhispercpp`](https://github.com/abdeladim-s/pywhispercpp) turbo | `large-v3-turbo-q5_0` par défaut, timestamps mots activés. Exécution en thread pool pour ne jamais bloquer la boucle async. |
-| **Analyste LLM** *(optionnel)* | Modèle résolu via **best-engine-ai-helper** depuis le brief versionné `vocal_helper/llm.brief.yaml`, servi par Ollama ou vLLM | Résumé glissant de tout ce qui est **plus vieux que 60 s**. La fenêtre récente de 60 s reste verbatim. Aucun tag de modèle n'est codé en dur : `best-engine-ai-helper` résout le brief en un `llm.engine.yaml` spécifique à la machine (gitignoré) qui nomme le backend + le modèle et chaque requête passe par `best_engine_ai_helper.llm.chat`. |
+| **Analyste LLM** *(optionnel)* | Modèle résolu via **best-engine-ai-helper** depuis le brief versionné `vocal_helper/llm.brief.yaml`, servi par Ollama ou vLLM | Résumé glissant de tout ce qui est **plus vieux que 60 s**. La fenêtre récente de 60 s reste verbatim et le résumé se rafraîchit tous les **60 s de contenu évincé** (`flush_every_s=60`). Aucun tag de modèle n'est codé en dur : `best-engine-ai-helper` résout le brief en un `llm.engine.yaml` spécifique à la machine (gitignoré) qui nomme le backend + le modèle et chaque requête passe par `best_engine_ai_helper.llm.chat`. |
 
 ## Installation
+
+> **Plus de recettes ?** Voir [`EXEMPLES.md`](https://github.com/warith-harchaoui/vocal-helper/blob/main/EXEMPLES.md)
+> pour un livre de recettes autonome et copiable des cas courants
+> (micro en direct, rejeu d'URL, lot offline, abonnés, bibliothèque + CLI).
 
 > **Déploiement sur un serveur GPU (processeur graphique) ?** Voir [TECHNICAL_STACK.md](https://github.com/warith-harchaoui/vocal-helper/blob/main/TECHNICAL_STACK.md)
 > pour la recette complète : CUDA + PyTorch, whisper.cpp compilé avec
@@ -97,6 +107,15 @@ complet et fait sa propre segmentation.
 - 🪟 **Windows** (PowerShell) : `winget install Python.Python.3.12 Git.Git Gyan.FFmpeg` (PortAudio est inclus dans les wheels Python)
 
 Nous recommandons d'utiliser des environnements Python. Consultez ce lien si vous ne savez pas en configurer un : [🥸 Tech tips](https://deraison.ai/4ml/#install).
+
+> **Aucun compilateur pour l'installation de base.** Le cœur (`vocal-helper`,
+> sans extra) ne tire que des **wheels précompilées** sur toutes les plateformes
+> courantes : `pywhispercpp` en publie pour macOS arm64, Linux x86_64/aarch64 et
+> Windows (cp39–cp314), donc rien ne compile. Les pièces lourdes sont
+> **optionnelles** : l'extra `[nemo]` apporte ~5 Go de PyTorch et la diarisation
+> offline récupère un bundle de modèles à la première utilisation (voir *Poids
+> des modèles* plus bas). Installation de base = bibliothèque + CLI + ASR/VAD +
+> analyste LLM.
 
 ### Depuis PyPI (recommandé)
 
@@ -144,7 +163,7 @@ ollama serve   # la ligne `serve:` de l'engine nomme le `ollama pull …` exact
 ### Poids des modèles : aucun HuggingFace requis
 
 Tous les poids sont fournis dans un **bundle diarization-engines**
-auto-hébergé (pyannote 3.1 offline, NeMo Sortformer, l'embedder online
+auto-hébergé (pyannote community-1 et 3.1 offline, NeMo Sortformer, l'embedder online
 `pyannote/embedding`, SpeechBrain VoxLingua107 et le `sherpa` ONNX
 sans PyTorch, segmentation pyannote-3.0 + TitaNet). On pointe `vocal-helper`
 dessus une fois et toute la chaîne tourne **sans HuggingFace** : aucun
@@ -160,10 +179,46 @@ cp settings.yaml.example settings.yaml
 # settings.yaml est gitignoré.
 ```
 
-L'URL du bundle est téléchargée une fois puis mise en cache sous
-`~/.cache/vocal-helper` ; vous pouvez aussi pointer
-`$VH_DIARIZATION_ENGINES` vers un dossier local. TitaNet (embedder online
+#### Ce que contient l'URL
+
+`https://deraison.ai/diarization-engines-slim.zip` est un **ZIP auto-hébergé**
+(~800 Mo) qui miroite chaque modèle gated ou hébergé sur un hub dont la chaîne a
+besoin, pour que le projet n'ait jamais à s'authentifier auprès de HuggingFace.
+Il contient :
+
+| Dossier | Poids | Utilisé par |
+|---|---|---|
+| `pyannote-community-1/` | le dossier du checkpoint community-1 avec son propre `config.yaml` | diarisation offline — le défaut que le code cherche d'abord |
+| `pyannote-3.1/` | segmentation-3.0 + wespeaker `.bin` + un `config.yaml` local | diarisation offline — le repli, signalé par un avertissement, quand le bundle configuré est antérieur à community-1 |
+| `nemo-sortformer/` | `diar_sortformer_4spk-v1.nemo` | diarisation offline (NeMo) |
+| `pyannote-embedding/` | embedding `.bin` | diarisation online |
+| `speechbrain-voxlingua107/` | instantané ECAPA VoxLingua107 | vérification croisée de la langue |
+| `manifest.json` | sha256 + tailles | contrôle d'intégrité au téléchargement |
+
+Il est téléchargé une fois, vérifié contre `manifest.json` puis mis en cache sous
+`~/.cache/vocal-helper` ; les runs suivants lisent le cache. Pointez
+`$VH_DIARIZATION_ENGINES` vers un dossier local (ou vers votre propre miroir)
+pour un déploiement auto-hébergé ou coupé du réseau. TitaNet (l'embedder online
 par défaut) se charge depuis NVIDIA NGC, sans HuggingFace non plus.
+
+## Prise en main rapide
+
+Deux commandes pour du texte, quatre pour du texte avec les locuteurs. Le
+premier passage de chaque chemin télécharge les poids dont il a besoin puis les
+met en cache : seul le premier est lent.
+
+```bash
+pip install 'vocal-helper[all]'            # ou simplement `vocal-helper` pour le cœur léger
+vocal-helper transcribe clip.wav           # texte seul : ni VAD, ni diarisation, ni config
+
+cp settings.yaml.example settings.yaml     # porte l'URL des diarization-engines
+vocal-helper file reunion.wav --no-real-time   # + les locuteurs ; le routeur choisit le backend
+```
+
+`transcribe` est le chemin court parce qu'il court-circuite toute la chaîne. Les
+quatre recettes ci-dessous sont la vraie surface : un micro en direct, l'API
+Python, un fichier dans la chaîne streaming et un fichier dans la chaîne
+offline.
 
 ### Micro live → terminal
 
@@ -206,7 +261,7 @@ vocal-helper file chemin/vers/conversation.wav --llm
 
 La source fichier respecte le tempo réel par défaut ; `--no-real-time` accélère le traitement (mode batch).
 
-### Traitement **offline** en lot sur un WAV (pyannote 3.1 buffer entier)
+### Traitement **offline** en lot sur un WAV (pyannote community-1, buffer entier)
 
 ```python
 import asyncio, vocal_helper as voh
@@ -236,7 +291,7 @@ Quel pipeline utiliser, sachant que le [routeur](#routeur-de-backend--laiguilleu
 | Cas d'usage | Pipeline | Backend (choix du routeur) | Pourquoi |
 |---|---|---|---|
 | Micro live / flux live | `Pipeline` | `nemo` online | Diarisation temps réel + transcript à RTF ≈ 0,03. L'online est une approximation limitée par la latence (~3-4× le DER offline) ; `nemo` est le meilleur embedder online à toute longueur. |
-| Réunion / podcast / conférence / messagerie vocale en lot | `OfflinePipeline` | `pyannote` 3.1 | pyannote sur l'audio entier donne la réponse la meilleure qualité, médiane AMI DER 0,116, dans la bande Bredin 2023 ; NeMo bloque au-delà de ~25 min. |
+| Réunion / podcast / conférence / messagerie vocale en lot | `OfflinePipeline` | `pyannote` community-1 | pyannote sur l'audio entier donne la meilleure qualité, médiane AMI DER 0,116, dans la bande Bredin 2023 ; la pire réunion de community-1 est à 0,149 contre 0,474 pour 3.1 ; NeMo bloque au-delà de ~25 min. |
 | Extraits ≤ 60 s, ≤ 4 locuteurs, traitement rapide | `OfflinePipeline(backend='nemo')` | Sortformer `nemo` | Attribution bout-en-bout, confusion ≈ 0, RTF ≈ 0,004 (250×). |
 | Sur poste sans PyTorch | l'un ou l'autre, `backend='sherpa'` | `sherpa` ONNX | TitaNet-large sans PyTorch, DER 0,174/0,148, FR+EN, embarquable partout. |
 
@@ -246,6 +301,7 @@ Quel pipeline utiliser, sachant que le [routeur](#routeur-de-backend--laiguilleu
 
 | Surface | Point d'entrée | Extra | Usage |
 |---|---|---|---|
+| Bibliothèque Python | `import vocal_helper as voh` | (aucun) | Composez les étages dans votre propre application ; API typée complète. |
 | CLI | `vocal-helper` | (aucun, livré avec l'install de base) | Scripts shell, cron, CI headless, redirection vers `jq` ; `--help` riche, `-h` / `-V`, complétion shell. |
 | HTTP FastAPI | `uvicorn vocal_helper.api:app` | `[api]` | Derrière un reverse proxy : upload d'un fichier (ou champ `url`), réponse transcription/événements, `GET /docs` pour l'OpenAPI. |
 | Outils MCP | `vocal-helper-mcp` | `[api,mcp]` | N'importe quel hôte compatible MCP (runtimes d'agent, intégrations IDE) : publie `transcribe` et `pipeline` comme outils natifs. |
@@ -257,8 +313,8 @@ vocal-helper transcribe clip.wav
 vocal-helper file reunion.wav --offline --llm
 
 # surface HTTP + interface web (ouvrez http://127.0.0.1:8000/gui)
-uvicorn vocal_helper.api:app --host 0.0.0.0 --port 8000 &
-curl -F 'file=@clip.wav' -F 'language=fr' http://localhost:8000/transcribe
+uvicorn vocal_helper.api:app --host 127.0.0.1 --port 8000 &
+curl -F 'file=@clip.wav' http://localhost:8000/transcribe        # langue découverte
 curl -F 'url=https://youtu.be/…' http://localhost:8000/pipeline  # URL récupérée localement ([stream])
 
 # surface MCP (même app FastAPI + endpoint /mcp monté)
@@ -391,8 +447,9 @@ révisions**, qui sont le prix honnête des 500 ms. À lire à côté de la late
 (2026-06-29, N=2089 par système) classe `hungarian_nemo` (w=20 s, DER 0,13–0,20) jusqu'à 300 s
 et `hungarian_pyannote` (w=30 s, 0,30–0,45) au-delà. `OnlineDiarStage` spécialise ça : le VAD
 isole déjà chaque segment voisé, donc la fenêtre glissante se réduit à un plongement par
-segment plus un clustering cosinus à moyenne courante. `join_threshold=0,30` vient du balayage
-AMI dev-slice du 2026-06-30.
+segment plus un clustering cosinus à moyenne courante. `join_threshold` vaut **0,50**, monté depuis le 0,30
+calibré pour `pyannote/embedding` avant que TitaNet ne devienne l'embedder par
+défaut puis ne déplace l'échelle de cosinus sous lui.
 
 ## Mesure de la transcription : `vocal_helper.bench`
 
@@ -506,7 +563,7 @@ arrivé en `2.0.0`). Ce qui reste ouvert :
 ## Versionnage & stabilité
 
 `vocal-helper` a atteint sa première version stable en `1.0.0` et se trouve
-aujourd'hui en `2.x`, suivant le [versionnage sémantique](https://semver.org) :
+aujourd'hui en `3.x`, suivant le [versionnage sémantique](https://semver.org) :
 
 - L'**API publique**, c'est `vocal_helper.__all__` plus les options CLI
   documentées. C'est à cela que s'appliquent les promesses de stabilité.
@@ -514,10 +571,15 @@ aujourd'hui en `2.x`, suivant le [versionnage sémantique](https://semver.org) :
   MAJEURE** (`1.x` → `2.0.0`). Une version **MINEURE** ajoute des
   fonctionnalités de façon compatible ; un **correctif** ne touche qu'aux bugs
   et à la documentation, jamais à un défaut.
-- `2.0.0` est la seule version majeure livrée depuis `1.0.0` : elle a remplacé
-  le tag de modèle LLM codé en dur par un engine résolu par machine depuis un
-  brief versionné (voir le CHANGELOG), ce qui a changé la surface CLI/API de
-  l'analyste, d'où le saut de version majeure plutôt que mineure.
+- Deux versions majeures sont parties depuis `1.0.0`, toutes deux pour un
+  changement de défaut plutôt que pour une suppression de nom. `2.0.0` a
+  remplacé le tag de modèle LLM codé en dur par un engine résolu par machine
+  depuis un brief versionné, ce qui a changé la surface CLI/API de l'analyste.
+  `3.0.0` fait lever `StageCrashed` à un run qui a perdu un étage au lieu de
+  rendre une transcription vide et fait passer le checkpoint pyannote offline à
+  community-1. `strict=False` rend l'indulgence d'avant ; le checkpoint n'a
+  aucun levier public — un bundle antérieur à community-1 retombe sur 3.1
+  avec un avertissement.
 - Les dépréciations reçoivent une version avec avertissement avant suppression.
 
 ## Auteur

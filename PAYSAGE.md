@@ -94,9 +94,18 @@ Concrètement, ce qui est ici et rare ailleurs :
 - **Des échecs bruyants.** Un étage perdu lève une exception au lieu de rendre une transcription
   vide.
 
-## Quand prendre autre chose
+## Quand choisir quoi
 
-La moitié honnête d'un document de paysage.
+Un comparatif qui ne recommande jamais un concurrent est une publicité, donc
+cette section va dans les deux sens.
+
+**Prenez `vocal-helper`** quand il vous faut du texte attribué aux locuteurs
+*pendant que l'audio arrive encore*, sur votre propre machine, quand vous
+préférez configurer une chaîne plutôt que l'assembler — et quand le même code
+devra traiter un enregistrement plus tard, le backend de diarisation étant
+choisi pour vous d'après la durée réelle du fichier au lieu d'être deviné.
+
+**Prenez autre chose** quand :
 
 - **Vous voulez seulement la transcription d'un fichier.** Prenez `faster-whisper` ou
   `whisper.cpp` directement : tout ce qui est ici sur les files et la latence est du poids mort
@@ -110,3 +119,54 @@ La moitié honnête d'un document de paysage.
   vise une machine de classe portable.
 - **Vous voulez un engagement de service, pas une bibliothèque.** Deepgram, Gladia, AssemblyAI.
   L'échange est la souveraineté : l'audio quitte la machine et la facture suit les heures.
+
+## Sources et date de relevé
+
+**Relevé le 2026-10-19.** Chaque note ci-dessus porte sur un logiciel qui
+bouge : la date fait partie de l'affirmation.
+
+Le tableau mêle deux sortes de preuves qui ne valent pas la même chose.
+
+**Mesuré ici.** Les constats de *Ce que nous avons mesuré nous-mêmes* — comme
+chaque DER / RTF que ce dépôt cite — viennent d'un script de ce dépôt lancé sur un
+corpus nommé, jamais d'un chiffre fourni par un éditeur :
+
+| Constat | Où il a été produit | Corpus |
+|---|---|---|
+| DER + RTF par scénario derrière le routeur | [`studies/router_profile_validation.py`](studies/router_profile_validation.py) | 30 mixes courts (`bagarre`) + AMI dev-slice, `pyannote.metrics` collar 0.25, médiane |
+| le défaut d'embedder online (`nemo`) | [`studies/diar_embedding_backend.py`](studies/diar_embedding_backend.py) | AMI dev-slice, marge cosinus inter- moins intra-locuteur |
+| community-1 contre 3.1, médiane et queue | [`CHANGELOG.md`](CHANGELOG.md), entrée `3.0.0` | AMI, 8 réunions, collar 0, recouvrement compté |
+| la sur-segmentation sur de vrais plateaux, dont les ×19,7 de sherpa-onnx | [`DIARIZATION-TROUBLES.md`](DIARIZATION-TROUBLES.md) §9-§10 | trois plateaux de 64 min à six personnes |
+| ce que vaut un `initial_prompt` en WER et en RTF | [`studies/whisper_prompt_lang_lock.py`](studies/whisper_prompt_lang_lock.py) | AMI dev-slice |
+| la cadence de résumé (`flush_every_s=60`) | [`studies/llm_cadence_sweep_multi.py`](studies/llm_cadence_sweep_multi.py) | ≥ 4 réunions AMI |
+
+Deux réserves dues au lecteur. L'audio de la validation du routeur et de la
+ligne `sherpa` (ADR 0002) vit dans un dépôt compagnon **privé**
+(`pasdebonneoudemauvaisesituation`) : ces runs sont reproductibles chez nous et
+pas chez vous. Le classement des diariseurs streaming et la comparaison `diart`
+viennent de deux autres dépôts non publics — `pdbms` (balayage du 2026-06-29,
+N = 2089 par système) et `operator-assistance-streaming`. Ils sont cités pour la
+provenance et constituent une preuve plus faible que les lignes que vous pouvez
+ouvrir.
+
+**Lu, pas mesuré.** Toutes les autres cases sont notre lecture du dépôt et de la
+documentation du projet concerné à la date du relevé : ce qu'il livre et ce
+qu'il annonce prendre en charge. Quand une capacité était une affaire de degré,
+nous avons noté vers le bas plutôt que vers le haut ; quand un projet est fait
+pour un autre métier, la note dit « adéquation à *ce* créneau », jamais
+« moins bon logiciel ».
+
+Les travaux amont sur lesquels ce paquet s'appuie réellement sont tenus en
+BibTeX dans [`doc/refs.bib`](doc/refs.bib) — entre autres
+[whisper.cpp](https://github.com/ggerganov/whisper.cpp),
+[faster-whisper](https://github.com/SYSTRAN/faster-whisper),
+[NVIDIA NeMo](https://github.com/NVIDIA/NeMo),
+[sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx),
+[pyannote community-1](https://www.pyannote.ai/blog/community-1) et l'article
+INTERSPEECH 2023 de Bredin pour la bande de DER publiée à laquelle la chaîne
+pyannote est comparée.
+
+Aucun chiffre de benchmark n'apparaît ci-dessus pour Deepgram, Gladia,
+AssemblyAI ou pyannoteAI : nous ne les avons pas fait tourner sur ce corpus, et
+imprimer le chiffre d'un éditeur à côté des nôtres aurait l'air d'une
+comparaison alors que ce n'en est pas une.

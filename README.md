@@ -24,9 +24,9 @@
 Vocal Helper turns audio into diarized, transcribed utterances, with an optional rolling Large Language Model (LLM) summary of the conversation. Internally it is a **producer/consumer pipeline**: each processing step (detecting speech, identifying the speaker, transcribing, summarising) runs as its own worker, and each worker hands its output to the next one down a queue, the way a bakery's dough moves from the mixer to the oven to the cooling rack, each station working on a different batch at the same time instead of waiting idle for the whole order to finish. Two paths ship:
 
 - **Online** (`voh.Pipeline`): live Pulse-Code Modulation (PCM) stream → live transcript + live summary. Each stage runs at its own cadence, decoupled by bounded queues. The Speech-to-Text (STT) stage warms up on start so the first caption doesn't stall on whisper's cold inference.
-- **Offline** (`voh.OfflinePipeline`): full audio buffer → highest-quality diarization (pyannote 3.1 runs the whole meeting in one call; the 2026-07-14 offline map-reduce study found whole-buffer strictly best for Diarization Error Rate (DER), and chunk-and-stitch survives only as a memory backstop past ~1 h) → **full-throttle batched transcript** (consecutive segments concatenated into ≤ 24 s whisper calls, ~6.5× lower Real-Time Factor (RTF) at better Word Error Rate (WER) per the 2026-07-09 sweep) → summary. Opt back into per-segment Automatic Speech Recognition (ASR) with `OfflinePipelineConfig(asr={"batch": False})`.
+- **Offline** (`voh.OfflinePipeline`): full audio buffer → highest-quality diarization (pyannote community-1 runs the whole meeting in one call; the 2026-07-14 offline map-reduce study found whole-buffer strictly best for Diarization Error Rate (DER), and chunk-and-stitch survives only as a memory backstop past ~1 h) → **full-throttle batched transcript** (consecutive segments concatenated into ≤ 24 s whisper calls, ~6.5× lower Real-Time Factor (RTF) at better Word Error Rate (WER) per the 2026-07-09 sweep) → summary. Opt back into per-segment Automatic Speech Recognition (ASR) with `OfflinePipelineConfig(asr={"batch": False})`.
 
-Vocal Helper ships on [PyPI](https://pypi.org/project/vocal-helper/) under semantic-versioned tags (currently `v2.0.4`); continuous integration (CI, an automated pipeline that runs the test suite and the linter on every push) stays green on `main` before any tag goes out. It sits at the top of the AI Helpers dependency graph, the suite's most feature-complete and heaviest package. It builds on five siblings: [os-helper](https://github.com/warith-harchaoui/os-helper) for shared logging and file management; [best-engine-ai-helper](https://github.com/warith-harchaoui/best-engine-ai-helper) for the language-model routing described below; [audio-helper](https://github.com/warith-harchaoui/audio-helper) for format-agnostic decoding; [capture-helper](https://github.com/warith-harchaoui/capture-helper) for the live microphone source; and [podcast-helper](https://github.com/warith-harchaoui/podcast-helper) for any URL a browser could open. Each of those five has to work correctly for a single transcript to come out right, which makes this package the suite's most demanding integration test in daily use.
+Vocal Helper ships on [PyPI](https://pypi.org/project/vocal-helper/) under semantic-versioned tags (currently `v3.3.0`); continuous integration (CI, an automated pipeline that runs the test suite and the linter on every push) stays green on `main` before any tag goes out. It sits at the top of the AI Helpers dependency graph, the suite's most feature-complete and heaviest package. It builds on five siblings: [os-helper](https://github.com/warith-harchaoui/os-helper) for shared logging and file management; [best-engine-ai-helper](https://github.com/warith-harchaoui/best-engine-ai-helper) for the language-model routing described below; [audio-helper](https://github.com/warith-harchaoui/audio-helper) for format-agnostic decoding; [capture-helper](https://github.com/warith-harchaoui/capture-helper) for the live microphone source; and [podcast-helper](https://github.com/warith-harchaoui/podcast-helper) for any URL a browser could open. Each of those five has to work correctly for a single transcript to come out right, which makes this package the suite's most demanding integration test in daily use.
 
 ## Documentation
 
@@ -66,7 +66,7 @@ The dashed edge marks the analyst as optional (`llm=None` disables it).
 ```mermaid
 flowchart LR
     S([Source<br/><i>full PCM buffer</i>]):::source
-      --> D[Offline Diar<br/><i>pyannote 3.1<br/>whole-buffer</i>]:::diar
+      --> D[Offline Diar<br/><i>pyannote community-1<br/>whole-buffer</i>]:::diar
       --> A[STT<br/><i>whisper.cpp turbo</i>]:::asr
       -.-> L[LLM analyst<br/><i>best-engine model · rolling summary</i>]:::llm
 
@@ -82,8 +82,8 @@ and does its own segmentation.
 | Stage | Backend | Notes |
 |---|---|---|
 | **VAD** *(online only)* | Silero v5 ONNX (Central Processing Unit, CPU) | 32 ms window, `activity_threshold=0.5`, default `min_silence_ms=300`. |
-| **Online diarization** | `nvidia/titanet_large` (NeMo, default), `pyannote/embedding`, or `sherpa` (torch-free ONNX TitaNet) | Per-segment embedding + cosine-distance running-mean clustering, `join_threshold=0.30`. Default backend switched to NeMo by the 2026-06-30 embedding sweep (`studies/diar_embedding_backend.py`): TitaNet has **+76 % separability margin** (inter − intra median cosine = 0.354 vs pyannote 0.201) on AMI dev-slice, at 7× per-call latency (45 ms vs 6 ms, still negligible per voiced segment). Pass `backend='pyannote'` to skip the ~ 5 GB NeMo install, or `backend='sherpa'` for the torch-free path. |
-| **Offline diarization** | `pyannote/speaker-diarization-3.1` (default), `nvidia/diar_sortformer_v1` (NeMo), or `sherpa` (torch-free) | Whole-buffer call. Inputs longer than `ideal_duration_s` (**3600 s** for pyannote, effectively whole-buffer, chunking is a memory backstop only; **60 s** for NeMo, forced by its Sortformer 90 s cap) are auto-chunked with 10 s overlap and stitched by cosine AHC at `stitch_threshold=0.35`. The 2026-07-14 offline map-reduce study found whole-buffer strictly best for DER (0.143 vs 0.170 at 300 s). `sherpa` clusters the whole buffer internally, so `stitch_threshold` has no effect on it; its clustering is tuned instead by `sherpa_cluster_threshold` (default `0.5`, from clean AMI) and `sherpa_num_clusters` (default `-1` auto), both exposed since **v0.7.0**. The `0.5` default over-segments noisy 2-party telephony into dozens of speakers, so set `sherpa_num_clusters=2` when the count is known (see `doc/studies/diar-study.md` §12 in `pasdebonneoudemauvaisesituation`). **Which backend is picked is decided by the [router](#backend-router-the-aiguilleur) below.** |
+| **Online diarization** | `nvidia/titanet_large` (NeMo, default), `pyannote/embedding`, or `sherpa` (torch-free ONNX TitaNet) | Per-segment embedding + cosine-distance running-mean clustering, `join_threshold=0.50`. Raised from 0.30 to **0.50** once TitaNet became the default embedder: it sits on a different cosine scale, and the 8-meeting AMI replay (`DIARIZATION-TROUBLES.md` root cause 5) found 0.30 inventing 87 speakers where there were 4, against 28 at 0.50, with median confusion 0.234 against 0.095. Default backend switched to NeMo by the 2026-06-30 embedding sweep (`studies/diar_embedding_backend.py`): TitaNet has **+76 % separability margin** (inter − intra median cosine = 0.354 vs pyannote 0.201) on AMI dev-slice, at 7× per-call latency (45 ms vs 6 ms, still negligible per voiced segment). Pass `backend='pyannote'` to skip the ~ 5 GB NeMo install, or `backend='sherpa'` for the torch-free path. |
+| **Offline diarization** | `pyannote` **community-1** (default since `3.0.0`), `nvidia/diar_sortformer_v1` (NeMo), or `sherpa` (torch-free) | Whole-buffer call. Inputs longer than `ideal_duration_s` (**3600 s** for pyannote, effectively whole-buffer, chunking is a memory backstop only; **60 s** for NeMo, forced by its Sortformer 90 s cap) are auto-chunked with 10 s overlap and stitched by cosine AHC at `stitch_threshold=0.35`. The 2026-07-14 offline map-reduce study found whole-buffer strictly best for DER (0.143 vs 0.170 at 300 s). `sherpa` clusters the whole buffer internally, so `stitch_threshold` has no effect on it; its clustering is tuned instead by `sherpa_cluster_threshold` (default `0.5`, from clean AMI) and `sherpa_num_clusters` (default `-1` auto), both exposed since **v0.7.0**. The `0.5` default over-segments noisy 2-party telephony into dozens of speakers, so set `sherpa_num_clusters=2` when the count is known (see `doc/studies/diar-study.md` §12 in `pasdebonneoudemauvaisesituation`). **Which backend is picked is decided by the [router](#backend-router-the-aiguilleur) below.** |
 | **STT** | [`pywhispercpp`](https://github.com/abdeladim-s/pywhispercpp) turbo | `large-v3-turbo-q5_0` by default. Word timestamps on. Runs in a thread pool so the event loop never stalls. **Strongly recommended: supply `initial_prompt` (domain bias)**, cuts WER 15-25 pp and saves up to 39 % RTF per the 2026-06-30 sweep (`studies/whisper_prompt_lang_lock.py`). |
 | **LLM analyst** *(runtime-optional: pass `llm=None` to disable)* | Model resolved via **best-engine-ai-helper** from the committed `vocal_helper/llm.brief.yaml`, served over Ollama or vLLM | Rolling summary of everything **older than 60 s**. The recent 60 s window is kept verbatim. Summary refreshes every **60 s of evicted content** (`flush_every_s=60`). No model tag is hard-coded here: `best-engine-ai-helper` resolves the brief into a machine-specific `llm.engine.yaml` (gitignored) naming the backend + model, and the stage routes every request through `best_engine_ai_helper.llm.chat`. The historical 2026-06-30 7-model Pareto sweep (`studies/llm_model_size_sweep.py`), which surfaced small low-RTF models like `gemma3:4b` / `qwen2.5:3b` and `gemma4:12b-mlx` for offline quality, now informs the brief's `min_tps` / `headroom` knobs rather than a pinned tag. |
 
@@ -229,7 +229,8 @@ the project never has to authenticate against HuggingFace. It contains:
 
 | Folder | Weights | Used by |
 |---|---|---|
-| `pyannote-3.1/` | segmentation-3.0 + wespeaker `.bin` + a local `config.yaml` | offline diarization |
+| `pyannote-community-1/` | the community-1 checkpoint folder with its own `config.yaml` | offline diarization — the default the code looks for first |
+| `pyannote-3.1/` | segmentation-3.0 + wespeaker `.bin` + a local `config.yaml` | offline diarization — the warned fallback when the configured bundle predates community-1 |
 | `nemo-sortformer/` | `diar_sortformer_4spk-v1.nemo` | offline diarization (NeMo) |
 | `pyannote-embedding/` | embedding `.bin` | online diarization |
 | `speechbrain-voxlingua107/` | ECAPA VoxLingua107 snapshot | language-ID cross-check |
@@ -240,6 +241,23 @@ cached under `~/.cache/vocal-helper`; later runs load straight from the
 cache. Set `$VH_DIARIZATION_ENGINES` to a local directory (or your own
 mirror URL) for air-gapped / self-hosted deploys. TitaNet (the default
 online-diar embedder) loads from NVIDIA NGC, also without HuggingFace.
+
+## Quick start
+
+Two commands for text, four for text with speakers. The first run of each path
+downloads the weights it needs and caches them, so only the first one is slow.
+
+```bash
+pip install 'vocal-helper[all]'            # or plain `vocal-helper` for the light core
+vocal-helper transcribe clip.wav           # text only: no VAD, no diarization, no config
+
+cp settings.yaml.example settings.yaml     # carries the diarization-engines URL
+vocal-helper file meeting.wav --no-real-time   # + speakers; the router picks the backend
+```
+
+`transcribe` is the short path because it skips the pipeline entirely. The four
+recipes below are the real surface: a live microphone, the Python API, a file
+through the streaming pipeline, and a file through the offline one.
 
 ### Live microphone → terminal
 
@@ -282,7 +300,7 @@ vocal-helper file path/to/conversation.wav --llm
 
 The file source preserves real-time pacing by default ; pass `--no-real-time` for as-fast-as-possible batch processing.
 
-### **Offline** batch on a WAV (full-buffer pyannote 3.1)
+### **Offline** batch on a WAV (whole-buffer pyannote community-1)
 
 ```python
 import asyncio, vocal_helper as voh
@@ -312,7 +330,7 @@ When to use which, and the [router](#backend-router-the-aiguilleur) picks the ba
 | Use-case | Pipeline | Backend (router pick) | Why |
 |---|---|---|---|
 | Live mic / live stream | `Pipeline` | online `nemo` | Real-time diarization + transcript at RTF ≈ 0.03. Online is a latency-bound approximation (~3–4× the offline DER); `nemo` is the best online embedder at every length. |
-| Meeting / podcast / lecture / voicemail batch | `OfflinePipeline` | `pyannote` 3.1 | Whole-audio pyannote is the highest-quality answer: AMI median DER 0.116, inside Bredin 2023's band; NeMo hangs past ~25 min. |
+| Meeting / podcast / lecture / voicemail batch | `OfflinePipeline` | `pyannote` community-1 | Whole-audio pyannote is the highest-quality answer: AMI median DER 0.116, inside Bredin 2023's band, and community-1's worst meeting is 0.149 against 3.1's 0.474; NeMo hangs past ~25 min. |
 | ≤ 60 s clips, ≤ 4 speakers, fast turn-around | `OfflinePipeline(backend='nemo')` | `nemo` Sortformer | End-to-end attribution, confusion ≈ 0, RTF ≈ 0.004 (250×). |
 | On-device / no PyTorch | either, `backend='sherpa'` | `sherpa` ONNX | Torch-free TitaNet-large; DER 0.174/0.148, FR+EN, embeddable anywhere. |
 
@@ -429,8 +447,9 @@ Read it next to the latency with `LiveMetrics`, never alone.
 (2026-06-29, N=2089 per system) ranks streaming diarizers as `hungarian_nemo` (w=20 s, DER
 0.13–0.20) up to 300 s and `hungarian_pyannote` (w=30 s, 0.30–0.45) beyond. `OnlineDiarStage`
 specialises that: the VAD already isolates each voiced segment, so the sliding window collapses
-to per-segment embedding plus cosine running-mean clustering. `join_threshold=0.30` comes from
-the 2026-06-30 AMI dev-slice sweep.
+to per-segment embedding plus cosine running-mean clustering. `join_threshold` is **0.50**, raised from the
+0.30 that was calibrated for `pyannote/embedding` before TitaNet became the
+default embedder and moved the cosine scale under it.
 
 ## Scoring: `vocal_helper.bench`
 
@@ -539,17 +558,21 @@ still open:
 ## Versioning & stability
 
 `vocal-helper` reached its first stable release at `1.0.0` and is currently at
-`2.x`, following [Semantic Versioning](https://semver.org):
+`3.x`, following [Semantic Versioning](https://semver.org):
 
 - **The public API** is the names exported from `vocal_helper.__all__` plus the
   documented CLI flags. That's what stability promises apply to.
 - **Breaking behaviour and default changes land only in MAJOR releases**
   (`1.x` → `2.0.0`). A **MINOR** release adds features compatibly; a **PATCH**
   is bug-fixes and docs only, it will never change a default under you.
-- `2.0.0` is the one MAJOR shipped so far since `1.0.0`: it replaced the
-  hard-coded LLM model tag with a per-machine engine resolved from a committed
-  brief (see the CHANGELOG), which changed the analyst's CLI/API surface, hence
-  the major bump rather than a minor one.
+- Two MAJORs have shipped since `1.0.0`, both for a changed default rather than
+  a removed name. `2.0.0` replaced the hard-coded LLM model tag with a
+  per-machine engine resolved from a committed brief, which changed the
+  analyst's CLI/API surface. `3.0.0` made a run that lost a stage raise
+  `StageCrashed` instead of returning an empty transcript, and moved the offline
+  pyannote checkpoint to community-1. `strict=False` restores the lenient
+  behaviour; the checkpoint has no public knob — a bundle that predates
+  community-1 falls back to 3.1 with a warning.
 - Deprecations get a release with a warning before removal.
 
 ## Author

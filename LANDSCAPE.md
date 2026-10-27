@@ -89,9 +89,18 @@ Concretely, what is here and rare elsewhere:
   per-queue wait. Offline has WER and DER; live had nothing, including in the projects above.
 - **Failures that are loud.** A lost stage raises instead of returning an empty transcript.
 
-## When to pick something else
+## When to pick what
 
-The honest half of a landscape document.
+A comparison that never recommends a competitor is advertising, so this section
+goes both ways.
+
+**Pick `vocal-helper`** when you want speaker-labelled text *while the audio is
+still arriving*, on your own machine, and you would rather configure a pipeline
+than assemble one — and when the same code has to handle a recorded file later,
+with the diarization backend chosen for you from the file's real length instead
+of guessed.
+
+**Pick something else** when:
 
 - **You only need a transcript of a file.** Use `faster-whisper` or `whisper.cpp` directly.
   Everything here about queues and latency is overhead you will not use.
@@ -104,3 +113,51 @@ The honest half of a landscape document.
   path targets a laptop-class machine.
 - **You want an SLA, not a library.** Deepgram, Gladia, AssemblyAI. The trade is sovereignty:
   audio leaves the machine, and the bill scales with hours.
+
+## Sources and as-of date
+
+**As of 2026-10-19.** Every rating above is a claim about software that keeps
+moving, so the date is part of the claim.
+
+The table mixes two kinds of evidence, and they are not worth the same.
+
+**Measured here.** The findings under *What we measured ourselves*, and every
+DER / RTF figure this repository quotes, come from a script in this repository
+run against a named corpus — never from a vendor's own number:
+
+| Claim | Where it was run | Corpus |
+|---|---|---|
+| per-scenario DER + RTF behind the router | [`studies/router_profile_validation.py`](studies/router_profile_validation.py) | 30 short mixes (`bagarre`) + AMI dev-slice, `pyannote.metrics` collar 0.25, median |
+| the online embedder default (`nemo`) | [`studies/diar_embedding_backend.py`](studies/diar_embedding_backend.py) | AMI dev-slice, inter- minus intra-speaker cosine margin |
+| community-1 against 3.1, median and tail | [`CHANGELOG.md`](CHANGELOG.md) under `3.0.0` | AMI, 8 meetings, collar 0, overlap scored |
+| over-splitting on real panels, including sherpa-onnx's 19.7× | [`DIARIZATION-TROUBLES.md`](DIARIZATION-TROUBLES.md) §9-§10 | three 64-minute six-speaker panels |
+| what an `initial_prompt` is worth in WER and RTF | [`studies/whisper_prompt_lang_lock.py`](studies/whisper_prompt_lang_lock.py) | AMI dev-slice |
+| the summary cadence (`flush_every_s=60`) | [`studies/llm_cadence_sweep_multi.py`](studies/llm_cadence_sweep_multi.py) | ≥ 4 AMI meetings |
+
+Two caveats a reader is owed. The audio for the router validation and the
+`sherpa` row (ADR 0002) lives in a **private** companion repository
+(`pasdebonneoudemauvaisesituation`), so those runs are reproducible by us and
+not by you. The streaming-diarizer ranking and the `diart` comparison come from
+two further non-public repositories — `pdbms` (sweep of 2026-06-29, N = 2089 per
+system) and `operator-assistance-streaming`. They are cited for provenance, and
+they are weaker evidence than the rows you can open.
+
+**Read, not measured.** Every other cell is our reading of that project's own
+repository and documentation on the as-of date: what it ships and claims to
+support. Where a capability was a matter of degree we rated down rather than up,
+and where a project is built for another job the number means "fit to *this*
+niche", never "worse software".
+
+The upstream work this package actually builds on is kept as BibTeX in
+[`doc/refs.bib`](doc/refs.bib) — among others
+[whisper.cpp](https://github.com/ggerganov/whisper.cpp),
+[faster-whisper](https://github.com/SYSTRAN/faster-whisper),
+[NVIDIA NeMo](https://github.com/NVIDIA/NeMo),
+[sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx),
+[pyannote community-1](https://www.pyannote.ai/blog/community-1) and Bredin's
+INTERSPEECH 2023 paper for the published DER band the pyannote pipeline is read
+against.
+
+No benchmark figure appears above for Deepgram, Gladia, AssemblyAI or
+pyannoteAI. We have not run them against this corpus, and printing a vendor's
+own number beside ours would look like a comparison when it is not one.
