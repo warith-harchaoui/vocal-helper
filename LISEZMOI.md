@@ -86,6 +86,10 @@ complet et fait sa propre segmentation.
 | **STT** (transcription de la parole) | [`pywhispercpp`](https://github.com/abdeladim-s/pywhispercpp) turbo | `large-v3-turbo-q5_0` par défaut, timestamps mots activés. Exécution en thread pool pour ne jamais bloquer la boucle async. |
 | **Analyste LLM** *(optionnel)* | Modèle résolu via **best-engine-ai-helper** depuis le brief versionné `vocal_helper/llm.brief.yaml`, servi par Ollama ou vLLM | Résumé glissant de tout ce qui est **plus vieux que 60 s**. La fenêtre récente de 60 s reste verbatim et le résumé se rafraîchit tous les **60 s de contenu évincé** (`flush_every_s=60`). Aucun tag de modèle n'est codé en dur : `best-engine-ai-helper` résout le brief en un `llm.engine.yaml` spécifique à la machine (gitignoré) qui nomme le backend + le modèle et chaque requête passe par `best_engine_ai_helper.llm.chat`. |
 
+## Comment ça marche
+
+![Comment vocal-helper fonctionne : un flux audio en direct en entrée, des tours de parole attribués et transcrits en sortie](https://raw.githubusercontent.com/warith-harchaoui/vocal-helper/main/assets/diagrams/comment-ca-marche.png)
+
 ## Installation
 
 > **Plus de recettes ?** Voir [`EXEMPLES.md`](https://github.com/warith-harchaoui/vocal-helper/blob/main/EXEMPLES.md)

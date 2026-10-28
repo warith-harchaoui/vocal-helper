@@ -133,6 +133,10 @@ on the CLI and on `POST /pipeline`, so a file's real duration is probed and rout
 (short → `nemo`, long → `pyannote`) without you choosing. Pass an explicit
 `pyannote` / `nemo` / `sherpa` to override.
 
+## How it works
+
+![How vocal-helper works: a live audio stream in, diarized and transcribed utterances out](https://raw.githubusercontent.com/warith-harchaoui/vocal-helper/main/assets/diagrams/how-it-works.png)
+
 ## Installation
 
 > **More recipes?** See [`EXAMPLES.md`](https://github.com/warith-harchaoui/vocal-helper/blob/main/EXAMPLES.md)
