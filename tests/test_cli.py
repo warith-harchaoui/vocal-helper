@@ -247,6 +247,31 @@ def test_help_screens_carry_no_rst_markup() -> None:
     assert not offenders, f"RST literals leaked into these help screens: {offenders}"
 
 
+def test_join_threshold_help_quotes_the_real_default() -> None:
+    """The ``--join-threshold`` help screen shows the diarizer's actual default.
+
+    It did not for as long as it took ``JOIN_THRESHOLD`` to move from 0.30 to
+    0.50 after the embedder became TitaNet: the help text kept its own typed
+    copy of the old number. A help screen is the one place a wrong default
+    reaches a user directly, with nothing to check it against.
+
+    The string is interpolated now, so this test is a lock rather than a
+    discovery: it fails if anyone types a literal back in.
+    """
+    from vocal_helper.diar import JOIN_THRESHOLD
+
+    runner = CliRunner()
+    screens = [runner.invoke(cli, [sub, "--help"]).output for sub in sorted(cli.commands)]
+    carrying = [s for s in screens if "--join-threshold" in s]
+    assert carrying, "no command exposes --join-threshold any more"
+
+    for screen in carrying:
+        assert f"default {JOIN_THRESHOLD:.2f}" in screen, (
+            f"help screen does not quote JOIN_THRESHOLD ({JOIN_THRESHOLD}); "
+            "it is showing a hand-typed number again"
+        )
+
+
 def test_short_help_and_version_flags() -> None:
     """``-h`` mirrors ``--help`` and ``-V`` reports the source version.
 

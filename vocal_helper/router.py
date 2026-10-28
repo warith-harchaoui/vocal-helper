@@ -346,7 +346,13 @@ def select_diarization(
         return _plan(
             "offline",
             "pyannote",
-            f"{why_long} → pyannote 3.1 (robust default; DER {der}, RTF {rtf}; "
+            # Backend, not checkpoint: this read "pyannote 3.1" while
+            # _PyannoteOfflineDiar defaulted to community-1. Which checkpoint
+            # the pyannote backend loads is its own business, measured under
+            # its DEFAULT_CHECKPOINT; naming one here only created a second
+            # copy to go stale, and this module stays import-free on purpose
+            # so it cannot read the real one. test_router.py guards it.
+            f"{why_long} → pyannote (robust default; DER {der}, RTF {rtf}; "
             f"nemo hangs past ~25 min / >4 speakers)",
         )
 

@@ -71,8 +71,9 @@ For each incoming :class:`VoicedSegment` :
    NVIDIA TitaNet). The embedding is L2-normalised.
 2. Compute cosine distance to every existing centroid.
 3. The minimum-distance centroid wins iff its distance is below
-   ``join_threshold`` (default 0.30, calibrated on AMI dev-slice in
-   the 2026-06-30 stitch-threshold sweep). Otherwise, mint a new
+   ``join_threshold`` (default :data:`JOIN_THRESHOLD`, measured over
+   8 full AMI meetings on the shipped TitaNet embeddings — the table
+   under that constant is the evidence). Otherwise, mint a new
    speaker.
 4. Update the matched centroid by exponential moving average with
    coefficient ``ema_alpha`` (default 0.1) so the centroid adapts
@@ -284,7 +285,8 @@ class OnlineDiarStage:
             heavier NeMo install.
         join_threshold : float
             Cosine-distance threshold below which a segment joins an
-            existing centroid. Default 0.30. Must be in ``(0, 2)``.
+            existing centroid. Default :data:`JOIN_THRESHOLD`. Must be in
+            ``(0, 2)``.
         ema_alpha : float
             Exponential-moving-average coefficient for centroid updates.
             Default 0.1. Must be in ``(0, 1]``.
@@ -1842,7 +1844,7 @@ def _count_kwargs(
 
 
 class _PyannoteOfflineDiar:
-    """Wraps ``pyannote.audio.Pipeline('pyannote/speaker-diarization-3.1')``.
+    """Wraps ``pyannote.audio.Pipeline`` at :data:`DEFAULT_CHECKPOINT`.
 
     Prefers the self-hosted :func:`resolve_diarization_engines` bundle
     (HF-free) ; falls back to the HuggingFace hub only when no bundle is

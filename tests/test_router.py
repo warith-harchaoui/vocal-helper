@@ -230,3 +230,44 @@ def test_rationale_aliases_reason() -> None:
     """``plan.rationale`` mirrors ``plan.reason`` (consumers log the former)."""
     plan = select_diarization(live=True)
     assert plan.rationale == plan.reason
+
+
+def test_no_reason_pins_a_pyannote_checkpoint() -> None:
+    """No plan's reason names a pyannote checkpoint the diarizer may not load.
+
+    The offline long-form branch used to read "pyannote 3.1" while
+    :class:`~vocal_helper.diar._PyannoteOfflineDiar` had defaulted to
+    ``community-1`` since the 2026-10-19 bench. ``plan.reason`` is user-facing
+    -- the CLI prints it -- so that was a wrong fact shown to whoever asked why
+    a backend was chosen.
+
+    The router is deliberately import-free (pure decision logic, no numpy), so
+    it cannot interpolate the real default the way the ``--join-threshold`` help
+    text now does. It names the *backend* instead, and this test holds it to
+    that: a checkpoint name may appear in a reason only if it is the one the
+    pyannote wrapper would actually load.
+    """
+    from vocal_helper.diar import _PyannoteOfflineDiar
+
+    known = set(_PyannoteOfflineDiar._CHECKPOINTS)
+    default = _PyannoteOfflineDiar.DEFAULT_CHECKPOINT
+    assert default in known, "the default is not one of the declared checkpoints"
+
+    # Every branch of the tree, not a sample: each row drives one `return _plan`.
+    plans = [
+        select_diarization(live=True),
+        select_diarization(live=True, torch_free=True),
+        select_diarization(live=False, duration_s=45.0, max_speakers=3),
+        select_diarization(live=False, duration_s=5000.0),
+        select_diarization(live=False, max_speakers=9),
+        select_diarization(live=False, torch_free=True),
+        select_diarization(live=False, duration_s=5000.0, pyannote_available=False),
+        select_diarization(live=False, duration_s=45.0, nemo_available=False),
+    ]
+
+    for plan in plans:
+        for name in known - {default}:
+            assert name not in plan.reason, (
+                f"reason pins checkpoint {name!r} but the wrapper defaults to "
+                f"{default!r}: {plan.reason!r}"
+            )

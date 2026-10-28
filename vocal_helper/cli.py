@@ -49,6 +49,7 @@ from typing import Any
 import click
 
 from vocal_helper import __version__
+from vocal_helper.diar import JOIN_THRESHOLD
 from vocal_helper.pipeline import (
     OfflinePipeline,
     OfflinePipelineConfig,
@@ -93,7 +94,7 @@ def _pipeline_config(
     # (settings.yaml ``engines.diarization_url``) — no HuggingFace token.
     diar_cfg: dict = {"backend": diar_backend}
     # Only override the join threshold when the user passed one — otherwise let
-    # the diarizer keep its tuned 0.30 default rather than pinning it here.
+    # the diarizer keep its tuned default rather than pinning a copy here.
     if join_threshold is not None:
         diar_cfg["join_threshold"] = join_threshold
     # LLM analyst and semantic-EOT stages are opt-in and both need an LLM. The
@@ -398,7 +399,12 @@ def _common_options(func: Callable[..., object]) -> Callable[..., object]:
         "--join-threshold",
         type=float,
         default=None,
-        help="Cosine-distance join threshold for online diarizer (default 0.30).",
+        # Interpolated, not typed out: this string read 0.30 for as long as
+        # JOIN_THRESHOLD read 0.50, and a help text is the one place a wrong
+        # default reaches a user directly. Now it cannot disagree.
+        help=(
+            f"Cosine-distance join threshold for online diarizer (default {JOIN_THRESHOLD:.2f})."
+        ),
     )(func)
     func = click.option(
         "--diar-backend",

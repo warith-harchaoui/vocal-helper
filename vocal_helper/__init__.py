@@ -18,8 +18,8 @@ Stages, all stitched by :class:`Pipeline` :
 3. **Online diarization**: :class:`OnlineDiarStage`. Per-segment
    embedding (pyannote/embedding by default, TitaNet via NeMo with
    ``backend='nemo'``) + cosine-distance running-mean clustering
-   with ``join_threshold=0.30`` (calibrated on AMI dev-slice N=8,
-   2026-06-30 sweep).
+   with ``join_threshold`` defaulting to :data:`diar.JOIN_THRESHOLD`
+   (measured over 8 full AMI meetings on TitaNet embeddings).
 4. **STT**: :class:`WhisperStage`. pywhispercpp turbo
    (``large-v3-turbo-q5_0``), threads default 6, word timestamps on.
    Runs in :func:`asyncio.to_thread` so the loop is never blocked.
