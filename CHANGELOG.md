@@ -6,6 +6,40 @@ on, **breaking behaviour and default changes land only in MAJOR releases; MINOR
 adds features compatibly; PATCH is bug-fixes and docs.** The public API is the
 names exported from `vocal_helper.__all__` plus the documented CLI flags.
 
+## [3.3.1] - 2026-10-28
+
+### Fixed
+
+- **`--join-threshold --help` quoted 0.30; the diarizer defaults to 0.50.**
+  `JOIN_THRESHOLD` moved when the default embedder became TitaNet, and the
+  measurement justifying it sits directly above the constant. Five pieces of
+  prose never moved with it: the CLI help text, the config-builder comment in
+  `cli.py`, the module docstring and the `OnlineDiarStage` parameter docs in
+  `diar.py`, and the pipeline tour in `__init__.py`. The help string is
+  interpolated from the constant now rather than carrying its own copy, and
+  the docstrings point at the constant instead of quoting a figure. The
+  historical 0.30 rows in the calibration table stay: there it is a
+  measurement, not a claim about the default.
+
+- **`plan.reason` told users "pyannote 3.1".** `_PyannoteOfflineDiar` has
+  defaulted to `community-1` since the 2026-10-19 bench, and the wrapper's own
+  docstring still said it wraps `speaker-diarization-3.1`. The router names the
+  *backend* now -- which checkpoint that backend loads is its business, and
+  `router.py` is deliberately import-free so it cannot read the real one.
+
+### Added
+
+- Two guards, each proven by breaking it first:
+  `test_cli.py::test_join_threshold_help_quotes_the_real_default` and
+  `test_router.py::test_no_reason_pins_a_pyannote_checkpoint`.
+
+### Changed
+
+- **CI fetches ffmpeg from a pinned GitHub release instead of apt.** The
+  `apt-get install ffmpeg` step pulled 89 packages from
+  azure.archive.ubuntu.com, and a quiet mirror cost sibling members twelve
+  minutes and a red run. The replacement lands in 1.9 s.
+
 ## [3.3.0] - 2026-10-25
 
 ### Changed
