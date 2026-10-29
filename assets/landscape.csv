@@ -1,4 +1,4 @@
-Project,Live streaming,Online diarization,Offline diarization,Local only,Rolling LLM summary,Multi-source input,Ergonomic Python API,Multi-surface
+Live Transcription,Live streaming,Online diarization,Offline diarization,Local only,Rolling LLM summary,Multi-source input,Ergonomic Python API,Multi-surface
 vocal-helper,5,5,5,5,5,5,5,5
 whisper.cpp,2,1,1,5,1,2,2,2
 faster-whisper,2,1,1,5,1,2,4,2

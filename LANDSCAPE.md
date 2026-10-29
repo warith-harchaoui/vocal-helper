@@ -30,7 +30,7 @@ label", not "most accurate".
 ## At a glance
 
 <!-- TABLE:START -->
-| Project | Live streaming | Online diarization | Offline diarization | Local only | Rolling LLM summary | Multi-source input | Ergonomic Python API | Multi-surface |
+| Live Transcription | Live streaming | Online diarization | Offline diarization | Local only | Rolling LLM summary | Multi-source input | Ergonomic Python API | Multi-surface |
 | --- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
 | **vocal-helper** | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ |
 | whisper.cpp | ⭐⭐ | ⭐ | ⭐ | ⭐⭐⭐⭐⭐ | ⭐ | ⭐⭐ | ⭐⭐ | ⭐⭐ |
@@ -54,14 +54,11 @@ label", not "most accurate".
 ## Positioning map
 
 <!-- FIGURE:START -->
-2D representation of the table above, generated with [standpoint](https://github.com/warith-harchaoui/standpoint).
+2D representation of the table above.
 
 ![Positioning map](https://raw.githubusercontent.com/warith-harchaoui/vocal-helper/main/assets/landscape.png)
 
-The axes read **horizontal: Adaptable ↔ Versatile**, **vertical: Independent ↔ Comprehensive**,
-and they carry **72 %** of the information in the eight criteria (46 % and 26 %). So read the map
-as a shape, not a scoreboard — two points close together agree on most of what was scored, and
-may still differ on the criterion you personally care about.
+The map is a 2-D summary of the eight criteria, so read it as a shape, not a scoreboard. `vocal-helper` is at the top-right corner. The axes read **Horizontal: Adaptable ↔ Versatile** and **Vertical: Independent ↔ Comprehensive**.
 
 The grouping is the interesting part. The cloud services (Deepgram, Gladia) sit near
 `vocal-helper` on *capability* and far from it on independence, which is the trade they offer.
@@ -161,3 +158,15 @@ against.
 No benchmark figure appears above for Deepgram, Gladia, AssemblyAI or
 pyannoteAI. We have not run them against this corpus, and printing a vendor's
 own number beside ours would look like a comparison when it is not one.
+
+## Ideas worth stealing
+
+Researched rather than guessed: what each neighbour does better, and what this library would have to change to match it. Nothing here is a commitment — it is the reading list the next version starts from.
+
+- **`WhisperX` — forced alignment for word timestamps that are actually word-level** — It runs wav2vec2 phoneme alignment after transcription, reaching sub-100 ms word timestamps, and batches VAD-segmented audio at roughly 70× realtime on one GPU. Whisper's own timestamps are segment-level guesses by comparison.
+
+- **`WhisperLiveKit` — an API surface clients already speak** — It exposes OpenAI- and Deepgram-compatible endpoints, so existing code points at it with a base-URL change. A local-first tool that is drop-in for the hosted API it replaces removes the main reason people stay on the hosted one.
+
+- **Streaming Sortformer and Simul-Whisper — the current low-latency pair** — Streaming diarization that commits speaker turns incrementally, rather than re-clustering the whole window each time, is what keeps latency flat as a conversation runs long.
+
+- **`Moonshine` and sherpa-onnx Zipformer — the CPU-only tier** — Both are built for low latency without a GPU. A live transcriber that degrades to a smaller streaming model instead of failing is more useful than one that requires CUDA, and the suite already routes model choice through best-engine-ai-helper.

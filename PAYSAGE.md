@@ -30,46 +30,37 @@ précis que les chaînes par regroupement sur du matériel multi-locuteurs diffi
 ## En un coup d'œil
 
 <!-- TABLE:START -->
-| Project | Live streaming | Online diarization | Offline diarization | Local only | Rolling LLM summary | Multi-source input | Ergonomic Python API | Multi-surface |
+| Transcription en direct | Streaming en direct | Diarisation en ligne | STT 100 % local | Résumé LLM glissant | Multi-source | API Python ergonomique | Multi-surface | Hors ligne |
 | --- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| **vocal-helper** | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ |
-| whisper.cpp | ⭐⭐ | ⭐ | ⭐ | ⭐⭐⭐⭐⭐ | ⭐ | ⭐⭐ | ⭐⭐ | ⭐⭐ |
-| faster-whisper | ⭐⭐ | ⭐ | ⭐ | ⭐⭐⭐⭐⭐ | ⭐ | ⭐⭐ | ⭐⭐⭐⭐ | ⭐⭐ |
-| WhisperX | ⭐ | ⭐ | ⭐⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐ | ⭐⭐ | ⭐⭐⭐ | ⭐ |
-| whisper_streaming | ⭐⭐⭐⭐⭐ | ⭐ | ⭐ | ⭐⭐⭐⭐⭐ | ⭐ | ⭐⭐ | ⭐⭐⭐ | ⭐⭐ |
-| pyannote.audio | ⭐⭐ | ⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐ | ⭐⭐ | ⭐⭐⭐ | ⭐ |
-| diart | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐ | ⭐⭐⭐ | ⭐⭐⭐ | ⭐⭐ |
-| NVIDIA NeMo | ⭐⭐ | ⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐ | ⭐⭐ | ⭐ | ⭐ |
-| Nemotron-3 Diarization | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐⭐⭐ | ⭐ | ⭐ | ⭐ | ⭐ |
-| sherpa-onnx | ⭐⭐⭐⭐ | ⭐⭐⭐ | ⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐ | ⭐⭐⭐ | ⭐⭐ | ⭐⭐⭐ |
-| FunASR | ⭐⭐⭐⭐ | ⭐⭐⭐ | ⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐ | ⭐⭐⭐ | ⭐⭐ | ⭐⭐⭐ |
-| Moonshine | ⭐⭐⭐⭐⭐ | ⭐ | ⭐ | ⭐⭐⭐⭐⭐ | ⭐ | ⭐⭐ | ⭐⭐⭐⭐ | ⭐⭐ |
-| SpeechBrain | ⭐ | ⭐⭐ | ⭐⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐ | ⭐⭐ | ⭐⭐ | ⭐ |
-| vosk | ⭐⭐⭐⭐ | ⭐ | ⭐ | ⭐⭐⭐⭐⭐ | ⭐ | ⭐⭐⭐ | ⭐⭐⭐ | ⭐⭐⭐ |
-| Deepgram | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐ | ⭐⭐ | ⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐⭐⭐ |
-| Gladia | ⭐⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐ | ⭐⭐ | ⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐⭐⭐ |
-| pyannoteAI | ⭐⭐ | ⭐⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐ | ⭐ | ⭐⭐ | ⭐⭐⭐ | ⭐⭐ |
+| **vocal-helper** | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ |
+| whisper.cpp | ⭐⭐⭐ | ⭐ | ⭐⭐⭐⭐⭐ | ⭐ | ⭐⭐ | ⭐⭐ | ⭐⭐ | ⭐⭐⭐⭐⭐ |
+| openai-whisper | ⭐ | ⭐ | ⭐⭐⭐⭐⭐ | ⭐ | ⭐⭐ | ⭐⭐⭐ | ⭐⭐ | ⭐⭐⭐⭐⭐ |
+| faster-whisper | ⭐⭐ | ⭐ | ⭐⭐⭐⭐⭐ | ⭐ | ⭐⭐ | ⭐⭐⭐⭐ | ⭐⭐ | ⭐⭐⭐⭐⭐ |
+| WhisperX | ⭐ | ⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐ | ⭐⭐ | ⭐⭐⭐ | ⭐⭐ | ⭐⭐⭐⭐⭐ |
+| whisper_streaming | ⭐⭐⭐⭐⭐ | ⭐ | ⭐⭐⭐⭐⭐ | ⭐ | ⭐⭐⭐ | ⭐⭐⭐ | ⭐⭐⭐ | ⭐⭐⭐ |
+| pyannote.audio | ⭐⭐ | ⭐⭐⭐⭐ | ⭐ | ⭐ | ⭐⭐ | ⭐⭐⭐ | ⭐ | ⭐⭐⭐⭐⭐ |
+| NVIDIA NeMo | ⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐ | ⭐⭐⭐ | ⭐⭐ | ⭐ | ⭐⭐⭐⭐⭐ |
+| SpeechBrain | ⭐⭐ | ⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐ | ⭐⭐ | ⭐⭐⭐ | ⭐⭐ | ⭐⭐⭐⭐⭐ |
+| vosk | ⭐⭐⭐⭐ | ⭐ | ⭐⭐⭐⭐⭐ | ⭐ | ⭐⭐⭐ | ⭐⭐⭐ | ⭐⭐⭐ | ⭐⭐⭐⭐⭐ |
+| AssemblyAI | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐ | ⭐⭐⭐ | ⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐⭐⭐ | ⭐ |
+| Deepgram | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐ | ⭐⭐ | ⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐⭐⭐ | ⭐ |
+| Otter.ai | ⭐⭐⭐⭐⭐ | ⭐⭐⭐ | ⭐ | ⭐⭐⭐ | ⭐⭐ | ⭐ | ⭐⭐ | ⭐ |
 <!-- TABLE:END -->
 
 ## Carte de positionnement
 
 <!-- FIGURE:START -->
-Représentation en deux dimensions du tableau ci-dessus, produite avec
-[standpoint](https://github.com/warith-harchaoui/standpoint).
+Représentation 2D du tableau ci-dessus.
 
-![Carte de positionnement](https://raw.githubusercontent.com/warith-harchaoui/vocal-helper/main/assets/landscape.png)
+![Carte de positionnement](https://raw.githubusercontent.com/warith-harchaoui/vocal-helper/main/assets/paysage.png)
 
-Les axes se lisent **horizontalement : Adaptable ↔ Polyvalent**, **verticalement : Indépendant ↔
-Complet** et ils portent **72 %** de l'information des huit critères (46 % et 26 %). La carte
-est donc une forme, pas un classement : deux points proches s'accordent sur l'essentiel de ce
-qui a été noté et peuvent malgré tout différer sur le critère qui vous importe.
+La carte est un résumé en 2D des 8 critères : à lire comme une forme, pas comme un classement. « vocal-helper » se situe dans le coin en haut à droite. Les axes se lisent **Horizontal : Autonomie ↔ Dynamisme** et **Vertical : Réactivité ↔ Polyvalence**.
 
-L'intéressant est le regroupement. Les services cloud (Deepgram, Gladia) sont proches de
-`vocal-helper` en *capacité* et loin de lui en indépendance : c'est exactement l'échange qu'ils
-proposent. Les moteurs de transcription purs se massent en bas à droite — indépendants,
-polyvalents et sans aucune opinion sur qui parle. Les piles de recherche en diarisation
-(pyannote.audio, NeMo, Nemotron-3, SpeechBrain) sont à gauche : profondes sur un axe, pas faites
-pour être une chaîne.
+L'axe horizontal distingue principalement les solutions qui privilégient une grande capacité à s'adapter à des situations variées et à traiter des données en temps réel, de celles qui se concentrent sur une exécution locale et une gestion des ressources plus limitée. Les options positionnées à droite, comme vocal-helper et AssemblyAI, excellent dans la gestion de flux continus et l'intégration de fonctionnalités avancées comme le résumé par intelligence artificielle, tandis que celles à gauche, comme openai-whisper et whisper.cpp, mettent l'accent sur la capacité à fonctionner sans connexion internet et à s'exécuter sur des configurations matérielles modestes.
+
+L'axe vertical oppose, quant à lui, les solutions qui se distinguent par leur rapidité de réponse et leur efficacité dans des tâches spécifiques, à celles qui offrent une plus grande flexibilité et une gamme de fonctionnalités plus étendue. Les options situées en bas, comme Otter.ai et Deepgram, se concentrent sur une exécution rapide et une intégration aisée, tandis que celles en haut, comme vocal-helper et vosk, se caractérisent par leur capacité à gérer des scénarios complexes et à s'adapter à différents types de données.
+
+On observe un regroupement intéressant en haut à gauche, où plusieurs options, dont whisper.cpp, openai-whisper, faster-whisper, WhisperX, whisper_streaming, SpeechBrain et vosk, partagent une forte orientation vers l'autonomie et la polyvalence. Elles offrent une grande flexibilité dans leur utilisation, mais peuvent sacrifier une certaine réactivité. À l'opposé, en bas à droite, Deepgram et Otter.ai se positionnent comme des solutions dynamiques et réactives, mais moins polyvalentes. Enfin, vocal-helper, leader de ce classement, se distingue en combinant dynamisme et polyvalence, tandis qu'AssemblyAI le rejoint dans ce coin pour des raisons différentes : AssemblyAI privilégie le dynamisme, tandis que vocal-helper excelle dans la polyvalence.
 <!-- FIGURE:END -->
 
 ## Positionnement
@@ -170,3 +161,15 @@ Aucun chiffre de benchmark n'apparaît ci-dessus pour Deepgram, Gladia,
 AssemblyAI ou pyannoteAI : nous ne les avons pas fait tourner sur ce corpus, et
 imprimer le chiffre d'un éditeur à côté des nôtres aurait l'air d'une
 comparaison alors que ce n'en est pas une.
+
+## Idées à reprendre
+
+Étudié plutôt que deviné : ce que chaque voisin fait mieux, puis ce que cette bibliothèque devrait changer pour l'égaler. Rien ici n'est un engagement : c'est la liste de lecture dont part la version suivante.
+
+- **`WhisperX` — un alignement forcé pour des horodatages vraiment au mot** — Il lance un alignement phonémique wav2vec2 après la transcription, atteignant des horodatages au mot sous les 100 ms, puis traite par lots l'audio segmenté par VAD à environ 70× le temps réel sur un seul GPU. Les horodatages de Whisper lui-même ne sont, en comparaison, que des estimations au segment.
+
+- **`WhisperLiveKit` — une surface d'API que les clients parlent déjà** — Il expose des points d'entrée compatibles OpenAI puis Deepgram : le code existant pointe dessus en changeant une URL de base. Un outil local qui remplace l'API hébergée sans rien réécrire retire la principale raison d'y rester.
+
+- **Streaming Sortformer avec Simul-Whisper — le duo basse latence actuel** — Une diarisation en flux qui fige les tours de parole au fur et à mesure, au lieu de re-regrouper toute la fenêtre à chaque fois, est ce qui garde la latence plate quand une conversation s'allonge.
+
+- **`Moonshine` puis Zipformer de sherpa-onnx — l'étage sans GPU** — Les deux sont faits pour la basse latence sans carte graphique. Un transcripteur en direct qui se replie sur un modèle de flux plus petit plutôt que d'échouer est plus utile qu'un autre exigeant CUDA ; la suite route déjà le choix de modèle par best-engine-ai-helper.
