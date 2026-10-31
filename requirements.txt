@@ -19,7 +19,7 @@
 # All suite pins are kept in lock-step with their newest release tags.
 
 # --- Suite dependencies (core) --------------------------------------------
-os-helper>=2.0.0,<4
+os-helper>=2.0.0,<5
 audio-helper>=2.0.0,<3
 best-engine-ai-helper>=1.0.0,<2
 # The CLI is not an optional surface, so its parser cannot be optional either.

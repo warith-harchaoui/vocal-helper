@@ -46,7 +46,7 @@ classifiers = [
 #   summary buffer ; everything older than ``recent_window_s`` (default 60 s)
 #   gets folded into the summary.
 dependencies = [
-    "os-helper>=2.6.0,<4",
+    "os-helper>=2.6.0,<5",
     # The CLI is the ``vocal-helper`` entry point, not an optional surface, so
     # click cannot be optional either. It used to be an opt-in extra, back when
     # a stdlib-argparse CLI shipped alongside and click was the twin.
