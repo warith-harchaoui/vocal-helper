@@ -31,10 +31,16 @@ That matters more here than almost anywhere else in the suite. Your voice, and e
 
 Part of the [AI Helpers](https://github.com/warith-harchaoui/ai-helpers) suite: sovereignty over your data through local-first Open Source.
 
-Vocal Helper turns audio into diarized, transcribed utterances, with an optional rolling Large Language Model (LLM) summary of the conversation. Internally it is a **producer/consumer pipeline**: each processing step (detecting speech, identifying the speaker, transcribing, summarising) runs as its own worker, and each worker hands its output to the next one down a queue, the way a bakery's dough moves from the mixer to the oven to the cooling rack, each station working on a different batch at the same time instead of waiting idle for the whole order to finish. Two paths ship:
+Vocal Helper turns audio into diarized, transcribed utterances, with an optional rolling Large Language Model (LLM) summary of the conversation.
+
+Internally it is a **producer/consumer pipeline**. Each processing step — detecting speech, identifying the speaker, transcribing, summarising — runs as its own worker, and each worker hands its output to the next one down a queue. Think of a bakery: the dough moves from the mixer to the oven to the cooling rack, every station working on a different batch at the same time instead of waiting idle for the whole order to finish.
+
+Two paths ship:
 
 - **Online** (`voh.Pipeline`): live Pulse-Code Modulation (PCM) stream → live transcript + live summary. Each stage runs at its own cadence, decoupled by bounded queues. The Speech-to-Text (STT) stage warms up on start so the first caption doesn't stall on whisper's cold inference.
-- **Offline** (`voh.OfflinePipeline`): full audio buffer → highest-quality diarization (pyannote community-1 runs the whole meeting in one call; the 2026-07-14 offline map-reduce study found whole-buffer strictly best for Diarization Error Rate (DER), and chunk-and-stitch survives only as a memory backstop past ~1 h) → **full-throttle batched transcript** (consecutive segments concatenated into ≤ 24 s whisper calls, ~6.5× lower Real-Time Factor (RTF) at better Word Error Rate (WER) per the 2026-07-09 sweep) → summary. Opt back into per-segment Automatic Speech Recognition (ASR) with `OfflinePipelineConfig(asr={"batch": False})`.
+- **Offline** (`voh.OfflinePipeline`): full audio buffer → highest-quality diarization → full-throttle batched transcript → summary.
+  - **Diarization** runs pyannote community-1 over the whole meeting in one call. The 2026-07-14 offline map-reduce study found whole-buffer strictly best for Diarization Error Rate (DER); chunk-and-stitch survives only as a memory backstop past ~1 h.
+  - **Transcription** concatenates consecutive segments into ≤ 24 s whisper calls: ~6.5× lower Real-Time Factor (RTF) at a better Word Error Rate (WER), per the 2026-07-09 sweep. Opt back into per-segment Automatic Speech Recognition (ASR) with `OfflinePipelineConfig(asr={"batch": False})`.
 
 Vocal Helper ships on [PyPI](https://pypi.org/project/vocal-helper/) under semantic-versioned tags (currently `v3.3.0`); continuous integration (CI, an automated pipeline that runs the test suite and the linter on every push) stays green on `main` before any tag goes out.
 
@@ -397,16 +403,11 @@ POSTs to the same `/pipeline` endpoint (zero extra server logic) and contacts
 only the local server, so your audio never leaves the machine. Utterances reveal
 progressively (motion-guarded) so a long transcript reads as if it streams in.
 
-The page speaks **French and English**. `GET /gui?lang=fr|en` picks one, a flag
-in the header toggles between them, and a code no catalogue carries falls back
-to the default rather than failing. The English is the source, written in the
-markup itself; the French lives in
-[`vocal_helper/locales/fr/LC_MESSAGES/vocal_helper.po`](https://github.com/warith-harchaoui/vocal-helper/blob/main/vocal_helper/locales/fr/LC_MESSAGES/vocal_helper.po),
-a standard `gettext` catalogue read through `os_helper.Catalog` — the loader
-shared across the suite — so a translator works in the format every translation
-tool already speaks, on real sentences rather than on key names. Edit the
-`.po`, then recompile with
-`python -c "import os_helper as osh; osh.compile_catalogs('vocal_helper/locales')"`.
+The page speaks **French and English**. `GET /gui?lang=fr|en` picks one, a flag in the header toggles between them, and a code no catalogue carries falls back to the default rather than failing.
+
+The English is the source, written in the markup itself. The French lives in [`vocal_helper/locales/fr/LC_MESSAGES/vocal_helper.po`](https://github.com/warith-harchaoui/vocal-helper/blob/main/vocal_helper/locales/fr/LC_MESSAGES/vocal_helper.po), a standard `gettext` catalogue read through `os_helper.Catalog` — the loader shared across the suite — so a translator works in the format every translation tool already speaks, on real sentences rather than on key names.
+
+Edit the `.po`, then recompile with `python -c "import os_helper as osh; osh.compile_catalogs('vocal_helper/locales')"`.
 
 ### Use it as an agent skill
 
@@ -595,14 +596,9 @@ still open:
 - **Breaking behaviour and default changes land only in MAJOR releases**
   (`1.x` → `2.0.0`). A **MINOR** release adds features compatibly; a **PATCH**
   is bug-fixes and docs only, it will never change a default under you.
-- Two MAJORs have shipped since `1.0.0`, both for a changed default rather than
-  a removed name. `2.0.0` replaced the hard-coded LLM model tag with a
-  per-machine engine resolved from a committed brief, which changed the
-  analyst's CLI/API surface. `3.0.0` made a run that lost a stage raise
-  `StageCrashed` instead of returning an empty transcript, and moved the offline
-  pyannote checkpoint to community-1. `strict=False` restores the lenient
-  behaviour; the checkpoint has no public knob — a bundle that predates
-  community-1 falls back to 3.1 with a warning.
+- Two MAJORs have shipped since `1.0.0`, both for a changed default rather than a removed name.
+  - `2.0.0` replaced the hard-coded LLM model tag with a per-machine engine resolved from a committed brief, which changed the analyst's CLI/API surface.
+  - `3.0.0` made a run that lost a stage raise `StageCrashed` instead of returning an empty transcript, and moved the offline pyannote checkpoint to community-1. `strict=False` restores the lenient behaviour; the checkpoint has no public knob — a bundle that predates community-1 falls back to 3.1 with a warning.
 - Deprecations get a release with a warning before removal.
 
 ## Author

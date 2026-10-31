@@ -29,10 +29,16 @@ Cela compte ici plus que presque partout ailleurs dans la suite. Votre voix, com
 
 Fait partie de la suite [AI Helpers](https://github.com/warith-harchaoui/ai-helpers) : la souveraineté sur vos données par l'Open Source local d'abord.
 
-Vocal Helper transforme un flux audio PCM (modulation d'impulsions codées) en énoncés diarisés et transcrits, avec en option un résumé glissant produit par un LLM (grand modèle de langue). En interne, c'est un **pipeline producteur/consommateur** : chaque étape de traitement (détecter la parole, identifier le locuteur, transcrire, résumer) tourne comme un poste de travail séparé ; chaque poste transmet son résultat au suivant par une file d'attente, comme une chaîne de boulangerie où la pâte passe du pétrin au four puis au refroidissement, chaque poste traitant un lot différent en même temps plutôt que d'attendre, inactif, que toute la commande soit finie. Deux chemins sont livrés :
+Vocal Helper transforme un flux audio PCM (modulation d'impulsions codées) en énoncés diarisés puis transcrits, avec en option un résumé glissant produit par un LLM (grand modèle de langue).
+
+En interne, c'est un **pipeline producteur/consommateur**. Chaque étape de traitement — détecter la parole, identifier le locuteur, transcrire, résumer — tourne comme un poste de travail séparé, puis chaque poste transmet son résultat au suivant par une file d'attente. Comme une chaîne de boulangerie : la pâte passe du pétrin au four puis au refroidissement, chaque poste traitant un lot différent en même temps plutôt que d'attendre, inactif, que toute la commande soit finie.
+
+Deux chemins sont livrés :
 
 - **Online** (`voh.Pipeline`) : flux PCM vivant → transcription en direct + résumé en direct. Chaque étage tourne à sa propre cadence, découplé par des files bornées. L'étage STT (transcription de la parole) se préchauffe au démarrage pour que le premier sous-titre n'attende pas l'inférence à froid de whisper.
-- **Offline** (`voh.OfflinePipeline`) : buffer audio complet → diarisation de la meilleure qualité possible (pyannote community-1 traite la réunion entière en un seul appel ; l'étude map-reduce offline du 2026-07-14 a trouvé le buffer entier strictement meilleur en DER, taux d'erreur de diarisation, le découpage-recollage ne survivant que comme garde-fou mémoire au-delà de ~1 h) → **transcription en lot à plein régime** (segments consécutifs concaténés en appels whisper de ≤ 24 s, RTF ~6,5× plus bas pour un WER meilleur selon le balayage du 2026-07-09) → résumé. `OfflinePipelineConfig(asr={"batch": False})` redonne l'ASR segment par segment.
+- **Offline** (`voh.OfflinePipeline`) : buffer audio complet → diarisation de la meilleure qualité possible → transcription en lot à plein régime → résumé.
+  - **La diarisation** passe pyannote community-1 sur la réunion entière en un seul appel. L'étude map-reduce offline du 2026-07-14 a trouvé le buffer entier strictement meilleur en DER (taux d'erreur de diarisation) ; le découpage-recollage ne survit que comme garde-fou mémoire au-delà de ~1 h.
+  - **La transcription** concatène les segments consécutifs en appels whisper de ≤ 24 s : RTF ~6,5× plus bas pour un WER meilleur, selon le balayage du 2026-07-09. `OfflinePipelineConfig(asr={"batch": False})` redonne l'ASR segment par segment.
 
 Vocal Helper est éprouvé en production. Le paquet est publié sur [PyPI](https://pypi.org/project/vocal-helper/) sous des tags versionnés selon le [versionnage sémantique](https://semver.org/lang/fr/) (actuellement `v3.3.0`) ; l'intégration continue (CI, une chaîne automatisée qui fait tourner les tests puis le linter à chaque envoi) reste au vert sur `main` avant toute publication d'un tag.
 
@@ -357,16 +363,11 @@ résumé glissant. Elle appelle le même endpoint `/pipeline` (aucune logique
 serveur supplémentaire) et ne contacte que le serveur local : votre audio ne
 quitte jamais la machine.
 
-La page parle **français et anglais**. `GET /gui?lang=fr|en` choisit la langue,
-un drapeau dans l'en-tête bascule de l'une à l'autre et un code qu'aucun
-catalogue ne porte retombe sur la langue par défaut au lieu d'échouer.
-L'anglais est la source, écrite dans le balisage lui-même ; le français vit dans
-[`vocal_helper/locales/fr/LC_MESSAGES/vocal_helper.po`](https://github.com/warith-harchaoui/vocal-helper/blob/main/vocal_helper/locales/fr/LC_MESSAGES/vocal_helper.po),
-un catalogue `gettext` standard lu par `os_helper.Catalog` — le chargeur
-partagé par la suite — si bien qu'un traducteur travaille dans le format que
-tous les outils de traduction parlent déjà, sur de vraies phrases plutôt que
-sur des noms de clés. Modifiez le `.po`, puis recompilez par
-`python -c "import os_helper as osh; osh.compile_catalogs('vocal_helper/locales')"`.
+La page parle **français puis anglais**. `GET /gui?lang=fr|en` choisit la langue, un drapeau dans l'en-tête bascule de l'une à l'autre, puis un code qu'aucun catalogue ne porte retombe sur la langue par défaut au lieu d'échouer.
+
+L'anglais est la source, écrite dans le balisage lui-même. Le français vit dans [`vocal_helper/locales/fr/LC_MESSAGES/vocal_helper.po`](https://github.com/warith-harchaoui/vocal-helper/blob/main/vocal_helper/locales/fr/LC_MESSAGES/vocal_helper.po), un catalogue `gettext` standard lu par `os_helper.Catalog` — le chargeur partagé par la suite — si bien qu'un traducteur travaille dans le format que tous les outils de traduction parlent déjà, sur de vraies phrases plutôt que sur des noms de clés.
+
+Modifiez le `.po`, puis recompilez par `python -c "import os_helper as osh; osh.compile_catalogs('vocal_helper/locales')"`.
 
 ### En tant que skill d'agent
 
@@ -528,15 +529,11 @@ qu'on fait, pas qu'on hérite.
 
 ## Identification de la langue parlée
 
-Avant même de transcrire un mot, `vocal_helper.lid` détermine **quelle langue
-est parlée** pour le fichier entier ou par région dans un enregistrement où
-l'on alterne les langues. C'est décisif : une passe whisper `"auto"` se
-verrouille sur la première langue entendue et *traduit* le reste dans
-celle-ci ; identifier la langue acoustiquement **d'abord** permet de
-transcrire chaque région dans sa propre langue. Cela rattrape aussi les
-données mal étiquetées : sur un corpus de 423 appels, le recensement
-acoustique a corrigé l'étiquette de dossier de 21 fichiers (des appels
-anglais et néerlandais rangés sous « FR », etc.).
+Avant même de transcrire un mot, `vocal_helper.lid` détermine **quelle langue est parlée**, pour le fichier entier ou par région dans un enregistrement où l'on alterne les langues.
+
+C'est décisif : une passe whisper `"auto"` se verrouille sur la première langue entendue puis *traduit* le reste dans celle-ci. Identifier la langue acoustiquement **d'abord** permet de transcrire chaque région dans la sienne.
+
+Cela rattrape aussi les données mal étiquetées : sur un corpus de 423 appels, le recensement acoustique a corrigé l'étiquette de dossier de 21 fichiers — des appels anglais puis néerlandais rangés sous « FR », entre autres.
 
 **La langue est découverte : aucune langue par défaut, aucun appariement.** La
 détection renvoie la langue que l'audio *est réellement* (l'argmax réel de
@@ -605,15 +602,9 @@ aujourd'hui en `3.x`, suivant le [versionnage sémantique](https://semver.org) :
   MAJEURE** (`1.x` → `2.0.0`). Une version **MINEURE** ajoute des
   fonctionnalités de façon compatible ; un **correctif** ne touche qu'aux bugs
   et à la documentation, jamais à un défaut.
-- Deux versions majeures sont parties depuis `1.0.0`, toutes deux pour un
-  changement de défaut plutôt que pour une suppression de nom. `2.0.0` a
-  remplacé le tag de modèle LLM codé en dur par un engine résolu par machine
-  depuis un brief versionné, ce qui a changé la surface CLI/API de l'analyste.
-  `3.0.0` fait lever `StageCrashed` à un run qui a perdu un étage au lieu de
-  rendre une transcription vide et fait passer le checkpoint pyannote offline à
-  community-1. `strict=False` rend l'indulgence d'avant ; le checkpoint n'a
-  aucun levier public — un bundle antérieur à community-1 retombe sur 3.1
-  avec un avertissement.
+- Deux versions majeures sont parties depuis `1.0.0`, toutes deux pour un changement de défaut plutôt que pour une suppression de nom.
+  - `2.0.0` a remplacé le tag de modèle LLM codé en dur par un engine résolu par machine depuis un brief versionné, ce qui a changé la surface CLI puis API de l'analyste.
+  - `3.0.0` fait lever `StageCrashed` à un run qui a perdu un étage, au lieu de rendre une transcription vide, puis fait passer le checkpoint pyannote offline à community-1. `strict=False` rend l'indulgence d'avant ; le checkpoint n'a aucun levier public — un bundle antérieur à community-1 retombe sur 3.1 avec un avertissement.
 - Les dépréciations reçoivent une version avec avertissement avant suppression.
 
 ## Auteur
