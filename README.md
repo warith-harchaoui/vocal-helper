@@ -19,14 +19,36 @@
 
 ## The Promise
 
-**Local-first by design.** vocal-helper runs entirely on your machine: transcription (turning speech into text), diarization (working out which of possibly several speakers said each part, and labelling them `S0`, `S1`, and so on) and summarisation all happen locally (whisper.cpp / pyannote / NeMo / local Ollama); your audio and transcripts are never uploaded to a third-party service, no telemetry, no account, no cloud lock-in. Your voice, and everyone else's on the recording, is among the most personal data there is, and a transcript is a verbatim record of what was said and by whom; keeping both on your own hardware is what makes this tool safe to point at a real meeting, interview, or therapy session. Part of the [AI Helpers](https://github.com/warith-harchaoui/ai-helpers) suite: sovereignty over your data through local-first Open Source.
+**Local-first by design.** vocal-helper runs entirely on your machine. Three stages, all local:
+
+- **transcription** — turning speech into text (whisper.cpp);
+- **diarization** — working out which of possibly several speakers said each part, labelling them `S0`, `S1`, and so on (pyannote / NeMo);
+- **summarisation** — an optional rolling summary (a local Ollama model).
+
+Your audio and transcripts are never uploaded to a third-party service: no telemetry, no account, no cloud lock-in.
+
+That matters more here than almost anywhere else in the suite. Your voice, and everyone else's on the recording, is among the most personal data there is, and a transcript is a verbatim record of what was said and by whom. Keeping both on your own hardware is what makes this tool safe to point at a real meeting, interview, or therapy session.
+
+Part of the [AI Helpers](https://github.com/warith-harchaoui/ai-helpers) suite: sovereignty over your data through local-first Open Source.
 
 Vocal Helper turns audio into diarized, transcribed utterances, with an optional rolling Large Language Model (LLM) summary of the conversation. Internally it is a **producer/consumer pipeline**: each processing step (detecting speech, identifying the speaker, transcribing, summarising) runs as its own worker, and each worker hands its output to the next one down a queue, the way a bakery's dough moves from the mixer to the oven to the cooling rack, each station working on a different batch at the same time instead of waiting idle for the whole order to finish. Two paths ship:
 
 - **Online** (`voh.Pipeline`): live Pulse-Code Modulation (PCM) stream → live transcript + live summary. Each stage runs at its own cadence, decoupled by bounded queues. The Speech-to-Text (STT) stage warms up on start so the first caption doesn't stall on whisper's cold inference.
 - **Offline** (`voh.OfflinePipeline`): full audio buffer → highest-quality diarization (pyannote community-1 runs the whole meeting in one call; the 2026-07-14 offline map-reduce study found whole-buffer strictly best for Diarization Error Rate (DER), and chunk-and-stitch survives only as a memory backstop past ~1 h) → **full-throttle batched transcript** (consecutive segments concatenated into ≤ 24 s whisper calls, ~6.5× lower Real-Time Factor (RTF) at better Word Error Rate (WER) per the 2026-07-09 sweep) → summary. Opt back into per-segment Automatic Speech Recognition (ASR) with `OfflinePipelineConfig(asr={"batch": False})`.
 
-Vocal Helper ships on [PyPI](https://pypi.org/project/vocal-helper/) under semantic-versioned tags (currently `v3.3.0`); continuous integration (CI, an automated pipeline that runs the test suite and the linter on every push) stays green on `main` before any tag goes out. It sits at the top of the AI Helpers dependency graph, the suite's most feature-complete and heaviest package. It builds on five siblings: [os-helper](https://github.com/warith-harchaoui/os-helper) for shared logging and file management; [best-engine-ai-helper](https://github.com/warith-harchaoui/best-engine-ai-helper) for the language-model routing described below; [audio-helper](https://github.com/warith-harchaoui/audio-helper) for format-agnostic decoding; [capture-helper](https://github.com/warith-harchaoui/capture-helper) for the live microphone source; and [podcast-helper](https://github.com/warith-harchaoui/podcast-helper) for any URL a browser could open. Each of those five has to work correctly for a single transcript to come out right, which makes this package the suite's most demanding integration test in daily use.
+Vocal Helper ships on [PyPI](https://pypi.org/project/vocal-helper/) under semantic-versioned tags (currently `v3.3.0`); continuous integration (CI, an automated pipeline that runs the test suite and the linter on every push) stays green on `main` before any tag goes out.
+
+It sits at the top of the AI Helpers dependency graph — the suite's most feature-complete and heaviest package — and builds on five siblings:
+
+| Sibling | What it provides here |
+|---|---|
+| [os-helper](https://github.com/warith-harchaoui/os-helper) | shared logging and file management |
+| [best-engine-ai-helper](https://github.com/warith-harchaoui/best-engine-ai-helper) | the language-model routing described below |
+| [audio-helper](https://github.com/warith-harchaoui/audio-helper) | format-agnostic decoding |
+| [capture-helper](https://github.com/warith-harchaoui/capture-helper) | the live microphone source |
+| [podcast-helper](https://github.com/warith-harchaoui/podcast-helper) | any URL a browser could open |
+
+Each of those five has to work correctly for a single transcript to come out right, which makes this package the suite's most demanding integration test in daily use.
 
 ## Documentation
 
@@ -89,19 +111,17 @@ and does its own segmentation.
 
 ## Backend router: the *aiguilleur*
 
-Diarization is the one stage with a real backend fork (several competing
-implementations, each better in some cases), and there is **no single
-winner**: the best backend depends on the scenario. `vocal_helper.router`
-(`voh.select_diarization`) plays the role of an *aiguilleur*, French for the
-railway signalman who switches each train onto the right track before it
-arrives: it looks at a job's length, live-or-batch mode, and speaker count,
-then turns that measured trade-off into one explicit, tested decision, so
-the CLI and your own code never hard-code a backend. It reports **both
-quality (DER) and speed (RTF)** for the scenario, not just a name.
-Numbers were **re-validated on-machine** (`studies/router_profile_validation.py`,
-`pyannote.metrics` collar 0.25, median DER + RTF) against ground truth: bagarre
-(30 short mixes) + AMI dev-slice; `sherpa` from ADR 0002. **DER** = quality
-(lower better); **RTF** = speed (`< 1` faster than real time):
+Diarization is the one stage with a real backend fork — several competing implementations, each better in some cases — and there is **no single winner**: the best backend depends on the scenario.
+
+`vocal_helper.router` (`voh.select_diarization`) plays the role of an *aiguilleur*, French for the railway signalman who switches each train onto the right track before it arrives. It reads three things about the job:
+
+- how **long** it is;
+- whether it runs **live or batch**;
+- how many **speakers** there are.
+
+It turns that measured trade-off into one explicit, tested decision, so neither the CLI nor your own code ever hard-codes a backend. And it reports **both quality (DER) and speed (RTF)** for the scenario, not just a name.
+
+The numbers below were **re-validated on-machine** against ground truth — `studies/router_profile_validation.py`, `pyannote.metrics` at collar 0.25, median DER and RTF, over bagarre (30 short mixes) plus the AMI dev-slice, with `sherpa` from ADR 0002. Read them as: **DER** is quality (lower is better), **RTF** is speed (below `1` is faster than real time).
 
 | Mode | Scenario | Backend | DER (quality) | RTF (speed) | Why |
 |---|---|---|---|---|---|

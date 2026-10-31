@@ -17,14 +17,36 @@
 
 ## La promesse
 
-**Local d'abord, par conception.** vocal-helper tourne entièrement sur votre machine : transcription (mettre la parole en texte), diarisation (déterminer qui, parmi plusieurs locuteurs possibles, a dit quel passage, en les étiquetant S0, S1, ainsi de suite) et résumé se font en local (whisper.cpp / pyannote / NeMo / Ollama). Votre audio et vos transcriptions ne partent jamais vers un service tiers, aucune télémétrie, aucun compte, aucun verrouillage propriétaire. Votre voix, comme celle de toutes les personnes enregistrées, compte parmi les données les plus personnelles qui soient ; une transcription est le compte rendu mot pour mot de ce qui a été dit et par qui. Garder les deux sur votre propre matériel, c'est ce qui rend l'outil sûr à pointer sur une vraie réunion, un entretien ou une séance. Fait partie de la suite [AI Helpers](https://github.com/warith-harchaoui/ai-helpers) : la souveraineté sur vos données par l'Open Source local d'abord.
+**Local d'abord, par conception.** vocal-helper tourne entièrement sur votre machine. Trois étapes, toutes locales :
+
+- **la transcription** — mettre la parole en texte (whisper.cpp) ;
+- **la diarisation** — déterminer qui, parmi plusieurs locuteurs possibles, a dit quel passage, en les étiquetant `S0`, `S1`, ainsi de suite (pyannote / NeMo) ;
+- **le résumé** — un résumé glissant optionnel, produit par un modèle Ollama local.
+
+Votre audio puis vos transcriptions ne partent jamais vers un service tiers : aucune télémétrie, aucun compte, aucun verrouillage propriétaire.
+
+Cela compte ici plus que presque partout ailleurs dans la suite. Votre voix, comme celle de toutes les personnes enregistrées, figure parmi les données les plus personnelles qui soient ; une transcription est le compte rendu mot pour mot de ce qui a été dit puis par qui. Garder les deux sur votre propre matériel, c'est ce qui rend l'outil sûr à pointer sur une vraie réunion, un entretien, une séance.
+
+Fait partie de la suite [AI Helpers](https://github.com/warith-harchaoui/ai-helpers) : la souveraineté sur vos données par l'Open Source local d'abord.
 
 Vocal Helper transforme un flux audio PCM (modulation d'impulsions codées) en énoncés diarisés et transcrits, avec en option un résumé glissant produit par un LLM (grand modèle de langue). En interne, c'est un **pipeline producteur/consommateur** : chaque étape de traitement (détecter la parole, identifier le locuteur, transcrire, résumer) tourne comme un poste de travail séparé ; chaque poste transmet son résultat au suivant par une file d'attente, comme une chaîne de boulangerie où la pâte passe du pétrin au four puis au refroidissement, chaque poste traitant un lot différent en même temps plutôt que d'attendre, inactif, que toute la commande soit finie. Deux chemins sont livrés :
 
 - **Online** (`voh.Pipeline`) : flux PCM vivant → transcription en direct + résumé en direct. Chaque étage tourne à sa propre cadence, découplé par des files bornées. L'étage STT (transcription de la parole) se préchauffe au démarrage pour que le premier sous-titre n'attende pas l'inférence à froid de whisper.
 - **Offline** (`voh.OfflinePipeline`) : buffer audio complet → diarisation de la meilleure qualité possible (pyannote community-1 traite la réunion entière en un seul appel ; l'étude map-reduce offline du 2026-07-14 a trouvé le buffer entier strictement meilleur en DER, taux d'erreur de diarisation, le découpage-recollage ne survivant que comme garde-fou mémoire au-delà de ~1 h) → **transcription en lot à plein régime** (segments consécutifs concaténés en appels whisper de ≤ 24 s, RTF ~6,5× plus bas pour un WER meilleur selon le balayage du 2026-07-09) → résumé. `OfflinePipelineConfig(asr={"batch": False})` redonne l'ASR segment par segment.
 
-Vocal Helper est éprouvé en production. Le paquet est publié sur [PyPI](https://pypi.org/project/vocal-helper/) sous des tags versionnés selon le [versionnage sémantique](https://semver.org/lang/fr/) (actuellement `v3.3.0`) ; l'intégration continue (CI, une chaîne automatisée qui fait tourner les tests et le linter à chaque envoi) reste au vert sur `main` avant toute publication d'un tag. Il occupe le sommet du graphe de dépendances de la suite AI Helpers, le paquet le plus complet et le plus lourd de la suite. Il s'appuie sur cinq sœurs : [os-helper](https://github.com/warith-harchaoui/os-helper) pour la journalisation et la gestion des fichiers partagées ; [best-engine-ai-helper](https://github.com/warith-harchaoui/best-engine-ai-helper) pour le choix du modèle de langue décrit plus bas ; [audio-helper](https://github.com/warith-harchaoui/audio-helper) pour le décodage indépendant du format ; [capture-helper](https://github.com/warith-harchaoui/capture-helper) pour la source micro en direct ; et [podcast-helper](https://github.com/warith-harchaoui/podcast-helper) pour toute URL qu'un navigateur saurait ouvrir. Chacune de ces cinq bibliothèques doit fonctionner correctement pour qu'une seule transcription sorte juste, ce qui fait de ce paquet le test d'intégration le plus exigeant de la suite au quotidien.
+Vocal Helper est éprouvé en production. Le paquet est publié sur [PyPI](https://pypi.org/project/vocal-helper/) sous des tags versionnés selon le [versionnage sémantique](https://semver.org/lang/fr/) (actuellement `v3.3.0`) ; l'intégration continue (CI, une chaîne automatisée qui fait tourner les tests puis le linter à chaque envoi) reste au vert sur `main` avant toute publication d'un tag.
+
+Il occupe le sommet du graphe de dépendances de la suite AI Helpers — le paquet le plus complet puis le plus lourd — en s'appuyant sur cinq sœurs :
+
+| Sœur | Ce qu'elle apporte ici |
+|---|---|
+| [os-helper](https://github.com/warith-harchaoui/os-helper) | la journalisation puis la gestion des fichiers partagées |
+| [best-engine-ai-helper](https://github.com/warith-harchaoui/best-engine-ai-helper) | le choix du modèle de langue décrit plus bas |
+| [audio-helper](https://github.com/warith-harchaoui/audio-helper) | le décodage indépendant du format |
+| [capture-helper](https://github.com/warith-harchaoui/capture-helper) | la source micro en direct |
+| [podcast-helper](https://github.com/warith-harchaoui/podcast-helper) | toute URL qu'un navigateur saurait ouvrir |
+
+Chacune de ces cinq bibliothèques doit fonctionner correctement pour qu'une seule transcription sorte juste, ce qui fait de ce paquet le test d'intégration le plus exigeant de la suite au quotidien.
 
 ## Documentation
 
@@ -385,16 +407,17 @@ Pratique pour des relais WebSocket / SSE, du rendu UI (interface utilisateur) li
 
 ## Routeur de backend : l'*aiguilleur*
 
-La diarisation est la seule étape où le choix du backend se pose vraiment et il n'y a
-**aucun vainqueur unique** : le meilleur backend dépend du scénario.
-`vocal_helper.router` (`voh.select_diarization`) transforme ce compromis mesuré
-en **une** décision explicite et testée, pour que la CLI et votre code ne codent
-jamais un backend en dur ; il rapporte **qualité (DER, taux d'erreur de diarisation) et vitesse (RTF)**, pas
-seulement un nom. Les chiffres ont été **re-validés sur machine**
-(`studies/router_profile_validation.py`, `pyannote.metrics` collar 0.25, DER +
-RTF médians) contre la vérité terrain : bagarre (30 mixes courts) + AMI
-dev-slice ; `sherpa` depuis l'ADR 0002. **DER** = qualité (plus bas = mieux) ;
-**RTF** = vitesse (`< 1` plus rapide que le temps réel) :
+La diarisation est la seule étape où le choix du backend se pose vraiment, puis il n'y a **aucun vainqueur unique** : le meilleur backend dépend du scénario.
+
+`vocal_helper.router` (`voh.select_diarization`) joue le rôle d'un *aiguilleur*, celui qui oriente chaque train sur la bonne voie avant son arrivée. Il lit trois choses du travail à faire :
+
+- sa **durée** ;
+- s'il tourne **en direct ou en lot** ;
+- son **nombre de locuteurs**.
+
+Il transforme ce compromis mesuré en **une** décision explicite puis testée, pour que ni la CLI ni votre code ne codent jamais un backend en dur. Il rapporte en plus **la qualité (DER, taux d'erreur de diarisation) avec la vitesse (RTF)**, pas seulement un nom.
+
+Les chiffres ci-dessous ont été **re-validés sur machine** contre la vérité terrain — `studies/router_profile_validation.py`, `pyannote.metrics` au collar 0.25, DER puis RTF médians, sur bagarre (30 mixes courts) plus l'AMI dev-slice, `sherpa` depuis l'ADR 0002. À lire ainsi : le **DER** est la qualité (plus bas vaut mieux), le **RTF** la vitesse (sous `1`, plus rapide que le temps réel).
 
 | Mode | Scénario | Backend | DER (qualité) | RTF (vitesse) | Pourquoi |
 |---|---|---|---|---|---|
