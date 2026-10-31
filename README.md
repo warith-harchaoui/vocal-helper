@@ -450,22 +450,28 @@ Useful for WebSocket / SSE relays, live User Interface (UI) updates, or JSONL pe
 
 Measured, not assumed, on 2026-10-19.
 
-**Offline — `pyannote community-1`.** On AMI (8 meetings, collar 0, overlap scored) it ties
-speaker-diarization-3.1 at a **0.116 median DER**, so a median comparison says there is nothing
-to choose between them. The difference is the tail: 3.1's worst meeting is **0.474**,
-community-1's is **0.149**, and the spread collapses from 0.412 to 0.086. One meeting carries
-all of it, where community-1 is 3.3× better. On three real 64-minute six-speaker panels it also
-over-splits least of everything measured — **2.7×**, against 3.0× for 3.1, 3.7× for Sortformer
-4spk-v1 and **19.7×** for the sherpa-onnx path. It is the default for
-`_PyannoteOfflineDiar`; a bundle that predates it falls back to 3.1 with a warning.
+**Offline — `pyannote community-1`.** On AMI (8 meetings, collar 0, overlap scored) it ties speaker-diarization-3.1 on the median, so a median comparison says there is nothing to choose between them. The difference is all in the tail:
 
-**Online — `diart`.** The opposite verdict, from the measurement
-`operator-assistance-streaming` had already made: **6.04 %** speaker error against **11.7 %**
-for the community-1 path on its long reference, and a first label in **500 ms against 20 s**.
-`DiartDiarStage` is the port. It costs an environment of its own, and it revises what it
-already emitted — diart re-sends its whole annotation each step, so `snapshot_to_delta` turns
-that into a stream and **counts the revisions**, which is the honest price of the 500 ms.
-Read it next to the latency with `LiveMetrics`, never alone.
+| On AMI | community-1 | speaker-diarization-3.1 |
+|---|---|---|
+| median DER | 0.116 | 0.116 |
+| worst meeting | **0.149** | 0.474 |
+| spread | **0.086** | 0.412 |
+
+One meeting carries all of it, and there community-1 is 3.3× better.
+
+On three real 64-minute six-speaker panels it also over-splits least of everything measured — **2.7×**, against 3.0× for 3.1, 3.7× for Sortformer 4spk-v1 and **19.7×** for the sherpa-onnx path.
+
+It is the default for `_PyannoteOfflineDiar`; a bundle that predates it falls back to 3.1 with a warning.
+
+**Online — `diart`.** The opposite verdict, from the measurement `operator-assistance-streaming` had already made:
+
+| On its long reference | diart | community-1 path |
+|---|---|---|
+| speaker error | **6.04 %** | 11.7 % |
+| first label | **500 ms** | 20 s |
+
+`DiartDiarStage` is the port. It costs an environment of its own, and it revises what it already emitted: diart re-sends its whole annotation each step, so `snapshot_to_delta` turns that into a stream and **counts the revisions** — the honest price of the 500 ms. Read that count next to the latency with `LiveMetrics`, never alone.
 
 **Still the default for the built-in online stage — cosine clustering.** The `pdbms` study
 (2026-06-29, N=2089 per system) ranks streaming diarizers as `hungarian_nemo` (w=20 s, DER

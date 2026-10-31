@@ -454,21 +454,28 @@ un `pyannote` / `nemo` / `sherpa` explicite pour forcer.
 
 Mesuré, pas supposé, le 2026-10-19.
 
-**Offline — `pyannote community-1`.** Sur AMI (8 réunions, collar 0, recouvrement compté), il
-fait jeu égal avec speaker-diarization-3.1 à **0,116 de DER médian** : comparer les médianes
-conclut qu'il n'y a rien à gagner. Toute la différence est dans la queue — pire réunion
-**0,474** contre **0,149**, dispersion qui s'effondre de 0,412 à 0,086 — et une seule réunion
-la porte, où community-1 fait 3,3× mieux. Sur trois vrais plateaux de 64 min à six personnes,
-c'est aussi lui qui sur-segmente le moins : **×2,7**, contre ×3,0 pour 3.1, ×3,7 pour
-Sortformer 4spk-v1 et **×19,7** pour le chemin sherpa-onnx. C'est le défaut de
-`_PyannoteOfflineDiar` ; un bundle antérieur retombe sur 3.1 avec un avertissement.
+**Offline — `pyannote community-1`.** Sur AMI (8 réunions, collar 0, recouvrement compté), il fait jeu égal avec speaker-diarization-3.1 sur la médiane : comparer les médianes conclut qu'il n'y a rien à gagner. Toute la différence est dans la queue :
 
-**Online — `diart`.** Verdict inverse, issu de la mesure qu'`operator-assistance-streaming`
-avait déjà faite : **6,04 %** d'erreur de locuteur contre **11,7 %** pour le chemin community-1
-sur sa référence longue et un premier label en **500 ms contre 20 s**. `DiartDiarStage` est le
-portage. Il coûte un environnement à part et il révise ce qu'il a déjà émis — diart renvoie
-toute son annotation à chaque pas, donc `snapshot_to_delta` en fait un flux et **compte les
-révisions**, qui sont le prix honnête des 500 ms. À lire à côté de la latence, jamais seule.
+| Sur AMI | community-1 | speaker-diarization-3.1 |
+|---|---|---|
+| DER médian | 0,116 | 0,116 |
+| pire réunion | **0,149** | 0,474 |
+| dispersion | **0,086** | 0,412 |
+
+Une seule réunion porte tout l'écart, puis c'est là que community-1 fait 3,3× mieux.
+
+Sur trois vrais plateaux de 64 min à six personnes, c'est aussi lui qui sur-segmente le moins : **×2,7**, contre ×3,0 pour 3.1, ×3,7 pour Sortformer 4spk-v1 puis **×19,7** pour le chemin sherpa-onnx.
+
+C'est le défaut de `_PyannoteOfflineDiar` ; un bundle antérieur retombe sur 3.1 avec un avertissement.
+
+**Online — `diart`.** Verdict inverse, issu de la mesure qu'`operator-assistance-streaming` avait déjà faite :
+
+| Sur sa référence longue | diart | chemin community-1 |
+|---|---|---|
+| erreur de locuteur | **6,04 %** | 11,7 % |
+| premier label | **500 ms** | 20 s |
+
+`DiartDiarStage` est le portage. Il coûte un environnement à part, puis il révise ce qu'il a déjà émis : diart renvoie toute son annotation à chaque pas, donc `snapshot_to_delta` en fait un flux puis **compte les révisions** — le prix honnête des 500 ms. À lire à côté de la latence avec `LiveMetrics`, jamais seule.
 
 **Et toujours par défaut pour l'étage online intégré : le clustering cosinus.** L'étude `pdbms`
 (2026-06-29, N=2089 par système) classe `hungarian_nemo` (w=20 s, DER 0,13–0,20) jusqu'à 300 s
