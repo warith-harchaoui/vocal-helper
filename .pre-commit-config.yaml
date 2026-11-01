@@ -28,10 +28,14 @@ repos:
         args: [--fix=lf]
 
   # ---------------------------------------------------------------------
-  # Ruff — same rules as ``pyproject.toml`` [tool.ruff.lint].
+  # Ruff — same rules AND THE SAME VERSION as the CI lint job. The two drifted
+  # once (hook on v0.9.1, CI on 0.15.21) and the divergence was not academic :
+  # ``UP038`` is enforced by the old version and retired by the new one, so
+  # ``ruff check .`` passed locally while the pre-commit CI job failed on the
+  # very same files. Bump both together, never one alone.
   # ---------------------------------------------------------------------
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.9.1
+    rev: v0.15.21
     hooks:
       - id: ruff
         args: [--fix]

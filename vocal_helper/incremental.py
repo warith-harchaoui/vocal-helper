@@ -50,9 +50,14 @@ La durée de cette part propre est précisément ce que ``rho_update`` filtre.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
 import numpy as np
 from numpy.typing import NDArray
+
+if TYPE_CHECKING:  # ``exemplar`` n'importe pas ce module, mais l'annotation
+    # reste différée pour que l'ordre de chargement n'ait aucune importance.
+    from vocal_helper.exemplar import ExemplarPolicy
 
 __all__ = [
     "IncrementalPolicy",
@@ -565,6 +570,22 @@ class IncrementalClusterer:
         return [str(label) for label in labels]
 
 
+def _clusterer_for(policy: object) -> object:
+    """Le regroupement que cette politique désigne.
+
+    La politique porte le choix plutôt qu'un paramètre de plus : une
+    :class:`~vocal_helper.exemplar.ExemplarPolicy` veut un regroupement par
+    exemplaires, une :class:`IncrementalPolicy` veut des centroïdes. Les deux
+    exposent le même ``assign``, donc l'étage ne voit pas la différence et les
+    deux se comparent à extraction identique.
+    """
+    from vocal_helper.exemplar import ExemplarClusterer, ExemplarPolicy
+
+    if isinstance(policy, ExemplarPolicy):
+        return ExemplarClusterer(policy=policy)
+    return IncrementalClusterer(policy=policy)
+
+
 @dataclass
 class WindowFeatures:
     """Une fenêtre glissante, sa segmentation locale et ses empreintes.
@@ -640,7 +661,7 @@ class IncrementalDiarStage:
         *,
         segmenter: str = "auto",
         embedder: str = "auto",
-        policy: IncrementalPolicy | None = None,
+        policy: IncrementalPolicy | ExemplarPolicy | None = None,
         window_s: float = 5.0,
         step_s: float = 2.5,
         local_max_speakers: int = 3,
@@ -660,7 +681,7 @@ class IncrementalDiarStage:
         self._embedder_backend = embedder
         self._segmenter: object | None = None
         self._embedder: object | None = None
-        self.clusterer = IncrementalClusterer(policy=self.policy)
+        self.clusterer = _clusterer_for(self.policy)
 
     @property
     def discovered_speakers(self) -> int:
@@ -817,12 +838,12 @@ class IncrementalDiarStage:
         list of tuple
             ``[(t0, t1, locuteur), …]`` trié par début.
         """
-        if self.policy.delta_position is not None:
+        if getattr(self.policy, "delta_position", None) is not None:
             found = separating_threshold(windows, position=self.policy.delta_position)
             if not np.isnan(found):
                 self.policy.delta_new = found
                 self.clusterer.policy = self.policy
-        elif self.policy.delta_scale is not None:
+        elif getattr(self.policy, "delta_scale", None) is not None:
             scale = inter_speaker_scale(windows, quantile=self.policy.delta_quantile)
             if not np.isnan(scale):
                 self.policy.delta_new = float(self.policy.delta_scale * scale)
@@ -842,6 +863,22 @@ class IncrementalDiarStage:
                 hi = min(n_frames, int(round((window.t0 + b) * grid_hz)))
                 if hi > lo:
                     row[lo:hi] += 1.0
+
+        # La reprise globale, quand le regroupement sait la faire. Elle répare
+        # ce qu'aucune décision locale ne pouvait éviter : la contrainte
+        # d'injectivité DOIT séparer deux locuteurs locaux simultanés, même
+        # quand la segmentation s'est trompée et qu'il n'y en avait qu'un. Les
+        # votes se réécrivent par simple addition des lignes absorbées.
+        merge = getattr(self.clusterer, "merge", None)
+        if callable(merge):
+            for absorbed, survivor in merge().items():
+                row = votes.pop(absorbed, None)
+                if row is None:
+                    continue
+                if survivor in votes:
+                    votes[survivor] += row
+                else:
+                    votes[survivor] = row
         return _votes_to_segments(votes, grid_hz)
 
     def reset(self) -> None:
@@ -856,8 +893,17 @@ class IncrementalDiarStage:
         >>> stage.reset()
         >>> stage.discovered_speakers
         0
+
+        La politique décide du regroupement : une politique par exemplaires
+        donne un regroupement sans centroïde, à extraction identique, donc les
+        deux sont directement comparables.
+
+        >>> from vocal_helper.exemplar import ExemplarPolicy
+        >>> other = IncrementalDiarStage(policy=ExemplarPolicy())
+        >>> type(other.clusterer).__name__
+        'ExemplarClusterer'
         """
-        self.clusterer = IncrementalClusterer(policy=self.policy)
+        self.clusterer = _clusterer_for(self.policy)
 
     def diarize(
         self,

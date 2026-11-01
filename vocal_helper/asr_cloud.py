@@ -283,7 +283,7 @@ class GladiaLiveASR:
     async def transcripts(self) -> AsyncIterator[AsrTranscript]:
         """Yield each transcript event as the server emits it, until the socket closes."""
         async for raw in self._ws:
-            if isinstance(raw, (bytes, bytearray)):
+            if isinstance(raw, bytes | bytearray):
                 continue  # a binary frame from the server would be unexpected
             try:
                 message = json.loads(raw)

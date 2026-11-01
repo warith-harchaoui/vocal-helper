@@ -89,6 +89,11 @@ from vocal_helper.diar import (
     merge_speakers,
     resolve_sherpa_models,
 )
+from vocal_helper.exemplar import (
+    Exemplar,
+    ExemplarClusterer,
+    ExemplarPolicy,
+)
 from vocal_helper.fanout import LOSSLESS, LOSSY, Sink, fanout
 from vocal_helper.incremental import (
     IncrementalClusterer,
@@ -260,6 +265,14 @@ __all__ = [
     # lacks ; the segmenter and embedder stay the caller's choice.
     "IncrementalPolicy",
     "IncrementalClusterer",
+    # The same contract WITHOUT a centroid : a speaker is a bounded set of
+    # exemplars and similarity is the distance to its BEST POINT, never to a
+    # mean. A mean is a point, and a point cannot represent a spread — which is
+    # what a voice near and far from the mic actually is. It also makes a global
+    # merge definable, the one lever left against residual over-segmentation.
+    "ExemplarPolicy",
+    "ExemplarClusterer",
+    "Exemplar",
     "IncrementalDiarStage",
     # Extraction and clustering are split so a threshold sweep replays cached
     # windows instead of re-running the models — seconds instead of hours.
