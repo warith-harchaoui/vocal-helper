@@ -95,6 +95,12 @@ from vocal_helper.exemplar import (
     ExemplarPolicy,
 )
 from vocal_helper.fanout import LOSSLESS, LOSSY, Sink, fanout
+from vocal_helper.growing import (
+    GrowingBufferDiarStage,
+    GrowingBufferPolicy,
+    map_by_overlap,
+    refresh_times,
+)
 from vocal_helper.incremental import (
     IncrementalClusterer,
     IncrementalDiarStage,
@@ -285,6 +291,16 @@ __all__ = [
     # speaker confusion where the offline engine gives 0.299.
     "NemotronOnnxDiar",
     "NemotronSchedule",
+    # Offline quality, live : re-diarize the WHOLE buffer periodically and keep
+    # labels stable across passes by overlap assignment. On AMI dev-slice the
+    # final answer equals the full-file one to the third decimal — 0.176 median
+    # — where the shipped greedy online stage gives 0.369 with 65 labels for
+    # four speakers. What it costs is freshness, not quality, and the revisions
+    # say so out loud.
+    "GrowingBufferPolicy",
+    "GrowingBufferDiarStage",
+    "map_by_overlap",
+    "refresh_times",
     "IncrementalDiarStage",
     # Extraction and clustering are split so a threshold sweep replays cached
     # windows instead of re-running the models — seconds instead of hours.

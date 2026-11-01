@@ -208,25 +208,47 @@ class PipelineConfig:
     # ``eot={"engine": resolve_engine()}``.
     eot: dict | None = None
     diar: dict = field(default_factory=dict)
-    # OFFLINE-QUALITY DIARIZATION ON A LIVE STREAM. ``None`` (default) keeps the
-    # online stage alone: a label in about half a second, at three to four times the
-    # offline error rate (0.586 against 0.122), because a latency-bound clusterer
-    # cannot model overlapping speech.
+    # OFFLINE-QUALITY DIARIZATION ON A LIVE STREAM, by re-diarizing the WHOLE
+    # buffer periodically. Enabled by default, because the alternative is the
+    # worst thing this package measures: the online stage alone gives a label in
+    # about half a second and an error rate of 0.369 with SIXTY-FIVE labels for
+    # four speakers on AMI dev-slice, a nearest-centroid clusterer having no way
+    # to hold identity over an hour.
     #
-    # A dict turns on :class:`vocal_helper.rediar.PeriodicOfflineDiarStage`, which
-    # keeps that fast label and then runs the OFFLINE diarizer periodically over a
-    # bounded window to correct the ones that were wrong. Measured, that buys the
-    # full 0.122 at an effective real-time factor near 0.29 on a Metal machine with
-    # six speakers — comfortably under the only constraint that matters live.
+    # A dict turns on :class:`vocal_helper.growing.GrowingBufferDiarStage`, which
+    # keeps that fast label and then re-runs the offline diarizer over everything
+    # heard so far. Because the last pass sees the whole session, the final
+    # answer IS the full-file one: 0.176 median on the same eight meetings, the
+    # right speaker count, to the third decimal. The passes are spaced
+    # geometrically, so the cost stays proportional to the session rather than to
+    # its square — 2.6 to 3.3 times the audio, a real-time factor of 0.10 to 0.16.
     #
-    # The dict is splatted into :class:`vocal_helper.rediar.RediarPolicy`, except
-    # for ``on_revision``, which is pulled out and passed to the stage. Supply it:
-    # a display that ignores revisions shows labels it has been told are wrong.
+    # Splatted into :class:`vocal_helper.growing.GrowingBufferPolicy`, except for
+    # ``on_revision``, which is pulled out and passed to the stage. Supply it: a
+    # display that ignores revisions shows labels it has been told are wrong.
     #
-    #     rediar={"period_s": 60.0, "on_revision": my_recolour_callback}
+    #     growing={"ratio": 1.4, "on_revision": my_recolour_callback}
     #
-    # The cost is retroactive label changes, which the display must treat as a
-    # re-colouring rather than a silent rewrite.
+    # ``None`` leaves the online stage alone, which is only reasonable when
+    # nothing may ever be revised. What this costs is not quality but FRESHNESS:
+    # speech after the last pass has no authoritative label yet, and at
+    # ``ratio=1.6`` that wait is 0.375 times the session — fine for twenty
+    # minutes, not for two hours, where ``max_period_s`` bounds it.
+    # ``"auto"`` (the default) means "use it, unless ``rediar`` was explicitly
+    # configured" — a default must not collide with an explicit choice. A dict is
+    # an explicit request, and then asking for ``rediar`` too is refused rather
+    # than silently resolved. ``None`` disables it.
+    growing: dict | str | None = "auto"
+    # The EARLIER approach to the same problem, kept because it bounds memory:
+    # re-diarize a trailing WINDOW with a synthetic primer carrying one reference
+    # per known speaker, so identity crosses windows. Measured 0.348 against the
+    # offline 0.149 on a synthetic mix — better than the online stage alone and
+    # behind the growing buffer, because a window cannot see what a whole session
+    # shows. Prefer ``growing`` unless the session is long enough that holding its
+    # audio is the binding constraint.
+    #
+    # Splatted into :class:`vocal_helper.rediar.RediarPolicy`, same ``on_revision``
+    # convention. Setting both is refused rather than silently resolved.
     rediar: dict | None = None
     asr: dict = field(default_factory=dict)
     # ``None`` disables the LLM analyst — useful when you only need
@@ -345,7 +367,32 @@ class Pipeline:
         )
         self._online_diar = OnlineDiarStage(**self.config.diar)
         self._diar: Any = self._online_diar
-        if self.config.rediar is not None:
+        growing = self.config.growing
+        if growing == "auto":
+            # Un défaut s'efface devant un choix explicite.
+            growing = None if self.config.rediar is not None else {}
+        elif growing is not None and self.config.rediar is not None:
+            raise ValueError(
+                "growing et rediar répondent au même besoin par deux chemins ; "
+                "en poser les deux explicitement ne dit pas lequel doit l'emporter. "
+                "Choisir growing pour la qualité du différé, rediar pour une "
+                "mémoire bornée."
+            )
+        if growing is not None:
+            from vocal_helper.diar import OfflineDiarStage
+            from vocal_helper.growing import GrowingBufferDiarStage, GrowingBufferPolicy
+
+            options = dict(growing)
+            on_revision = options.pop("on_revision", None)
+            backend = options.pop("backend", "auto")
+            self._diar = GrowingBufferDiarStage(
+                backend=backend,
+                policy=GrowingBufferPolicy(**options),
+                offline=OfflineDiarStage(backend=backend),
+                online=self._online_diar,
+                on_revision=on_revision,
+            )
+        elif self.config.rediar is not None:
             from vocal_helper.diar import OfflineDiarStage
             from vocal_helper.rediar import PeriodicOfflineDiarStage, RediarPolicy
 

@@ -510,17 +510,76 @@ def test_old_audio_is_dropped_so_a_live_session_stays_bounded():
 # --------------------------------------------------------------------------- #
 
 
-def test_the_pipeline_keeps_the_online_stage_by_default():
-    """The default must not change under anybody: `discussion-helper` wants a label
-    in half a second and no retroactive correction, which is the opposite priority."""
+def test_the_pipeline_no_longer_ships_the_worst_diarizer_as_its_default():
+    """Ce défaut a changé à dessein, et voici pourquoi.
+
+    L'étage en ligne seul était le défaut, au motif qu'une étiquette en une
+    demi-seconde et sans correction rétroactive est la bonne priorité pour un
+    agent conversationnel. L'argument tient pour `discussion-helper`, mais le
+    chiffre ne tient pas pour personne : mesuré sur les huit réunions d'AMI
+    dev-slice, cet étage donne 0,369 de taux d'erreur avec **soixante-cinq
+    étiquettes pour quatre locuteurs**, parce qu'un plus-proche-centroïde n'a
+    aucun moyen de tenir une identité sur une heure. C'était donc le pire
+    résultat du dépôt livré sur le chemin que les utilisateurs empruntent.
+
+    Le défaut est maintenant la fenêtre croissante, dont la dernière passe voit
+    toute la séance et qui atteint donc 0,176 — la qualité du différé, à la
+    troisième décimale. Celui qui veut l'ancien comportement le demande par
+    ``growing=None``, et le test suivant le vérifie.
+    """
+    import vocal_helper as voh
+    from vocal_helper.growing import GrowingBufferDiarStage
+
+    async def source():
+        yield {"t0": 0.0, "sample_rate": 16000, "pcm": np.zeros(320, dtype=np.float32)}
+
+    pipeline = voh.Pipeline(source=source, config=voh.PipelineConfig(llm=None))
+    assert isinstance(pipeline._diar, GrowingBufferDiarStage)
+    # L'étiquette rapide reste publiée : la fenêtre croissante corrige, elle ne
+    # remplace pas le temps de réaction.
+    assert pipeline._diar.online is pipeline._online_diar
+
+
+def test_the_old_default_stays_reachable_for_an_agent_that_cannot_revise():
+    """`discussion-helper` répond dans l'instant et ne peut rien démentir."""
     import vocal_helper as voh
     from vocal_helper.diar import OnlineDiarStage
 
     async def source():
         yield {"t0": 0.0, "sample_rate": 16000, "pcm": np.zeros(320, dtype=np.float32)}
 
-    pipeline = voh.Pipeline(source=source, config=voh.PipelineConfig(llm=None))
+    pipeline = voh.Pipeline(source=source, config=voh.PipelineConfig(llm=None, growing=None))
     assert isinstance(pipeline._diar, OnlineDiarStage)
+
+
+def test_an_explicit_rediar_wins_over_the_growing_default():
+    """Un défaut s'efface devant un choix explicite, sans rien exiger de plus."""
+    import vocal_helper as voh
+    from vocal_helper.rediar import PeriodicOfflineDiarStage
+
+    async def source():
+        yield {"t0": 0.0, "sample_rate": 16000, "pcm": np.zeros(320, dtype=np.float32)}
+
+    pipeline = voh.Pipeline(
+        source=source, config=voh.PipelineConfig(llm=None, rediar={"period_s": 30.0})
+    )
+    assert isinstance(pipeline._diar, PeriodicOfflineDiarStage)
+
+
+def test_asking_for_both_explicitly_is_refused_rather_than_resolved():
+    """Les deux répondent au même besoin ; en poser les deux ne dit pas lequel gagne."""
+    import pytest as _pytest
+
+    import vocal_helper as voh
+
+    async def source():
+        yield {"t0": 0.0, "sample_rate": 16000, "pcm": np.zeros(320, dtype=np.float32)}
+
+    with _pytest.raises(ValueError, match="même besoin"):
+        voh.Pipeline(
+            source=source,
+            config=voh.PipelineConfig(llm=None, growing={}, rediar={"period_s": 30.0}),
+        )
 
 
 def test_asking_for_rediar_composes_both_stages_and_keeps_the_callback():
