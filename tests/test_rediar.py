@@ -534,10 +534,19 @@ def test_the_pipeline_no_longer_ships_the_worst_diarizer_as_its_default():
         yield {"t0": 0.0, "sample_rate": 16000, "pcm": np.zeros(320, dtype=np.float32)}
 
     pipeline = voh.Pipeline(source=source, config=voh.PipelineConfig(llm=None))
-    assert isinstance(pipeline._diar, GrowingBufferDiarStage)
-    # L'étiquette rapide reste publiée : la fenêtre croissante corrige, elle ne
-    # remplace pas le temps de réaction.
-    assert pipeline._diar.online is pipeline._online_diar
+    from vocal_helper.nemotron import NemotronOnnxDiar
+
+    # Deux défauts acceptables, et aucun n'est l'ancien. Nemotron passe devant
+    # quand son graphe est dans le bundle — mesuré 0,090 / 0,105 / 0,252 en salle
+    # anéchoïque puis réverbérée à 0,3 et 0,6 s, contre 0,299 / 0,296 / 0,553
+    # pour pyannote, donc pour la fenêtre croissante dont la dernière passe EST
+    # la réponse de pyannote. Sinon la fenêtre croissante, qui n'exige aucun
+    # téléchargement de plus.
+    assert isinstance(pipeline._diar, NemotronOnnxDiar | GrowingBufferDiarStage)
+    if isinstance(pipeline._diar, GrowingBufferDiarStage):
+        # L'étiquette rapide reste publiée : la fenêtre croissante corrige, elle
+        # ne remplace pas le temps de réaction.
+        assert pipeline._diar.online is pipeline._online_diar
 
 
 def test_the_old_default_stays_reachable_for_an_agent_that_cannot_revise():

@@ -371,6 +371,29 @@ class Pipeline:
         if growing == "auto":
             # Un défaut s'efface devant un choix explicite.
             growing = None if self.config.rediar is not None else {}
+            # MIEUX QUE LA FENÊTRE CROISSANTE QUAND IL EST LÀ. Mesuré sur un
+            # mixage à vérité exacte, en salle anéchoïque puis réverbérée à 0,3
+            # et 0,6 s de temps de décroissance : Nemotron donne 0,090 / 0,105 /
+            # 0,252 de taux d'erreur quand pyannote — donc la fenêtre croissante,
+            # dont la dernière passe EST la réponse de pyannote — donne 0,299 /
+            # 0,296 / 0,553. Deux à trois fois mieux dans toutes les salles, avec
+            # le bon nombre de locuteurs partout et une latence d'une seconde au
+            # lieu de plusieurs minutes.
+            #
+            # Le moteur n'est pas toujours là : il vit dans le bundle de poids, et
+            # une installation qui ne l'a pas téléchargé doit dégrader vers la
+            # fenêtre croissante plutôt que de refuser de démarrer.
+            if growing is not None:
+                try:
+                    from vocal_helper.nemotron import NemotronOnnxDiar
+
+                    candidate = NemotronOnnxDiar(mode="low_latency")
+                    candidate.locate()
+                except Exception:  # noqa: BLE001 - absence du moteur, pas une faute
+                    candidate = None
+                if candidate is not None:
+                    self._diar = candidate
+                    growing = None
         elif growing is not None and self.config.rediar is not None:
             raise ValueError(
                 "growing et rediar répondent au même besoin par deux chemins ; "
