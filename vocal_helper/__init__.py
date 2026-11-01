@@ -94,6 +94,7 @@ from vocal_helper.incremental import (
     IncrementalClusterer,
     IncrementalDiarStage,
     IncrementalPolicy,
+    WindowFeatures,
 )
 from vocal_helper.lid import (
     LangRegion,
@@ -257,6 +258,9 @@ __all__ = [
     "IncrementalPolicy",
     "IncrementalClusterer",
     "IncrementalDiarStage",
+    # Extraction and clustering are split so a threshold sweep replays cached
+    # windows instead of re-running the models — seconds instead of hours.
+    "WindowFeatures",
     "RediarPolicy",
     "PeriodicOfflineDiarStage",
     "LabelRevision",

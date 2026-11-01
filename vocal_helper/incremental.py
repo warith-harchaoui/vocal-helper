@@ -311,12 +311,34 @@ class IncrementalClusterer:
 
 
 @dataclass
-class _Window:
-    """Une fenêtre glissante et ce que la segmentation locale y a vu."""
+class WindowFeatures:
+    """Une fenêtre glissante, sa segmentation locale et ses empreintes.
+
+    L'extraction (segmenter, découper la part propre, embarquer) coûte des
+    secondes par minute d'audio ; le regroupement coûte des microsecondes. Les
+    séparer rend un balayage de ``delta_new`` ou de ``rho_update_s`` cent fois
+    moins cher, puisqu'il rejoue ces fenêtres en cache au lieu de refaire
+    tourner les modèles.
+
+    Attributes
+    ----------
+    t0 : float
+        Début de la fenêtre dans le flux, en secondes.
+    local : list of tuple
+        La segmentation locale, en temps **relatifs à la fenêtre**.
+    embeddings : NDArray[np.float32]
+        ``(k, d)`` — une empreinte par locuteur local retenu.
+    clean_durations : list of float
+        ``k`` durées de part propre, dans l'ordre des empreintes.
+    speakers : list of str
+        ``k`` identifiants locaux, dans l'ordre des empreintes.
+    """
 
     t0: float
-    t1: float
     local: list[tuple[float, float, str]]
+    embeddings: NDArray[np.float32]
+    clean_durations: list[float]
+    speakers: list[str]
 
 
 class IncrementalDiarStage:
@@ -469,6 +491,109 @@ class IncrementalDiarStage:
             clean.extend(p for p in pieces if p[1] - p[0] > 1e-6)
         return sorted(clean)
 
+    def extract(self, pcm: NDArray[np.float32], sr: int) -> list[WindowFeatures]:
+        """Segmenter et embarquer chaque fenêtre, sans encore regrouper.
+
+        C'est la moitié coûteuse du travail, et la seule qui touche aux
+        modèles. Son résultat ne dépend d'aucun réglage du regroupement, donc
+        il se garde et se rejoue — c'est ce qui rend un balayage abordable.
+
+        Parameters
+        ----------
+        pcm : NDArray[np.float32]
+            Tampon mono.
+        sr : int
+            Sa fréquence d'échantillonnage.
+
+        Returns
+        -------
+        list of WindowFeatures
+            Une entrée par fenêtre ayant livré au moins une empreinte.
+        """
+        segmenter, embedder = self._load()
+        out: list[WindowFeatures] = []
+        for t0, t1 in self.windows(len(pcm) / float(sr)):
+            chunk = pcm[int(t0 * sr) : int(t1 * sr)]
+            if not len(chunk):
+                continue
+            local = segmenter.diarize(chunk, sr, max_speakers=self.local_max_speakers)
+            if not local:
+                continue
+            vectors, durations, speakers = [], [], []
+            for speaker in sorted({s for _, _, s in local}):
+                spans = self._clean_spans(local, speaker)
+                clean_s = sum(b - a for a, b in spans)
+                if clean_s < self.min_embed_s:
+                    continue
+                audio = np.concatenate([chunk[int(a * sr) : int(b * sr)] for a, b in spans])
+                vectors.append(np.asarray(embedder.embed(audio, sr), dtype=np.float32))
+                durations.append(clean_s)
+                speakers.append(speaker)
+            if vectors:
+                out.append(
+                    WindowFeatures(
+                        t0=t0,
+                        local=local,
+                        embeddings=np.stack(vectors),
+                        clean_durations=durations,
+                        speakers=speakers,
+                    )
+                )
+        return out
+
+    def label(
+        self, windows: list[WindowFeatures], duration_s: float
+    ) -> list[tuple[float, float, str]]:
+        """Regrouper des fenêtres extraites en une diarisation.
+
+        La moitié bon marché : du numpy et un algorithme hongrois. Repart du
+        regroupeur courant, donc appeler :meth:`reset` avant de rejouer les
+        mêmes fenêtres sous un autre réglage.
+
+        Parameters
+        ----------
+        windows : list of WindowFeatures
+            Ce que :meth:`extract` a rendu.
+        duration_s : float
+            Durée du flux, qui fixe la grille de vote.
+
+        Returns
+        -------
+        list of tuple
+            ``[(t0, t1, locuteur), …]`` trié par début.
+        """
+        grid_hz = 100.0
+        n_frames = int(round(duration_s * grid_hz))
+        votes: dict[str, NDArray[np.float32]] = {}
+        for window in windows:
+            global_ids = self.clusterer.assign(window.embeddings, window.clean_durations)
+            mapping = dict(zip(window.speakers, global_ids, strict=True))
+            for a, b, s in window.local:
+                gid = mapping.get(s)
+                if gid is None:
+                    continue
+                row = votes.setdefault(gid, np.zeros(n_frames, dtype=np.float32))
+                lo = max(0, int(round((window.t0 + a) * grid_hz)))
+                hi = min(n_frames, int(round((window.t0 + b) * grid_hz)))
+                if hi > lo:
+                    row[lo:hi] += 1.0
+        return _votes_to_segments(votes, grid_hz)
+
+    def reset(self) -> None:
+        """Oublier les locuteurs découverts, en gardant la politique.
+
+        Examples
+        --------
+        >>> import numpy as np
+        >>> stage = IncrementalDiarStage()
+        >>> stage.clusterer.assign(np.eye(2, dtype=np.float32), [1.0, 1.0])
+        ['S0', 'S1']
+        >>> stage.reset()
+        >>> stage.discovered_speakers
+        0
+        """
+        self.clusterer = IncrementalClusterer(policy=self.policy)
+
     def diarize(
         self,
         pcm: NDArray[np.float32],
@@ -504,44 +629,7 @@ class IncrementalDiarStage:
         """
         if max_speakers is not None:
             self.policy.max_speakers = int(max_speakers)
-        segmenter, embedder = self._load()
-        duration = len(pcm) / float(sr)
-        grid_hz = 100.0
-        n_frames = int(round(duration * grid_hz))
-        votes: dict[str, NDArray[np.float32]] = {}
-
-        for t0, t1 in self.windows(duration):
-            chunk = pcm[int(t0 * sr) : int(t1 * sr)]
-            if not len(chunk):
-                continue
-            local = segmenter.diarize(chunk, sr, max_speakers=self.local_max_speakers)
-            if not local:
-                continue
-            vectors, durations, speakers = [], [], []
-            for speaker in sorted({s for _, _, s in local}):
-                spans = self._clean_spans(local, speaker)
-                clean_s = sum(b - a for a, b in spans)
-                if clean_s < self.min_embed_s:
-                    continue
-                audio = np.concatenate([chunk[int(a * sr) : int(b * sr)] for a, b in spans])
-                vectors.append(np.asarray(embedder.embed(audio, sr), dtype=np.float32))
-                durations.append(clean_s)
-                speakers.append(speaker)
-            if not vectors:
-                continue
-            global_ids = self.clusterer.assign(np.stack(vectors), durations)
-            mapping = dict(zip(speakers, global_ids, strict=True))
-            for a, b, s in local:
-                gid = mapping.get(s)
-                if gid is None:
-                    continue
-                row = votes.setdefault(gid, np.zeros(n_frames, dtype=np.float32))
-                lo = max(0, int(round((t0 + a) * grid_hz)))
-                hi = min(n_frames, int(round((t0 + b) * grid_hz)))
-                if hi > lo:
-                    row[lo:hi] += 1.0
-
-        return _votes_to_segments(votes, grid_hz)
+        return self.label(self.extract(pcm, sr), len(pcm) / float(sr))
 
 
 def _votes_to_segments(
