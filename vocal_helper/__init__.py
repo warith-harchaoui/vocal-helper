@@ -90,6 +90,11 @@ from vocal_helper.diar import (
     resolve_sherpa_models,
 )
 from vocal_helper.fanout import LOSSLESS, LOSSY, Sink, fanout
+from vocal_helper.incremental import (
+    IncrementalClusterer,
+    IncrementalDiarStage,
+    IncrementalPolicy,
+)
 from vocal_helper.lid import (
     LangRegion,
     RegionVerdict,
@@ -245,6 +250,13 @@ __all__ = [
     # strategy is ported from the native block-wise diarizer: a per-speaker primer
     # separated by harvested room tone, and identity recovered by READ-BACK rather
     # than by matching — exact, and needing no embeddings of our own.
+    # Constrained incremental clustering, written here rather than imported —
+    # inspired by diart. Its three guards (injectivity via Hungarian,
+    # rho_update, delta_new) are what the greedy nearest-centroid online stage
+    # lacks ; the segmenter and embedder stay the caller's choice.
+    "IncrementalPolicy",
+    "IncrementalClusterer",
+    "IncrementalDiarStage",
     "RediarPolicy",
     "PeriodicOfflineDiarStage",
     "LabelRevision",
