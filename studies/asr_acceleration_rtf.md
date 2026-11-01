@@ -111,3 +111,83 @@ deviendrait respirable.
 
 Donc : à faire quand le direct gratuit sortira d'Apple Silicon haut de gamme, ou quand une
 campagne longue rendra l'énergie visible. Pas avant, et pas pour la vitesse seule.
+
+
+## La diarisation en direct : la qualité d'abord, RTF total sous 1
+
+Priorité posée par l'utilisateur le 2026-11-01 : en direct gratuit, **la qualité de
+diarisation est primordiale**, et la seule contrainte dure est que le RTF **total du
+système** reste sous 1.
+
+Ça renverse l'arbitrage du router, qui choisissait l'étage en ligne « nemo, toujours » parce
+que c'était le meilleur des étages en ligne. Mais l'étage en ligne est à **DER 0,586** contre
+**0,122** en différé : trois à quatre fois pire, parce qu'il ne modélise pas la parole
+superposée. Aucun meilleur regroupeur en ligne ne répare ça — la limite est la latence.
+
+Et avec 16× de marge sur le défaut, il y a du budget à dépenser en qualité.
+
+### La réponse : re-diarisation périodique hors ligne, sur fenêtre bornée
+
+Pas un algorithme neuf : c'est l'expression en direct du **diariseur par blocs du cœur
+Rust** (`core/nh-core/src/blockwise.rs`), qui avait résolu ça pour le long format. Ce code
+avait gagné trois détails qu'une réécriture naïve manque, et chacun fait la différence entre
+« ça marche » et « ça marche presque » :
+
+1. **l'amorce est un budget par locuteur**, pas un bloc. Un bloc d'« audio plus ancien »
+   manquerait celui qui n'avait pas encore parlé, et son étiquette dériverait à chaque
+   rafraîchissement ;
+2. **les morceaux sont séparés par du bruit de salle récolté**, pas par du silence, et
+   l'écart doit **dépasser le `min_duration_off` du modèle de segmentation** (0,5 s mesuré,
+   d'où 0,8 s par défaut) sinon le modèle n'y coupe pas de frontière du tout, les références
+   se mélangent, et la relecture devient ambiguë. Le silence numérique est hors distribution,
+   donc pire qu'inutile ;
+3. **l'identité se récupère par relecture, pas par appariement.** On diarise
+   `[amorce | fenêtre]` en un seul appel, donc le regroupement du moteur place déjà chaque
+   tour de la fenêtre avec la bonne référence : il suffit de lire quelle étiquette locale a
+   couvert chaque référence. Aucun plongement, aucun centroïde, aucun seuil à nous — et c'est
+   **exact**, là où un recouvrement est approximatif.
+
+Pourquoi la version évidente ne tient pas : « re-diariser tout le tampon » coûte
+`rtf = 0,067 × tampon / période`, et le tampon croît. Sur une heure avec une période de
+60 s : **4,0**. Ça marche trois minutes et s'écroule après vingt.
+
+Borné, le coût est constant en durée de session, et croît **légèrement** avec le nombre de
+locuteurs (l'amorce en dépend) :
+
+    rtf = 0,067 × (fenêtre + amorce(k)) / période
+
+### La table de décision, calculée
+
+Mesures : ASR Metal 0,033, ASR CPU 0,164, VAD 0,010, pyannote hors ligne 0,067 (DER 0,122),
+sherpa hors ligne 0,580 (DER 0,174), en ligne nemo 0,030 (DER 0,586). Placement pessimiste :
+transcription et diarisation sur **la même** unité, donc les coûts s'ajoutent.
+
+| option de diarisation en direct | DER | RTF total (6 voix) | marge | tient ? |
+|---|---:|---:|---:|---|
+| en ligne nemo (ancien défaut) | 0,586 | 0,063 | 16× | oui |
+| **re-diar pyannote, f=180 s, période 60 s** | **0,122** | **0,288** | **3,4×** | **oui** |
+| re-diar pyannote, f=180 s, période 30 s | 0,122 | 0,537 | 1,9× | limite |
+| re-diar sherpa (sans torch), période 60 s | 0,174 | 2,5 | 0,4× | **non** |
+| re-diar pyannote, ASR sur CPU, période 60 s | 0,122 | 0,452 | 2,2× | oui |
+
+Donc : **on achète un DER 4,8× meilleur pour une marge qui passe de 16× à 3,4×**, et la
+contrainte « sous 1 » est tenue avec un facteur trois de réserve. C'est exactement l'échange
+demandé.
+
+La politique par défaut porte **18 locuteurs** sur machine Metal avant de rompre, et **9**
+sans GPU — bien au-delà d'un plateau réel. Le cas qui ne tient pas est le diariseur sans
+torch : sherpa coûte 8,7× pyannote, le rejouer périodiquement ne rentre pas, et le dire est
+plus honnête que de promettre une qualité que la machine ne rendra pas.
+
+### Ce que l'appelant doit accepter
+
+**Les étiquettes changent rétroactivement.** Une ligne affichée `S1` peut devenir `S2` quand
+le rafraîchissement suivant arrive avec une meilleure information. C'est le prix de la
+qualité hors ligne sur un flux, et ça doit être un comportement **visible et voulu** de
+l'affichage — une recoloration, pas une réécriture silencieuse. L'alternative, garder une
+étiquette qu'on sait fausse, est pire. C'est l'invariant 2 de la cadence d'operator-assist :
+la couleur peut changer après l'arrivée d'une étiquette, jamais sans.
+
+L'étage en ligne reste le bon choix pour la priorité **inverse** : une étiquette en moins de
+500 ms et aucune correction rétroactive, ce dont un agent conversationnel a besoin et un
+relevé non.

@@ -63,7 +63,23 @@ Two independent findings, both measured on this machine:
    So offline needs a router: "ship nemo" or "ship pyannote" is wrong for one
    common workload.
 
-2. **Online: nemo, always.** vocal-helper's ``OnlineDiarStage`` is a
+2. **Online: nemo, always — but online is not the only live option, and it is not
+   the good one.** The streaming stage's error rate is three to four times the
+   offline one (0.586 against 0.122) because it cannot model overlapping speech,
+   and no choice of embedder repairs that: the limitation is the latency.
+
+   When the speaker labels matter as much as the words, the answer is not a better
+   online clusterer, it is :mod:`vocal_helper.rediar` — run the **offline**
+   diarizer periodically on a bounded window and correct the labels already shown.
+   Measured, that buys the full 0.122 at an effective real-time factor around 0.29
+   on a Metal machine with six speakers, which is 3.4 times real time: ample under
+   the only constraint that matters live, which is staying below 1.
+
+   The online stage remains the right choice for the opposite priority — a label
+   within 500 ms and no retroactive correction, which an interactive agent needs
+   and a transcript does not.
+
+   The rest of this finding still stands for the online stage itself: vocal-helper's ``OnlineDiarStage`` is a
    latency-bound cosine-clustering *approximation*, inherently ~3-4x the offline
    DER (it cannot model overlap). Across lengths the NeMo TitaNet embedder is the
    best online backend (bagarre 0.586, AMI 0.497) and beats pyannote/embedding

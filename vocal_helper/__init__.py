@@ -108,6 +108,7 @@ from vocal_helper.pipeline import (
     PipelineConfig,
     resolve_engine,
 )
+from vocal_helper.rediar import RediarPolicy, SpeakerReference, read_back_identities
 from vocal_helper.router import BackendPlan, select_diarization
 from vocal_helper.turns import consolidate, join_words
 from vocal_helper.types import (
@@ -233,6 +234,13 @@ __all__ = [
     "LiveBudget",
     "StageLoad",
     "live_budget",
+    # Offline-quality diarization on a live stream, at a bounded cost. The identity
+    # strategy is ported from the native block-wise diarizer: a per-speaker primer
+    # separated by harvested room tone, and identity recovered by READ-BACK rather
+    # than by matching — exact, and needing no embeddings of our own.
+    "RediarPolicy",
+    "SpeakerReference",
+    "read_back_identities",
 ]
 
 __author__ = "Warith Harchaoui, Ph.D."
