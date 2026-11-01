@@ -43,6 +43,32 @@ separately from the auto-detected one, and so the hint actually takes effect:
   merge or split to hit the number even when the audio disagrees. Use it only when
   the total is genuinely fixed and an extra voice is impossible.
 
+Which model, and why it is named here rather than left to a default
+-------------------------------------------------------------------
+Verified against the provider's documentation and the installed client on
+2026-11-01, because the answer had changed since this code was first written.
+
+**Batch: ``precision-3``.** It is the provider's most accurate batch model, and
+the only one with tunable voice-activity and cross-talk sensitivity. The client
+library defaults to ``precision-2``, the previous generation — so a caller who says
+nothing pays the full price for the older model. That is why the default is set
+here explicitly: on a paid call, taking a library's default is not a neutral act.
+Published comparisons give precision-3 as 34.2 % more accurate than community-1
+against 28 % for precision-2, and the provider's own launch note puts precision-3
+at 10.4 % lower average error than precision-2.
+
+**Live: ``live-1``.** Not a preference — it is the only streaming model the service
+offers.
+
+One consequence for the ledger: the **model is part of the billing key**. A run
+asking for precision-3 must not be served a cached precision-2 result, or the
+upgrade would be invisible and unpaid-for in the worst way: the better model
+appears to have changed nothing.
+
+Note that ``confidence`` is not supported by precision-3 (``turnLevelConfidence``
+is), so a caller wanting per-segment confidence has to choose between the newest
+model and that one output.
+
 Live-1's envelope, which the caller must respect
 ------------------------------------------------
 16 kHz mono, chunks of about 100 ms, under 300 ms of latency, at most 8 speakers
@@ -72,6 +98,8 @@ from vocal_helper.credentials import credential
 from vocal_helper.wallet import paid
 
 __all__ = [
+    "BATCH_MODEL",
+    "LIVE_MODEL",
     "MAX_PARALLEL_STREAMS",
     "MAX_SESSION_HOURS",
     "MAX_SPEAKERS",
@@ -85,6 +113,12 @@ __all__ = [
     "pcm_f32_to_wire_bytes",
     "pyannoteai_diarize",
 ]
+
+BATCH_MODEL = "precision-3"
+"""The most accurate batch model. The client library would default to ``precision-2``."""
+
+LIVE_MODEL = "live-1"
+"""The only streaming model the service offers. A constraint, not a choice."""
 
 PCM_SAMPLE_RATE = 16_000
 """Hz — the only sample rate Live-1 accepts."""
@@ -178,7 +212,9 @@ def open_pyannoteai_live_stream() -> dict[str, str]:
     resp = requests.post(
         "https://api.pyannote.ai/v1/live",
         headers={"Authorization": f"Bearer {key}"},
-        json={},
+        # The endpoint exposes exactly one streaming model, so there is nothing to
+        # select; naming it keeps the request self-documenting if that ever changes.
+        json={"model": LIVE_MODEL},
         timeout=10,
     )
     resp.raise_for_status()
@@ -248,24 +284,39 @@ class PyannoteAiLiveDiar:
 # --------------------------------------------------------------------------- #
 
 
-@paid("pyannoteai.diarize", key_fields=("num_speakers", "min_speakers", "max_speakers"))
+@paid(
+    "pyannoteai.diarize",
+    key_fields=("model", "num_speakers", "min_speakers", "max_speakers"),
+)
 def pyannoteai_diarize(
     *,
     audio: str,
+    model: str = BATCH_MODEL,
     num_speakers: int | None = None,
     min_speakers: int | None = None,
     max_speakers: int | None = None,
+    vad_sensitivity: float | None = None,
+    crosstalk_sensitivity: float | None = None,
 ) -> list[dict]:
-    """Diarize one file with pyannoteAI. Billed once per audio and per hint set.
+    """Diarize one file with pyannoteAI. Billed once per audio, model and hint set.
 
     Parameters
     ----------
     audio : str, keyword-only
         Media path. Converted to 16 kHz mono MP3 before upload, so a video
         recording does not send its video track for no benefit.
+    model : str, optional
+        Defaults to :data:`BATCH_MODEL` (``"precision-3"``), the most accurate one.
+        The client library's own default is the previous generation, which is why
+        this is set here rather than omitted. Part of the ledger key, so an
+        upgrade is not served a stale cheaper result.
     num_speakers, min_speakers, max_speakers : int, optional
         The three opt-in hints. See the module docstring for which to reach for;
         the short version is **prefer ``min_speakers``**.
+    vad_sensitivity, crosstalk_sensitivity : float, optional
+        ``precision-3`` only: how eagerly speech and overlapping speech are
+        detected. Left unset unless asked for, because the provider's defaults are
+        tuned and a guess here moves every segment boundary at once.
 
     Returns
     -------
@@ -294,13 +345,20 @@ def pyannoteai_diarize(
     with osh.temporary_folder(prefix="voh-upload") as tmp_dir:
         media = client.upload(upload_ready(audio, tmp_dir))
 
-    hints: dict[str, int] = {}
+    hints: dict[str, Any] = {"model": model}
     if num_speakers:
         hints["num_speakers"] = num_speakers
     if min_speakers:
         hints["min_speakers"] = min_speakers
     if max_speakers:
         hints["max_speakers"] = max_speakers
+    # precision-3's own knobs travel as extra body arguments, which the client
+    # forwards verbatim; sending them to an older model would be rejected, so they
+    # are only ever included when a caller asked for them.
+    if vad_sensitivity is not None:
+        hints["vadSensitivity"] = vad_sensitivity
+    if crosstalk_sensitivity is not None:
+        hints["crosstalkSensitivity"] = crosstalk_sensitivity
 
     result = client.retrieve(client.diarize(media, **hints))
     for path in (("output", "diarization"), ("diarization",), ("output", "segments")):

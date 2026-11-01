@@ -38,8 +38,17 @@ engines:
 #  for free, with no account. The two PAID modes exist beside them, never instead
 #  of them, and they are reachable only by name:
 #
-#    CloudOfflinePipeline  Gladia solaria-3 + pyannoteAI      (a file)
-#    CloudLivePipeline     Gladia solaria-1 + pyannoteAI Live-1  (a stream)
+#    CloudOfflinePipeline  Gladia solaria-3 + pyannoteAI precision-3  (a file)
+#    CloudLivePipeline     Gladia solaria-1 + pyannoteAI live-1       (a stream)
+#
+#  The models are named in code, not left to a library default. Verified against
+#  both providers' documentation on 2026-11-01:
+#    - Gladia's live endpoint accepts solaria-1 and nothing else (its streaming
+#      enumeration has one member); solaria-3 is asynchronous only.
+#    - pyannoteAI's live endpoint offers live-1 and nothing else.
+#    - pyannoteAI's BATCH client defaults to precision-2, the previous generation.
+#      precision-3 is the most accurate, so that is what is asked for: on a paid
+#      call, accepting a default is not a neutral act.
 #
 #  An ABSENT key means the paid mode raises, not that it degrades: there is no
 #  automatic failover between the free and paid columns, because a run that
@@ -51,7 +60,7 @@ engines:
 #  NEITHER FILE MAY BE COMMITTED.
 credentials:
   # Hosted transcription. solaria-3 for a file, solaria-1 for a stream — the live
-  # endpoint accepts no other model, so this is one key for two models.
+  # endpoint accepts no other model, so one key serves two models.
   GLADIA_API_KEY: ""
   # Hosted diarization, batch and Live-1. This is the stage worth buying: the free
   # path holds up on the words and collapses on the speakers.

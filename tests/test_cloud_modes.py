@@ -344,7 +344,11 @@ def test_an_unknown_engine_is_refused_at_construction_not_mid_run():
 def test_the_offline_pipeline_names_the_engines_it_used():
     """A record names what wrote it. Without that, a result from the cheaper path is
     indistinguishable from the reference one and the reader blames the tool."""
-    assert cloud.CloudOfflinePipeline().engine_name() == "gladia:solaria-3+pyannoteai"
+    assert cloud.CloudOfflinePipeline().engine_name() == (
+        "gladia:solaria-3+pyannoteai:precision-3"
+    )
+    # With no diarizer there is nothing to append: the transcriber's own speakers
+    # are what the record carries, and saying otherwise would overstate it.
     assert cloud.CloudOfflinePipeline(
         cloud.CloudOfflineConfig(transcriber="elevenlabs", diarizer="")
     ).engine_name() == "elevenlabs:scribe"
@@ -471,3 +475,86 @@ def test_the_router_never_routes_to_a_paid_backend():
                     live=live, duration_s=duration, num_speakers=speakers
                 )
                 assert plan.backend != "pyannoteai", (live, duration, speakers)
+
+
+# --------------------------------------------------------------------------- #
+#  Which model, and why it is named rather than defaulted
+# --------------------------------------------------------------------------- #
+
+
+def test_the_batch_diarizer_asks_for_the_best_model_not_the_library_default():
+    """The installed client defaults to the PREVIOUS generation. A caller who says
+    nothing would pay full price for it, so the best model is named here.
+
+    This test is the guard against a silent regression: a library upgrade that
+    changed its own default must not change ours, in either direction.
+    """
+    import inspect
+
+    from vocal_helper.diar_cloud import BATCH_MODEL, pyannoteai_diarize
+
+    assert BATCH_MODEL == "precision-3"
+    ours = inspect.signature(pyannoteai_diarize).parameters["model"].default
+    assert ours == BATCH_MODEL
+
+    try:
+        from pyannoteai.sdk import Client
+    except ImportError:
+        pytest.skip("pyannoteai client not installed; the paid extra is opt-in")
+    theirs = inspect.signature(Client.diarize).parameters["model"].default
+    assert ours != theirs, (
+        "our default now equals the library's — either they caught up, which is "
+        "good news, or this module stopped naming its model, which is not"
+    )
+
+
+def test_the_streaming_model_is_the_only_one_offered():
+    """Live-1 is a constraint, not a preference: the service exposes one streaming
+    model, and Gladia's streaming enumeration likewise has a single member. 'Take
+    the best' and 'take the only one' give the same answer on both sides."""
+    from vocal_helper.asr_cloud import GLADIA_LIVE_MODEL, GLADIA_PRERECORDED_MODEL
+    from vocal_helper.diar_cloud import LIVE_MODEL
+
+    assert LIVE_MODEL == "live-1"
+    assert GLADIA_LIVE_MODEL == "solaria-1"
+    assert GLADIA_PRERECORDED_MODEL == "solaria-3"
+    assert GLADIA_LIVE_MODEL != GLADIA_PRERECORDED_MODEL, (
+        "the live endpoint rejects the pre-recorded model; conflating them is the "
+        "mistake this assertion exists to prevent"
+    )
+
+
+def test_the_model_is_part_of_the_billing_key():
+    """Otherwise an upgrade is served a stale cheaper result, and the better model
+    appears to have changed nothing — the most expensive kind of invisible bug."""
+    import inspect
+
+    source = inspect.getsource(diar_cloud)
+    key_line = next(
+        line for line in source.splitlines() if "key_fields=" in line and "model" in line
+    )
+    assert '"model"' in key_line
+
+
+def test_the_record_names_the_model_not_merely_the_provider():
+    """Two runs through one provider on different generations are not the same
+    measurement. A record that hid which one produced it could not be compared
+    against itself a year later."""
+    assert cloud.CloudOfflinePipeline().engine_name() == (
+        "gladia:solaria-3+pyannoteai:precision-3"
+    )
+    downgraded = cloud.CloudOfflinePipeline(
+        cloud.CloudOfflineConfig(diarizer_model="precision-2")
+    )
+    assert downgraded.engine_name() == "gladia:solaria-3+pyannoteai:precision-2"
+
+
+def test_the_hybrid_also_gets_the_best_diarizer():
+    """The hybrid is the mode that exists to buy good speakers. Buying the previous
+    generation's would defeat its entire purpose."""
+    from vocal_helper.diar import OfflineDiarStage, _PyannoteAiOfflineDiar
+    from vocal_helper.diar_cloud import BATCH_MODEL
+
+    stage = OfflineDiarStage(backend="pyannoteai")
+    assert _PyannoteAiOfflineDiar(model=stage.pyannoteai_model).model == BATCH_MODEL
+    assert _PyannoteAiOfflineDiar(model="community-1").model == "community-1"

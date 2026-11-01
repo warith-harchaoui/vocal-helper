@@ -1402,13 +1402,20 @@ class OfflineDiarStage:
         stitch_threshold: float = 0.35,
         sherpa_cluster_threshold: float = 0.5,
         sherpa_num_clusters: int = -1,
+        pyannoteai_model: str | None = None,
         device: str | None = None,
     ) -> None:
         """Configure the offline diarizer ; backends load lazily.
 
         Parameters
         ----------
-        backend : "pyannote" | "nemo" | "sherpa"
+        pyannoteai_model : str, optional
+            Which hosted batch model the ``"pyannoteai"`` backend asks for. ``None``
+            takes the provider's most accurate one
+            (:data:`vocal_helper.diar_cloud.BATCH_MODEL`) rather than the client
+            library's default, which is the previous generation: on a paid call,
+            accepting a default is not a neutral act.
+        backend : "pyannote" | "nemo" | "sherpa" | "pyannoteai"
             Offline backend. Default ``"pyannote"``. ``"sherpa"`` = portable ONNX
             (community-1 seg + TitaNet-large), whole-buffer, no torch.
         ideal_duration_s : float, optional
@@ -1453,6 +1460,7 @@ class OfflineDiarStage:
         self.stitch_threshold = stitch_threshold
         self.sherpa_cluster_threshold = sherpa_cluster_threshold
         self.sherpa_num_clusters = sherpa_num_clusters
+        self.pyannoteai_model = pyannoteai_model
         self.device = device
         self._backend_obj: Any = None
         self._embedder: Any = None
@@ -1494,7 +1502,9 @@ class OfflineDiarStage:
         elif self.backend == "pyannoteai":
             # The PAID backend, and the whole of the hybrid mode: hosted speakers,
             # local words. Never routed to automatically — see vocal_helper.router.
-            self._backend_obj = _PyannoteAiOfflineDiar()
+            self._backend_obj = _PyannoteAiOfflineDiar(
+                model=getattr(self, "pyannoteai_model", None)
+            )
             self._embedder = _torch_free_embedder_or_stub("pyannoteai is a hosted service")
         else:
             raise ValueError(
@@ -1928,7 +1938,10 @@ class _PyannoteAiOfflineDiar:
     it; and the buffer is written out as a file, because the provider takes files.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, *, model: str | None = None) -> None:
+        from vocal_helper.diar_cloud import BATCH_MODEL
+
+        self.model = model or BATCH_MODEL
         self._checked = False
 
     def load(self) -> None:
@@ -1992,6 +2005,7 @@ class _PyannoteAiOfflineDiar:
             ah.save_audio(pcm, path, sample_rate=sr)
             segments = pyannoteai_diarize(
                 audio=path,
+                model=self.model,
                 num_speakers=num_speakers,
                 min_speakers=min_speakers,
                 max_speakers=max_speakers,

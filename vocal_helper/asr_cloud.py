@@ -21,7 +21,9 @@ never charged twice.
 
 Two models, two endpoints, and the mistake that is easy to make
 ---------------------------------------------------------------
-Gladia exposes transcription twice, and the model names are **not**
+Re-verified against the provider's OpenAPI specification on **2026-11-01**, because
+the answer is the kind that changes and the cost of being wrong is a rejected paid
+job. Gladia exposes transcription twice, and the model names are **not**
 interchangeable.
 
 - **Pre-recorded** (``POST /v2/upload`` then ``/v2/pre-recorded``) accepts
@@ -30,7 +32,9 @@ interchangeable.
 - **Live** (``POST /v2/live`` then a WebSocket) accepts ``solaria-1`` and nothing
   else: the specification's streaming-model enumeration has a single member. An
   earlier version of this code set the live model to ``solaria-3`` on the
-  reasonable-sounding assumption that newer is better; the API rejects it.
+  reasonable-sounding assumption that newer is better; the API rejects it. There is
+  no ``solaria-2``, and solaria-3 remains asynchronous only, so "take the best
+  available" and "take the only one available" give the same answer here.
 
 And the premise of the whole live design: **Gladia does not diarize live**
 (confirmed against Gladia's own documentation — real-time diarization is not
@@ -109,7 +113,7 @@ GLADIA_PRERECORDED_MODEL = "solaria-3"
 """Pre-recorded default. Override with ``VOH_GLADIA_MODEL`` (``solaria-1`` for 100+ languages)."""
 
 GLADIA_LIVE_MODEL = "solaria-1"
-"""The ONLY model the live endpoint accepts. Not a preference — a constraint."""
+"""The ONLY model the live endpoint accepts (verified 2026-11-01). A constraint, not a choice."""
 
 GLADIA_MAX_S = 8000.0
 """Just under Gladia's ~8100 s (~135 min) per-file cap; longer media is chunked and stitched."""

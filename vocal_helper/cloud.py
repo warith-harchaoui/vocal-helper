@@ -14,8 +14,8 @@ mode                  class                               engines
 ====================  ==================================  ============================
 local, free, offline  :class:`vocal_helper.OfflinePipeline`   whisper.cpp + pyannote / NeMo / sherpa
 local, free, live     :class:`vocal_helper.Pipeline`          whisper.cpp + NeMo TitaNet
-paid, offline         :class:`CloudOfflinePipeline`           Gladia ``solaria-3`` + pyannoteAI
-paid, live            :class:`CloudLivePipeline`              Gladia ``solaria-1`` + pyannoteAI Live-1
+paid, offline         :class:`CloudOfflinePipeline`           Gladia ``solaria-3`` + pyannoteAI ``precision-3``
+paid, live            :class:`CloudLivePipeline`              Gladia ``solaria-1`` + pyannoteAI ``live-1``
 ====================  ==================================  ============================
 
 Four names rather than one factory taking a string, deliberately: a billed mode
@@ -71,6 +71,7 @@ from vocal_helper.asr_cloud import (
     gladia_utterances,
 )
 from vocal_helper.asr_cloud import pcm_f32_to_wire_bytes as _asr_wire
+from vocal_helper.diar_cloud import BATCH_MODEL as _BATCH_DIAR_MODEL
 from vocal_helper.diar_cloud import PyannoteAiLiveDiar, pyannoteai_diarize
 from vocal_helper.diar_cloud import pcm_f32_to_wire_bytes as _diar_wire
 from vocal_helper.fusion import fuse_live_transcripts, relabel_utterances
@@ -100,6 +101,10 @@ class CloudOfflineConfig:
         diarizes its pre-recorded output, and Scribe bundles diarization too, but
         on a crowded panel the hosted diarizer is what the money is for — so it is
         on by default.
+    diarizer_model : str, optional
+        Defaults to the provider's most accurate batch model. Named rather than
+        left to the client library's default, which is the previous generation: on
+        a paid call, accepting a default is not a neutral act.
     languages : list of str, optional
         Expected languages. ``None`` lets the provider detect.
     code_switching : bool, optional
@@ -134,6 +139,7 @@ class CloudOfflineConfig:
 
     transcriber: str = "gladia"
     diarizer: str = "pyannoteai"
+    diarizer_model: str = _BATCH_DIAR_MODEL
     languages: list[str] | None = None
     code_switching: bool = True
     glossary: list[str] | None = None
@@ -286,7 +292,7 @@ class CloudOfflinePipeline:
     >>> pipeline.config.transcriber, pipeline.config.diarizer
     ('gladia', 'pyannoteai')
     >>> pipeline.engine_name()
-    'gladia:solaria-3+pyannoteai'
+    'gladia:solaria-3+pyannoteai:precision-3'
     >>> CloudOfflinePipeline(CloudOfflineConfig(diarizer="")).engine_name()
     'gladia:solaria-3'
     """
@@ -300,9 +306,10 @@ class CloudOfflinePipeline:
         Returns
         -------
         str
-            e.g. ``"gladia:solaria-3+pyannoteai"``. A record names what wrote it:
-            without that, a result from a degraded or cheaper path is
-            indistinguishable from the reference one.
+            e.g. ``"gladia:solaria-3+pyannoteai:precision-3"``. The **model**, not
+            just the provider: two runs through the same provider on different
+            generations are not the same measurement, and a record that hid which
+            one produced it could not be compared against itself a year later.
         """
         from vocal_helper.asr_cloud import GLADIA_PRERECORDED_MODEL
 
@@ -311,7 +318,9 @@ class CloudOfflinePipeline:
             if self.config.transcriber == "gladia"
             else "elevenlabs:scribe"
         )
-        return f"{asr}+{self.config.diarizer}" if self.config.diarizer else asr
+        if not self.config.diarizer:
+            return asr
+        return f"{asr}+{self.config.diarizer}:{self.config.diarizer_model}"
 
     def run(self, audio: str) -> list[CloudUtterance]:
         """Transcribe and diarize ``audio``.
@@ -361,9 +370,10 @@ class CloudOfflinePipeline:
             utterances = _from_elevenlabs(payload, engine)
 
         if config.diarizer == "pyannoteai":
-            osh.info("  cloud: diarizing with pyannoteai")
+            osh.info(f"  cloud: diarizing with pyannoteai:{config.diarizer_model}")
             segments = pyannoteai_diarize(
                 audio=audio,
+                model=config.diarizer_model,
                 num_speakers=config.num_speakers,
                 min_speakers=config.min_speakers,
                 max_speakers=config.max_speakers,
