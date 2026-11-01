@@ -263,7 +263,7 @@ class OnlineDiarStage:
         # Fall back to ``"pyannote"`` if the NeMo install footprint is
         # prohibitive (NeMo + torch is ~ 5 GB ; pyannote alone is
         # ~ 500 MB). Pass ``backend="pyannote"`` explicitly to opt out.
-        backend: BackendName = "nemo",
+        backend: str = "auto",
         join_threshold: float = JOIN_THRESHOLD,
         ema_alpha: float = 0.1,
         min_segment_ms: int = 500,
@@ -278,11 +278,13 @@ class OnlineDiarStage:
 
         Parameters
         ----------
-        backend : "pyannote" | "nemo" | "sherpa"
-            Embedding backend. Default ``"nemo"`` (TitaNet) for its sharper
-            cosine separation ; ``"sherpa"`` gives the same TitaNet-large via
-            ONNX with no torch install ; pass ``"pyannote"`` to opt out of the
-            heavier NeMo install.
+        backend : str
+            Embedding backend, or ``"auto"`` (the default) to take the best one
+            this installation can actually run — see :func:`resolve_backend`. The
+            order is the measured one: ``"nemo"`` (TitaNet) for its sharper cosine
+            separation, then ``"pyannote"``, then the torch-free ``"sherpa"``,
+            which is a core dependency and therefore always available. Installing
+            an extra upgrades the result with no code change.
         join_threshold : float
             Cosine-distance threshold below which a segment joins an
             existing centroid. Default :data:`JOIN_THRESHOLD`. Must be in
@@ -342,7 +344,10 @@ class OnlineDiarStage:
             raise ValueError(f"max_speakers must be >= 1 or None, got {max_speakers}")
         if min_cluster_size < 1:
             raise ValueError(f"min_cluster_size must be >= 1, got {min_cluster_size}")
-        self.backend = backend
+        # Resolve "auto" at construction, for the same reason as the offline stage:
+        # the dispatch compares concrete names, and the attribute should name the
+        # backend that will run.
+        self.backend = resolve_backend(backend, mode="online")
         self.join_threshold = join_threshold
         self.ema_alpha = ema_alpha
         self.min_segment_ms = min_segment_ms
@@ -1396,7 +1401,7 @@ class OfflineDiarStage:
     def __init__(
         self,
         *,
-        backend: BackendName = "pyannote",
+        backend: str = "auto",
         ideal_duration_s: float | None = None,
         overlap_s: float = 10.0,
         stitch_threshold: float = 0.35,
@@ -1448,7 +1453,10 @@ class OfflineDiarStage:
             Torch device for the pyannote pipeline + embedder. ``None``
             (default) auto-picks CUDA > MPS > CPU. No effect on NeMo.
         """
-        self.backend = backend
+        # Resolve "auto" HERE, at construction: the dispatch below compares against
+        # concrete names, and a caller inspecting ``self.backend`` should see what
+        # will actually run rather than the word "auto".
+        self.backend = resolve_backend(backend, mode="offline")
         if ideal_duration_s is None:
             ideal_duration_s = {
                 "pyannote": IDEAL_DURATION_S_PYANNOTE,
@@ -2334,6 +2342,99 @@ class _NemoSortformerDiar:
 #: platform decision, not a quality one. ``"nemo"`` runs it through torch/NeMo (sharpest on a
 #: desktop); ``"sherpa"`` runs the same weights through onnxruntime, torch-free, which is what
 #: ships on iOS and Android.
+#: Offline backends in order of measured quality, best first: pyannote 0.122,
+#: nemo 0.142 on short dense turns (but it *hangs* past ~25 min, so it is not the
+#: general default), sherpa 0.174 and torch-free. See :mod:`vocal_helper.router`.
+OFFLINE_PREFERENCE = ("pyannote", "nemo", "sherpa")
+
+#: Online backends in order of measured quality, best first: nemo 0.586,
+#: pyannote 0.590, then sherpa.
+ONLINE_PREFERENCE = ("nemo", "pyannote", "sherpa")
+
+#: What each backend needs to be importable. sherpa is in the core dependencies, so
+#: it is the one that is always there — which is why it is last in both orders and
+#: yet never missing.
+_BACKEND_MODULE = {
+    "pyannote": "pyannote.audio",
+    "nemo": "nemo",
+    "sherpa": "sherpa_onnx",
+    # Hosted: no local module to probe, only a credential, checked at load.
+    "pyannoteai": None,
+}
+
+
+def _installed(backend: str) -> bool:
+    """Whether a backend's package is importable here."""
+    import importlib.util
+
+    module = _BACKEND_MODULE.get(backend)
+    if module is None:
+        return True
+    try:
+        return importlib.util.find_spec(module) is not None
+    except (ImportError, ValueError):
+        # A namespace package half-installed can raise rather than return None.
+        return False
+
+
+def resolve_backend(requested: str, *, mode: str) -> str:
+    """Turn ``"auto"`` into the best backend this installation can actually run.
+
+    Why the defaults are ``"auto"`` and not a name
+    ----------------------------------------------
+    They used to be names — ``"pyannote"`` offline, ``"nemo"`` online — and both
+    name an **extra**. So a bare ``pip install vocal-helper`` did not diarize with
+    reduced quality, it raised: the library's own default asked for something the
+    install did not contain. That is why sherpa-onnx is now a core dependency and
+    why these defaults probe.
+
+    The order is the measured quality order, so installing ``[pyannote]`` upgrades
+    the result with no code change: the install **is** the switch.
+
+    Parameters
+    ----------
+    requested : str
+        A backend name, or ``"auto"``.
+    mode : str, keyword-only
+        ``"offline"`` or ``"online"`` — they do not share an order.
+
+    Returns
+    -------
+    str
+        A concrete backend name. An explicit request is returned untouched even if
+        it looks absent: the probe can be wrong, and an override exists for exactly
+        that case. ``"auto"`` never returns something absent.
+
+    Raises
+    ------
+    ValueError
+        On an unknown mode.
+
+    Examples
+    --------
+    >>> resolve_backend("sherpa", mode="offline")
+    'sherpa'
+    >>> resolve_backend("auto", mode="offline") in OFFLINE_PREFERENCE
+    True
+    >>> resolve_backend("auto", mode="online") in ONLINE_PREFERENCE
+    True
+    """
+    if mode not in ("offline", "online"):
+        raise ValueError(f"unknown mode {mode!r}; expected 'offline' or 'online'")
+    if requested != "auto":
+        return requested
+    order = OFFLINE_PREFERENCE if mode == "offline" else ONLINE_PREFERENCE
+    for candidate in order:
+        if _installed(candidate):
+            return candidate
+    # Unreachable while sherpa-onnx is a core dependency; kept so that if it ever
+    # stops being one, the failure names the cause instead of returning nonsense.
+    raise RuntimeError(
+        "no diarization backend is installed. sherpa-onnx is meant to be a core "
+        "dependency of vocal-helper; reinstall the package."
+    )
+
+
 EMBEDDER_BACKENDS = ("nemo", "sherpa")
 
 

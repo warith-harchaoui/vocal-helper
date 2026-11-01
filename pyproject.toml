@@ -67,6 +67,19 @@ dependencies = [
     # (manylinux + musllinux) and Windows across cp39–cp314, so a plain
     # ``pip install`` needs no C/C++ toolchain on any common platform.
     "pywhispercpp>=1.5",
+    # A DIARIZER IS CORE, not an extra. This library's job is "transcription and
+    # diarization of speech"; shipping the transcriber by default and leaving the
+    # diarizer to an extra meant a bare install could not do half of what the
+    # package is for — and both stage defaults pointed at extras, so a bare install
+    # did not degrade, it raised.
+    #
+    # sherpa-onnx is the one that belongs here: torch-free, ONNX, a light wheel on
+    # every platform, no HuggingFace, and measured at a diarization error rate of
+    # 0.174 (ADR 0002) with French and English both validated. pyannote.audio is
+    # better (0.122) and stays an EXTRA because it pulls PyTorch: a 30 % relative
+    # quality gain is worth asking for deliberately, not worth imposing half a
+    # gigabyte on everyone who installs this to read one meeting.
+    "sherpa-onnx>=1.13",
 ]
 
 [project.optional-dependencies]
@@ -80,8 +93,11 @@ mic = [
 stream = [
     "podcast-helper>=1.0.0,<2",
 ]
-# pyannote.audio drives the embedding-based speaker model used by the
-# online diarizer when ``backend='pyannote'``.
+# THE QUALITY UPGRADE, and the reason it is opt-in. pyannote.audio is the measured
+# best offline diarizer here (error rate 0.122 against sherpa's 0.174, a 30 % relative
+# gain) and it pulls PyTorch, roughly half a gigabyte. Asking for it deliberately is
+# the right trade; imposing it on every install is not. With it present, the stages'
+# ``backend="auto"`` picks it on its own — no code change, the install is the switch.
 pyannote = [
     "pyannote.audio>=3.3",
 ]
@@ -91,12 +107,10 @@ nemo = [
     "torchaudio>=2.5,<3",
     "nemo-toolkit[asr]>=2.0",
 ]
-# Torch-free ONNX speaker embedder (backend='sherpa') — the same TitaNet-large the
-# `nemo` backend uses, run through onnxruntime so it installs light and embeds on any
-# platform. Study-selected best embedder (2026-07-18), validated FR+EN.
-sherpa = [
-    "sherpa-onnx>=1.13",
-]
+# Kept as a NO-OP so `vocal-helper[sherpa]` still resolves: sherpa-onnx became a core
+# dependency, because a library for diarization that cannot diarize out of the box is
+# not finished. Nothing to install here any more.
+sherpa = []
 # The two PAID modes: hosted transcription (Gladia, or ElevenLabs Scribe) and hosted
 # diarization (pyannoteAI), offline and live. Its OWN extra, because it is opt-in, it
 # is billed, and the local path must never pull a network client it does not use.

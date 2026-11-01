@@ -77,7 +77,8 @@ def test_public_contract_stable() -> None:
     * both config dataclasses keep every documented field;
     * every stage stays constructible with zero positional args (new features
       must be keyword-only with defaults);
-    * ``OfflineDiarStage`` keeps ``pyannote`` as its default backend.
+    * ``OfflineDiarStage``'s default still RESOLVES to ``pyannote`` (the literal
+      default is now ``"auto"``, which probes — see the comment at the assertion).
     """
     # 1. Exported symbols — present in __all__ and importable.
     for name in _FROZEN_EXPORTS:
@@ -113,9 +114,30 @@ def test_public_contract_stable() -> None:
                 f"{cls.__name__}.{name} became a required argument"
             )
 
-    # 6. Offline diarization default backend stays pyannote (nemo stays selectable).
+    # 6. The default offline diarizer still RESOLVES to pyannote, and still works
+    #    when pyannote is absent.
+    #
+    #    The literal default changed from "pyannote" to "auto" on 2026-11-01, and the
+    #    contract this guard protects did not. It said: a caller who passes nothing
+    #    gets pyannote quality. It still does — "auto" walks the measured quality
+    #    order and pyannote is first. What changed is the case the old literal
+    #    handled badly: pyannote is an EXTRA, so a bare install asked for something
+    #    it did not contain and **raised** rather than degrading. sherpa-onnx is now
+    #    a core dependency and the default probes, so a bare install diarizes.
+    #
+    #    So the assertion moves from the literal to the behaviour, which is what was
+    #    ever worth freezing.
     sig = inspect.signature(voh.OfflineDiarStage)
-    assert sig.parameters["backend"].default == "pyannote"
+    assert sig.parameters["backend"].default == "auto"
+    assert voh.OfflineDiarStage().backend == "pyannote", (
+        "pyannote is installed here, so the default must still resolve to it; "
+        "anything else is a quality regression hiding behind a probe"
+    )
+    # And the floor is reachable: the torch-free backend is a core dependency, so
+    # there is always something for "auto" to land on.
+    from vocal_helper.diar import OFFLINE_PREFERENCE, _installed
+
+    assert _installed(OFFLINE_PREFERENCE[-1])
 
 
 def test_speaker_label_scheme_unchanged() -> None:

@@ -7,7 +7,7 @@
 # Heavy optional surfaces live behind extras (NOT pulled by this file):
 #     pip install '.[mic]'       # capture-helper — live microphone source
 #     pip install '.[stream]'    # podcast-helper — URL / stream source
-#     pip install '.[pyannote]'  # pyannote.audio diarization (upstream)
+#     pip install '.[pyannote]'  # pyannote.audio — the diarization QUALITY upgrade
 #     pip install '.[nemo]'      # NeMo online diarization (upstream, ~5 GB)
 #     pip install '.[api,mcp]'   # the CLI needs no extra: click is a core dep
 #
@@ -33,3 +33,8 @@ numpy>=1.24
 scipy>=1.15
 silero-vad>=5.1
 pywhispercpp>=1.5
+# A diarizer is core, not an extra: this package exists for "transcription AND
+# diarization", and a bare install used to do only the first half. sherpa-onnx is
+# torch-free and light, so it is the one that ships by default; pyannote.audio is
+# better (0.122 against 0.174) and stays behind `[pyannote]` because it pulls torch.
+sherpa-onnx>=1.13
