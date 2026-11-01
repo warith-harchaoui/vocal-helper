@@ -319,7 +319,22 @@ class CloudOfflinePipeline:
         return f"{asr}+{self.config.diarizer}:{self.config.diarizer_model}"
 
     def run(self, audio: str) -> list[CloudUtterance]:
-        """Transcribe and diarize ``audio``.
+        """Transcribe and diarize ``audio``, returning what the engines said.
+
+        **Raw, deliberately.** Rows come back as the providers produced them: a
+        speaker the diarizer discovered for four words is still here, a block that
+        merges thirty seconds of speech is still one row, and a row whose times
+        collapsed to an instant still has none. Those are facts about the engines,
+        and a library that quietly edited them would be deciding, on a caller's
+        behalf, which voices count.
+
+        The next step is explicit, and almost always wanted::
+
+            rows = CloudOfflinePipeline(config).run(audio)
+            rows, speakers = voh.consolidate(rows, min_speaker_s=120.0)
+
+        See :func:`vocal_helper.turns.consolidate` for the five rules it applies and
+        the complaint behind each.
 
         Parameters
         ----------

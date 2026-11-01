@@ -108,6 +108,7 @@ from vocal_helper.pipeline import (
     resolve_engine,
 )
 from vocal_helper.router import BackendPlan, select_diarization
+from vocal_helper.turns import consolidate, join_words
 from vocal_helper.types import (
     CloudUtterance,
     DiarizedSegment,
@@ -216,6 +217,11 @@ __all__ = [
     "CloudLivePipeline",
     "credential",
     "credentials_status",
+    # Raw engine output is not a readable transcript. `consolidate` is the explicit
+    # step between the two, kept separate because its thresholds are editorial
+    # decisions a library has no business making silently for a caller.
+    "consolidate",
+    "join_words",
 ]
 
 __author__ = "Warith Harchaoui, Ph.D."
