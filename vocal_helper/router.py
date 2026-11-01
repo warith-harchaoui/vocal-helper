@@ -32,6 +32,24 @@ online   nemo      0.586        0.030      any live stream (the default online e
 online   sherpa    0.174        0.58       torch-free streaming = periodic offline re-diarization
 ======== ========= ============ ========== =================================================
 
+What the router will never do
+-----------------------------
+It never routes to a **paid** backend. ``pyannoteai`` exists as an offline
+diarization backend — it is the whole of the hybrid mode, hosted speakers with
+local words — but it is reachable only by asking for it by name
+(``diar={"backend": "pyannoteai"}``).
+
+This is not an oversight, it is the rule that makes the rest safe. A router that
+could pick a billed engine would mean the same command sometimes costs money and
+sometimes does not, decided by a duration threshold nobody remembers. And since
+cost is not on the same scale as DER or RTF, there is no honest way to put it in
+the table below and let a comparison decide: the two local columns trade quality
+against speed, which are commensurable; adding euros is a different kind of
+quantity, and the person spending them is the one who should choose.
+
+So: the router arbitrates among the free local backends on measurement. Paying is
+a decision, made by name, by a human.
+
 Why a router, not a default
 ---------------------------
 Two independent findings, both measured on this machine:

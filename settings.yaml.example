@@ -30,3 +30,44 @@ engines:
   diarization_url: https://deraison.ai/diarization-engines-slim.zip
 # That is the entire configuration. There is no HuggingFace token — the
 # bundle carries every model weight the project needs.
+
+# ---------------------------------------------------------------------------
+#  Paid cloud backends (OPTIONAL — the two local modes need none of this)
+# ---------------------------------------------------------------------------
+#  vocal-helper is local-first: transcription and diarization run on this machine,
+#  for free, with no account. The two PAID modes exist beside them, never instead
+#  of them, and they are reachable only by name:
+#
+#    CloudOfflinePipeline  Gladia solaria-3 + pyannoteAI      (a file)
+#    CloudLivePipeline     Gladia solaria-1 + pyannoteAI Live-1  (a stream)
+#
+#  An ABSENT key means the paid mode raises, not that it degrades: there is no
+#  automatic failover between the free and paid columns, because a run that
+#  silently changed engine would give a different answer under the same command.
+#
+#  An environment variable of the same name overrides anything here. A
+#  machine-written `credentials.yaml` overlay, same shape as this section, takes
+#  precedence over this file so a preferences panel never rewrites these comments.
+#  NEITHER FILE MAY BE COMMITTED.
+credentials:
+  # Hosted transcription. solaria-3 for a file, solaria-1 for a stream — the live
+  # endpoint accepts no other model, so this is one key for two models.
+  GLADIA_API_KEY: ""
+  # Hosted diarization, batch and Live-1. This is the stage worth buying: the free
+  # path holds up on the words and collapses on the speakers.
+  PYANNOTEAI_API_KEY: ""
+  # ElevenLabs Scribe — a selectable third transcriber, never a default.
+  ELEVENLABS_API_KEY: ""
+
+# ---------------------------------------------------------------------------
+#  Paid-call ledger
+# ---------------------------------------------------------------------------
+#  Where the memoisation of billed calls lives. The same audio is charged once,
+#  ever, across processes and restarts.
+#
+#  POINT THIS AT AN EXISTING LEDGER WHEN MIGRATING. A project that already paid
+#  for hundreds of hours keeps those results only if vocal-helper reads the same
+#  file; a fresh path is a silently empty ledger, and the next run re-bills
+#  everything. `VOH_WALLET_DB` overrides this.
+paid:
+  wallet_db: ""

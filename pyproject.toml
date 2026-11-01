@@ -97,6 +97,23 @@ nemo = [
 sherpa = [
     "sherpa-onnx>=1.13",
 ]
+# The two PAID modes: hosted transcription (Gladia, or ElevenLabs Scribe) and hosted
+# diarization (pyannoteAI), offline and live. Its OWN extra, because it is opt-in, it
+# is billed, and the local path must never pull a network client it does not use.
+#
+# `wallet-helper` is what makes a billed call payable only once: it memoises on the
+# audio's bytes, across processes and restarts, so a rebuild costs nothing. It is not
+# optional within this extra — without it, re-running the same recording re-bills it.
+#
+# The live half speaks raw WebSocket to both providers: neither live endpoint has a
+# Python software development kit, which is why `websockets` is here and no vendor
+# client is.
+cloud = [
+    "requests>=2.31",
+    "websockets>=13",
+    "pyannoteai>=0.3",
+    "wallet-helper>=0.3.0",
+]
 # Local LLM analyst + semantic-EOT classifier. The serving backend (Ollama or
 # vLLM) and the model are resolved by best-engine-ai-helper from the committed
 # ``vocal_helper/llm.brief.yaml``, and requests go over HTTP via ``beh.llm.chat``
@@ -140,7 +157,11 @@ lid = [
 # then pass ``backend="pyannote"`` (or the torch-free ``"sherpa"``) to
 # ``OnlineDiarStage`` / ``OfflineDiarStage``.
 all = [
-    "vocal-helper[api,mcp,mic,stream,pyannote,nemo,sherpa,llm,lid]",
+    # `cloud` is included: installing an HTTP client bills nobody. Opt-in is enforced
+    # by the ABSENCE OF A KEY, not by the absence of a dependency — see
+    # vocal_helper.credentials. A matrix with one corner missing from `all` would be a
+    # worse promise than one that is installable and switched off.
+    "vocal-helper[api,mcp,mic,stream,pyannote,nemo,sherpa,llm,lid,cloud]",
 ]
 # Word-error metrics (``vocal_helper.bench``): WER / MER / WIL / CER and cpWER
 # all come from jiwer. An evaluation surface, not something a transcription run

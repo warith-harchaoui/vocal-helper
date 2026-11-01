@@ -94,6 +94,35 @@ class Utterance(TypedDict):
     language: str | None
 
 
+class CloudUtterance(Utterance, total=False):
+    """An :class:`Utterance` from a hosted engine, carrying what it knows extra.
+
+    Subclassing with ``total=False`` makes every key below **optional**, so a
+    ``CloudUtterance`` is accepted anywhere an :class:`Utterance` is expected and
+    no existing consumer has to change. That matters: ``Pipeline`` and
+    ``OfflinePipeline`` have live callers, and widening their shared output type
+    would have been a breaking change dressed up as an improvement.
+
+    Why the extra keys exist
+    ------------------------
+    ``Utterance.words`` is a list of ``(t0, t1, text)`` triplets, which has no room
+    for a per-word confidence. Hosted transcribers return one, and it is the signal
+    a downstream repair pass needs in order to know *which* spans to re-read rather
+    than re-reading everything. So it travels alongside, index-aligned with
+    ``words``, instead of changing the triplet that callers already destructure.
+    """
+
+    word_confidence: list[float]
+    """Per-word confidence in ``[0, 1]``, index-aligned with ``words``."""
+
+    engine: str
+    """Which engine produced this utterance, e.g. ``"gladia:solaria-3"``.
+
+    A record names the engine that wrote it. Without this, a result from a degraded
+    path is indistinguishable from a good one, and the reader blames the tool.
+    """
+
+
 class SummarySnapshot(TypedDict):
     """One running summary as produced by the optional LLM analyst.
 

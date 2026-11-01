@@ -73,6 +73,12 @@ Warith Harchaoui, Ph.D., https://linkedin.com/in/warith-harchaoui/
 
 from vocal_helper import bench, sources
 from vocal_helper.asr import WhisperStage, transcribe_pcm, transcribe_pcm_with_language
+from vocal_helper.cloud import (
+    CloudLivePipeline,
+    CloudOfflineConfig,
+    CloudOfflinePipeline,
+)
+from vocal_helper.credentials import credential, credentials_status
 from vocal_helper.diar import (
     EMBEDDER_BACKENDS,
     OfflineDiarStage,
@@ -103,6 +109,7 @@ from vocal_helper.pipeline import (
 )
 from vocal_helper.router import BackendPlan, select_diarization
 from vocal_helper.types import (
+    CloudUtterance,
     DiarizedSegment,
     PcmFrame,
     SummarySnapshot,
@@ -197,9 +204,18 @@ __all__ = [
     "VoicedSegment",
     "DiarizedSegment",
     "Utterance",
+    "CloudUtterance",
     "SummarySnapshot",
     "transcribe_pcm",
     "transcribe_pcm_with_language",
+    # The two PAID modes, siblings of Pipeline / OfflinePipeline above. Named rather
+    # than selected by string: a billed mode must not be reachable through a typo.
+    # No automatic failover exists between the free and paid columns.
+    "CloudOfflinePipeline",
+    "CloudOfflineConfig",
+    "CloudLivePipeline",
+    "credential",
+    "credentials_status",
 ]
 
 __author__ = "Warith Harchaoui, Ph.D."

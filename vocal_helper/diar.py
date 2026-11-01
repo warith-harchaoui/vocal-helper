@@ -371,7 +371,8 @@ class OnlineDiarStage:
         Raises
         ------
         ValueError
-            If ``self.backend`` is not one of ``"pyannote"``, ``"nemo"``, ``"sherpa"``.
+            If ``self.backend`` is not one of ``"pyannote"``, ``"nemo"``,
+            ``"sherpa"`` (free and local) or ``"pyannoteai"`` (paid and hosted).
         """
         if self._embedder is not None:
             return
@@ -1468,7 +1469,8 @@ class OfflineDiarStage:
         Raises
         ------
         ValueError
-            If ``self.backend`` is not one of ``"pyannote"``, ``"nemo"``, ``"sherpa"``.
+            If ``self.backend`` is not one of ``"pyannote"``, ``"nemo"``,
+            ``"sherpa"`` (free and local) or ``"pyannoteai"`` (paid and hosted).
         """
         if self._backend_obj is not None:
             return
@@ -1489,8 +1491,16 @@ class OfflineDiarStage:
             )
             _seg, _emb = _resolve_sherpa_models()
             self._embedder = _SherpaEmbedder(model_path=_emb)
+        elif self.backend == "pyannoteai":
+            # The PAID backend, and the whole of the hybrid mode: hosted speakers,
+            # local words. Never routed to automatically — see vocal_helper.router.
+            self._backend_obj = _PyannoteAiOfflineDiar()
+            self._embedder = _torch_free_embedder_or_stub("pyannoteai is a hosted service")
         else:
-            raise ValueError(f"unknown backend {self.backend!r}")
+            raise ValueError(
+                f"unknown backend {self.backend!r}; expected 'pyannote', 'nemo', "
+                f"'sherpa' (all free and local) or 'pyannoteai' (paid, hosted)"
+            )
         self._backend_obj.load()
         self._embedder.load()
 
@@ -1841,6 +1851,155 @@ def _count_kwargs(
     if max_speakers is not None and max_speakers > 0:
         out["max_speakers"] = int(max_speakers)
     return out
+
+
+class _UnavailableEmbedder:
+    """A stand-in embedder for a backend that never needs one.
+
+    The offline stage asks its backend for an embedder because the **long-form
+    chunk-stitching** path needs one to recognise the same voice across two chunks.
+    A hosted diarizer never takes that path: the provider ingests the whole
+    recording in one call, so there are no chunks to stitch.
+
+    Rather than make the embedder optional throughout the stage — which would mean
+    a ``None`` check at every use and a silent wrong answer if one were missed —
+    this object loads instantly and raises a sentence that says what happened if
+    anything ever does call it.
+    """
+
+    def __init__(self, reason: str) -> None:
+        self._reason = reason
+
+    def load(self) -> None:
+        """Succeed immediately: there is nothing to load."""
+        return None
+
+    def embed(self, pcm: Any, sr: int) -> Any:
+        """Refuse, with an explanation rather than an attribute error."""
+        raise RuntimeError(
+            "this diarization backend ships no speaker embedder "
+            f"({self._reason}). It diarizes whole recordings in one call, so the "
+            "chunk-stitching path that needs embeddings is never taken. Reaching "
+            "here means the stage chunked after all — that is the bug to look at."
+        )
+
+
+def _torch_free_embedder_or_stub(reason: str) -> Any:
+    """A torch-free embedder when one is installed, else a stub that says so.
+
+    Used by the hosted backend, which must not drag PyTorch into an install whose
+    whole point is that the heavy lifting happens elsewhere.
+
+    Parameters
+    ----------
+    reason : str
+        Carried into the stub's error message.
+
+    Returns
+    -------
+    Any
+        A sherpa embedder, or :class:`_UnavailableEmbedder`.
+    """
+    try:
+        _seg, emb = _resolve_sherpa_models()
+        return _SherpaEmbedder(model_path=emb)
+    except Exception:  # noqa: BLE001 - absence is the expected case, not an error
+        return _UnavailableEmbedder(reason)
+
+
+class _PyannoteAiOfflineDiar:
+    """Hosted diarization by **pyannoteAI**, behind the local backend interface.
+
+    This is the paid half of the hybrid mode, and the reason the mode exists:
+    measured on this suite's material the free path holds up on the **words** and
+    collapses on the **speakers** — a six-voice panel came back as roughly two
+    clusters. Diarization is also the cheaper hosted stage, so buying the speakers
+    and keeping the transcription local is the purchase that pays.
+
+    Because it implements the same ``load`` / ``diarize`` contract as the local
+    backends, the hybrid needs no new pipeline:
+    ``OfflinePipelineConfig(diar={"backend": "pyannoteai"})`` gives hosted speakers
+    with local words, through the chain that already exists.
+
+    Two consequences of talking to a service rather than a model:
+
+    the key is checked in :meth:`load`, **before** any audio is processed, so a
+    missing credential costs nothing and fails at the moment a human can still fix
+    it; and the buffer is written out as a file, because the provider takes files.
+    """
+
+    def __init__(self) -> None:
+        self._checked = False
+
+    def load(self) -> None:
+        """Verify the credential is present. Fails early, deliberately.
+
+        Raises
+        ------
+        RuntimeError
+            When ``PYANNOTEAI_API_KEY`` is absent. There is no fallback to a local
+            backend: a run that silently changed diarizer would give a different
+            answer at a different quality under the same command.
+        """
+        from vocal_helper.credentials import credential
+
+        if not credential("PYANNOTEAI_API_KEY"):
+            raise RuntimeError(
+                "backend 'pyannoteai' needs PYANNOTEAI_API_KEY: set the environment "
+                "variable, or the credentials: section of settings.yaml / "
+                "credentials.yaml. Use backend 'pyannote' for the free local diarizer."
+            )
+        self._checked = True
+
+    def diarize(
+        self,
+        pcm: NDArray[np.float32],
+        sr: int,
+        *,
+        num_speakers: int | None = None,
+        min_speakers: int | None = None,
+        max_speakers: int | None = None,
+    ) -> list[tuple[float, float, str]]:
+        """Diarize a whole buffer through pyannoteAI.
+
+        Parameters
+        ----------
+        pcm : NDArray[np.float32]
+            Mono buffer.
+        sr : int
+            Its sample rate.
+        num_speakers, min_speakers, max_speakers : int, optional
+            Passed through. **Prefer ``min_speakers``**: a roster is a floor, not a
+            cap, and an exact count will merge or split to hit the number even when
+            the audio disagrees.
+
+        Returns
+        -------
+        list of tuple
+            ``[(t0, t1, speaker), …]`` in seconds, the same shape every local
+            backend returns, so the stage above cannot tell the difference.
+        """
+        import audio_helper as ah
+        import os_helper as osh
+
+        from vocal_helper.diar_cloud import pyannoteai_diarize
+
+        # The provider takes a file. Write the buffer out through audio-helper rather
+        # than a hand-rolled soundfile call, and let os-helper own the directory's
+        # lifetime so it is cleaned up even if the upload raises.
+        with osh.temporary_folder(prefix="voh-diar-cloud") as tmp_dir:
+            path = osh.join(tmp_dir, "buffer.wav")
+            ah.save_audio(pcm, path, sample_rate=sr)
+            segments = pyannoteai_diarize(
+                audio=path,
+                num_speakers=num_speakers,
+                min_speakers=min_speakers,
+                max_speakers=max_speakers,
+            )
+        return [
+            (float(seg["start"]), float(seg["end"]), str(seg["speaker"]))
+            for seg in segments
+        ]
 
 
 class _PyannoteOfflineDiar:
