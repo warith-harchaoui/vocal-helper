@@ -61,6 +61,8 @@ __all__ = [
     "WindowFeatures",
     "cosine_distances",
     "inter_speaker_scale",
+    "intra_speaker_scale",
+    "separating_threshold",
 ]
 
 
@@ -163,6 +165,145 @@ def inter_speaker_scale(windows: list[WindowFeatures], quantile: float = 0.5) ->
     return float(np.quantile(gathered, quantile))
 
 
+def _absolute_spans(window: WindowFeatures) -> dict[str, list[tuple[float, float]]]:
+    """Les intervalles de chaque locuteur retenu, en temps absolu du flux."""
+    spans: dict[str, list[tuple[float, float]]] = {}
+    for a, b, speaker in window.local:
+        if speaker in window.speakers:
+            spans.setdefault(speaker, []).append((window.t0 + a, window.t0 + b))
+    return spans
+
+
+def intra_speaker_scale(
+    windows: list[WindowFeatures], *, min_overlap_s: float = 1.0, quantile: float = 0.5
+) -> float:
+    """L'échelle des distances pour un **même** locuteur, pour cet audio.
+
+    Le pendant de :func:`inter_speaker_scale`, et il s'obtient tout aussi
+    gratuitement. Les fenêtres voisines se recouvrent — la moitié d'une fenêtre
+    par défaut — donc un locuteur qui parle dans le recouvrement est embarqué
+    **deux fois**, une fois par chaque fenêtre. Les étiquettes locales ne sont
+    pas partagées d'une fenêtre à l'autre, mais le temps l'est : deux locuteurs
+    locaux dont les intervalles absolus se chevauchent franchement sont presque
+    sûrement la même personne.
+
+    La distance entre ces deux empreintes mesure donc ce que l'enregistrement
+    fait subir à une voix qui ne change pas : réverbération, mouvement, bruit.
+    C'est l'information qui manquait pour poser un seuil, parce que ce qui
+    décide d'une fusion n'est ni la distance inter-locuteurs ni la distance
+    intra-locuteur seule, mais l'écart entre les deux.
+
+    Parameters
+    ----------
+    windows : list of WindowFeatures
+        Ce que :meth:`IncrementalDiarStage.extract` a rendu, dans l'ordre.
+    min_overlap_s : float
+        Recouvrement temporel minimal pour admettre que c'est la même voix.
+        Au-dessous, l'appariement devient douteux et polluerait la mesure.
+    quantile : float
+        Quel quantile de ces distances retenir. La médiane par défaut : ici on
+        veut le comportement courant d'une voix, pas son pire moment.
+
+    Returns
+    -------
+    float
+        La distance au quantile demandé entre deux vues d'un même locuteur.
+        ``nan`` si aucune paire n'a pu être appariée.
+
+    Examples
+    --------
+    Le même locuteur vu par deux fenêtres voisines, avec une empreinte qui a
+    légèrement bougé : l'échelle est ce déplacement.
+
+    >>> import numpy as np
+    >>> a = np.array([[1.0, 0.0]], dtype=np.float32)
+    >>> moved = np.array([[0.8, 0.6]], dtype=np.float32)
+    >>> w0 = WindowFeatures(t0=0.0, local=[(1.0, 4.0, "A")], embeddings=a,
+    ...                     clean_durations=[3.0], speakers=["A"])
+    >>> w1 = WindowFeatures(t0=2.5, local=[(0.0, 1.5, "B")], embeddings=moved,
+    ...                     clean_durations=[1.5], speakers=["B"])
+    >>> round(intra_speaker_scale([w0, w1]), 3)
+    0.2
+
+    Sans recouvrement temporel, rien n'est apparié.
+
+    >>> far = WindowFeatures(t0=100.0, local=[(0.0, 1.5, "B")], embeddings=moved,
+    ...                      clean_durations=[1.5], speakers=["B"])
+    >>> bool(np.isnan(intra_speaker_scale([w0, far])))
+    True
+    """
+    gathered: list[float] = []
+    for first, second in zip(windows, windows[1:], strict=False):
+        left, right = _absolute_spans(first), _absolute_spans(second)
+        if not left or not right:
+            continue
+        index_left = {s: i for i, s in enumerate(first.speakers)}
+        index_right = {s: i for i, s in enumerate(second.speakers)}
+        for name_a, spans_a in left.items():
+            for name_b, spans_b in right.items():
+                shared = sum(
+                    max(0.0, min(a1, b1) - max(a0, b0)) for a0, a1 in spans_a for b0, b1 in spans_b
+                )
+                if shared < min_overlap_s:
+                    continue
+                va = first.embeddings[index_left[name_a]]
+                vb = second.embeddings[index_right[name_b]]
+                na, nb = np.linalg.norm(va), np.linalg.norm(vb)
+                if na <= 0 or nb <= 0:
+                    continue
+                gathered.append(float(1.0 - float((va / na) @ (vb / nb))))
+    if not gathered:
+        return float("nan")
+    return float(np.quantile(gathered, quantile))
+
+
+def separating_threshold(windows: list[WindowFeatures], *, position: float = 0.5) -> float:
+    """Le seuil qui sépare « même voix » de « voix différentes », pour cet audio.
+
+    Les deux échelles se mesurent sans vérité terrain : l'une sur des locuteurs
+    simultanés, donc différents par construction, l'autre sur un locuteur vu
+    par deux fenêtres voisines, donc identique par construction. Le seuil se
+    pose entre les deux, et il suit automatiquement l'enregistrement — c'est ce
+    qu'aucune constante ne savait faire, puisque le seuil optimal variait d'un
+    tiers entre deux réunions du même corpus.
+
+    Parameters
+    ----------
+    windows : list of WindowFeatures
+        Ce que :meth:`IncrementalDiarStage.extract` a rendu.
+    position : float
+        Où tomber entre l'intra et l'inter. 0 collerait à l'intra (fusionne
+        tout), 1 collerait à l'inter (sépare tout) ; 0,5 est à mi-chemin.
+
+    Returns
+    -------
+    float
+        Le seuil. ``nan`` si l'une des deux échelles n'a pas pu être mesurée —
+        à l'appelant de retomber sur sa valeur par défaut.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> same = np.array([[1.0, 0.0]], dtype=np.float32)
+    >>> moved = np.array([[0.8, 0.6]], dtype=np.float32)
+    >>> pair = np.eye(2, dtype=np.float32)
+    >>> w0 = WindowFeatures(t0=0.0, local=[(1.0, 4.0, "A")], embeddings=same,
+    ...                     clean_durations=[3.0], speakers=["A"])
+    >>> w1 = WindowFeatures(t0=2.5, local=[(0.0, 1.5, "B")], embeddings=moved,
+    ...                     clean_durations=[1.5], speakers=["B"])
+    >>> w2 = WindowFeatures(t0=5.0, local=[(0.0, 1.0, "C"), (1.0, 2.0, "D")],
+    ...                     embeddings=pair, clean_durations=[1.0, 1.0],
+    ...                     speakers=["C", "D"])
+    >>> round(separating_threshold([w0, w1, w2]), 3)
+    0.6
+    """
+    intra = intra_speaker_scale(windows)
+    inter = inter_speaker_scale(windows)
+    if np.isnan(intra) or np.isnan(inter) or inter <= intra:
+        return float("nan")
+    return float(intra + position * (inter - intra))
+
+
 @dataclass
 class IncrementalPolicy:
     """Les réglages du regroupement incrémental.
@@ -184,6 +325,12 @@ class IncrementalPolicy:
     delta_quantile : float
         Quantile des distances inter-locuteurs servant d'échelle, passé à
         :func:`inter_speaker_scale`. Sans effet si ``delta_scale`` est absent.
+    delta_position : float, optional
+        Si posé, ``delta_new`` est pris entre l'échelle intra-locuteur et
+        l'échelle inter-locuteurs de cet enregistrement, par
+        :func:`separating_threshold` — la seule calibration mesurée qui n'ait
+        besoin d'aucune constante choisie à la main. L'emporte sur
+        ``delta_scale``.
     delta_scale : float, optional
         Si posé, ``delta_new`` est recalculé pour chaque enregistrement comme
         ``delta_scale`` fois l'échelle inter-locuteurs mesurée par
@@ -206,6 +353,7 @@ class IncrementalPolicy:
     delta_new: float = 0.6
     delta_scale: float | None = None
     delta_quantile: float = 0.5
+    delta_position: float | None = None
     max_speakers: int | None = None
     ema_alpha: float | None = None
 
@@ -648,7 +796,12 @@ class IncrementalDiarStage:
         list of tuple
             ``[(t0, t1, locuteur), …]`` trié par début.
         """
-        if self.policy.delta_scale is not None:
+        if self.policy.delta_position is not None:
+            found = separating_threshold(windows, position=self.policy.delta_position)
+            if not np.isnan(found):
+                self.policy.delta_new = found
+                self.clusterer.policy = self.policy
+        elif self.policy.delta_scale is not None:
             scale = inter_speaker_scale(windows, quantile=self.policy.delta_quantile)
             if not np.isnan(scale):
                 self.policy.delta_new = float(self.policy.delta_scale * scale)

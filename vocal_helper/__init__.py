@@ -96,6 +96,8 @@ from vocal_helper.incremental import (
     IncrementalPolicy,
     WindowFeatures,
     inter_speaker_scale,
+    intra_speaker_scale,
+    separating_threshold,
 )
 from vocal_helper.lid import (
     LangRegion,
@@ -267,6 +269,11 @@ __all__ = [
     # speakers in one window are different people by construction, so their
     # median distance calibrates the threshold per recording, for free.
     "inter_speaker_scale",
+    # Its counterpart, just as free : adjacent windows overlap, so a speaker
+    # talking across the seam is embedded twice. What decides a merge is the gap
+    # between the two scales, which is why no constant threshold transferred.
+    "intra_speaker_scale",
+    "separating_threshold",
     "RediarPolicy",
     "PeriodicOfflineDiarStage",
     "LabelRevision",
