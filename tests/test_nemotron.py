@@ -296,3 +296,26 @@ def test_a_missing_graph_says_where_the_engine_lives(tmp_path):
     stage = NemotronOnnxDiar(graph=tmp_path / "absent.onnx")
     with pytest.raises(Exception, match="absent|No such file|not found|Load model"):
         _ = stage.schedule
+
+
+def test_the_cpu_comes_before_coreml_because_that_is_what_was_measured():
+    """Contre-intuitif, et mesuré : CoreML est plus lent que le CPU sur ce graphe.
+
+    Sur deux minutes d'un mixage à quatre locuteurs, CoreML en tête donne un
+    facteur temps réel de 1,257 — plus lent que le direct, donc inutilisable —
+    contre 0,528 pour le CPU seul. CoreML ne prend que 1193 nœuds sur 2827 et
+    les découpe en 316 partitions : le déport partiel d'un transformeur à axes
+    dynamiques coûte plus qu'il ne rapporte.
+    """
+    from vocal_helper.nemotron import _preferred_providers
+
+    order = _preferred_providers()
+    assert "CPUExecutionProvider" in order
+    if "CoreMLExecutionProvider" in order:
+        assert order.index("CPUExecutionProvider") < order.index("CoreMLExecutionProvider")
+
+
+def test_coreml_stays_reachable_when_asked_for_explicitly():
+    """Le défaut est mesuré, pas imposé : une autre machine peut mieux découper."""
+    stage = NemotronOnnxDiar(providers=["CoreMLExecutionProvider"])
+    assert stage._providers == ["CoreMLExecutionProvider"]

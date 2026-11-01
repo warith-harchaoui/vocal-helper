@@ -27,9 +27,11 @@ réseau, pas de torch sur le chemin de décision, et le même fichier tourne
 depuis Rust par la caisse ``ort`` — ce que torch ne permet pas.
 
 Une précision utile : onnxruntime n'a pas de moteur Metal. Sur Apple Silicon
-l'accélération passe par **CoreML**, pas par MPS ; ailleurs par CUDA ou
-DirectML. Et le CPU seul suffit largement, le graphe étant mesuré bien en
-dessous du temps réel.
+l'accélération passerait par **CoreML**, pas par MPS — mais la mesure la
+déconseille, CoreML ne prenant que 1193 nœuds sur 2827 et les découpant en 316
+partitions, ce qui le rend 2,4 fois plus lent que le CPU seul et le place
+au-dessus du temps réel. Le défaut est donc le CPU, qui tient 1,9 fois le temps
+réel sur un portable.
 
 Ce que ce module doit écrire lui-même
 -------------------------------------
@@ -743,7 +745,11 @@ class NemotronOnnxDiar:
         sur Apple Silicon, onnxruntime n'ayant pas de moteur Metal — puis le
         CPU, qui suffit de toute façon.
     threads : int, optional
-        Fils pour le moteur CPU.
+        Fils pour le moteur CPU. ``None`` — le défaut — laisse onnxruntime
+        choisir, et c'est le meilleur choix : forcer huit fils sur une machine à
+        huit cœurs performants mesure 0,953 de facteur temps réel contre 0,528
+        en laissant faire, soit presque deux fois pire. L'argument existe pour
+        brider la consommation, pas pour accélérer.
     threshold : float
         Seuil de parole appliqué aux probabilités à 10 ms.
     """
@@ -940,19 +946,29 @@ def _graph_metadata(path: Path) -> dict[str, str]:
 
 
 def _preferred_providers() -> list[str]:
-    """Les moteurs d'exécution par ordre de préférence, selon la machine.
+    """Les moteurs d'exécution par ordre de préférence, mesuré et non supposé.
 
-    CoreML d'abord quand il est là : sur Apple Silicon c'est la voie du GPU et
-    du moteur neuronal, onnxruntime n'ayant pas de moteur Metal. Puis CUDA, et
-    le CPU en dernier — qui suffit, le graphe étant bien en dessous du temps
-    réel.
+    **Le CPU passe devant CoreML**, ce qui est contre-intuitif et pourtant
+    mesuré : sur deux minutes d'un mixage à quatre locuteurs, CoreML en tête
+    donne un facteur temps réel de 1,257 — donc **plus lent que le direct**,
+    inutilisable — contre 0,528 pour le CPU seul, soit 2,4 fois mieux. La cause
+    se lit dans le journal de la session : CoreML ne prend que 1193 nœuds sur
+    2827 et les découpe en **316 partitions**, donc autant d'allers-retours
+    entre les deux moteurs à chaque pas de flux. Un transformeur à axes
+    dynamiques est précisément le cas où le déport partiel coûte plus qu'il ne
+    rapporte. CoreML reste accessible en le demandant explicitement, pour une
+    machine ou une version où le découpage serait meilleur.
+
+    CUDA passe devant, lui, parce que sa couverture d'opérateurs est complète
+    et qu'il n'y a donc pas de découpage à payer — mais ce n'est pas mesuré
+    ici, faute de machine NVIDIA sous la main.
     """
     import onnxruntime as ort
 
     available = set(ort.get_available_providers())
     order = [
-        "CoreMLExecutionProvider",
         "CUDAExecutionProvider",
         "CPUExecutionProvider",
+        "CoreMLExecutionProvider",
     ]
     return [name for name in order if name in available] or ["CPUExecutionProvider"]
