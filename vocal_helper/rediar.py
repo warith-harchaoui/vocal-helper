@@ -363,16 +363,27 @@ def plan_refresh(
 def read_back_identities(
     segments: list[tuple[float, float, str]],
     references: list[SpeakerReference],
+    *,
+    min_coverage: float = 0.0,
 ) -> dict[str, str]:
     """Recover global speaker identity by reading which local label covered each reference.
 
     The engine diarized ``[primer | window]`` in one call, so its own clustering
-    already placed each window turn with the matching reference. Nothing needs to
-    be matched, compared or thresholded: for each reference span, whichever local
-    label covers most of it **is** that speaker.
+    already placed each window turn with the matching reference. Identity therefore
+    travels by **time**, not by embedding geometry: for each reference span, read
+    which local label covered it.
 
     This is the part ported from the native block-wise diarizer, and it is why that
     design needs no embeddings of its own.
+
+    The read-back is a **bijection**, so it is resolved by optimal assignment and
+    not by a per-reference argmax. The distinction is not cosmetic. A greedy
+    argmax lets one local label win two references — which happens whenever the
+    engine merges two primer speakers into a single cluster — and the second
+    write then **overwrites** the first, so one known speaker silently loses its
+    label and is reported as absent. Optimal assignment cannot do that: the
+    merged label takes one reference, the other reference stays unmatched, and
+    the caller sees a speaker it could not place instead of a wrong answer.
 
     Parameters
     ----------
@@ -380,6 +391,10 @@ def read_back_identities(
         ``(t0, t1, local_label)`` over the primer-plus-window time base.
     references : list of SpeakerReference
         With their primer spans filled in.
+    min_coverage : float
+        Fraction of a reference's own duration that the matched label must cover
+        for the pairing to count. ``0.0`` (default) accepts any shared time at
+        all; raising it refuses a label that merely brushed the reference.
 
     Returns
     -------
@@ -397,7 +412,7 @@ def read_back_identities(
     ...         SpeakerReference("S1", silence, 12.8, 24.8)]
     >>> segs = [(0.0, 12.0, "c1"), (12.8, 24.8, "c0"), (30.0, 40.0, "c2")]
     >>> read_back_identities(segs, refs)
-    {'c1': 'S0', 'c0': 'S1'}
+    {'c0': 'S1', 'c1': 'S0'}
 
     ``c2`` is deliberately absent: it covered no reference, so it is a newcomer and
     not something to be guessed at.
@@ -407,20 +422,42 @@ def read_back_identities(
 
     >>> read_back_identities([(50.0, 60.0, "c9")], refs)
     {}
-    """
-    import collections
 
-    out: dict[str, str] = {}
-    for reference in references:
-        if reference.duration_s <= 0:
-            continue
-        covered: collections.Counter = collections.Counter()
-        for t0, t1, label in segments:
+    One label straddling **both** references — the engine merged two primer
+    speakers — is assigned to one of them, and the other is reported as unplaced.
+    A per-reference argmax would instead have overwritten the first mapping and
+    lost ``S0`` without a word:
+
+    >>> read_back_identities([(0.0, 24.8, "c0")], refs)
+    {'c0': 'S0'}
+    """
+    import numpy as np
+    from scipy.optimize import linear_sum_assignment
+
+    usable = [r for r in references if r.duration_s > 0]
+    if not usable:
+        return {}
+    labels = sorted({label for _, _, label in segments})
+    if not labels:
+        return {}
+
+    shared = np.zeros((len(labels), len(usable)), dtype=np.float64)
+    index = {label: i for i, label in enumerate(labels)}
+    for t0, t1, label in segments:
+        i = index[label]
+        for j, reference in enumerate(usable):
             overlap = min(t1, reference.primer_t1) - max(t0, reference.primer_t0)
             if overlap > 0:
-                covered[label] += overlap
-        if covered:
-            out[covered.most_common(1)[0][0]] = reference.speaker
+                shared[i, j] += overlap
+
+    out: dict[str, str] = {}
+    rows, cols = linear_sum_assignment(-shared)
+    for i, j in zip(rows.tolist(), cols.tolist(), strict=True):
+        if shared[i, j] <= 0:
+            continue  # that pairing rests on no shared time at all
+        if shared[i, j] < min_coverage * usable[j].duration_s:
+            continue  # it brushed the reference rather than covering it
+        out[labels[i]] = usable[j].speaker
     return out
 
 

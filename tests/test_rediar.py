@@ -567,3 +567,75 @@ def test_the_offline_backend_comes_from_the_policy_not_from_the_online_config():
     )
     assert pipeline._diar.offline.backend == "pyannote"
     assert pipeline._online_diar.backend == "sherpa"
+
+
+# ----- la relecture est une bijection ---------------------------------
+#
+# Une version antérieure prenait, pour chaque référence, l'étiquette qui la
+# couvrait le plus, et écrivait ``out[étiquette] = locuteur``. Dès que le moteur
+# fusionnait deux locuteurs de l'amorçage en une seule grappe, la seconde
+# écriture écrasait la première : un locuteur connu perdait son étiquette en
+# silence et était rapporté absent. L'affectation optimale ne peut pas le faire.
+
+
+def _refs(*spans):
+    """Des références occupant ces créneaux d'amorçage."""
+    import numpy as np
+
+    from vocal_helper.rediar import SpeakerReference
+
+    silence = np.zeros(1, dtype=np.float32)
+    return [SpeakerReference(f"S{i}", silence, t0, t1) for i, (t0, t1) in enumerate(spans)]
+
+
+def test_a_merged_label_claims_one_reference_and_leaves_the_other_unplaced():
+    from vocal_helper.rediar import read_back_identities
+
+    refs = _refs((0.0, 12.0), (12.8, 24.8))
+    # Une seule grappe couvre les deux créneaux : le moteur a fusionné.
+    got = read_back_identities([(0.0, 24.8, "c0")], refs)
+    assert len(got) == 1, f"une étiquette ne peut pas porter deux identités : {got}"
+    assert set(got) == {"c0"}
+
+
+def test_no_known_speaker_is_silently_dropped_when_labels_suffice():
+    from vocal_helper.rediar import read_back_identities
+
+    refs = _refs((0.0, 12.0), (12.8, 24.8), (25.6, 37.6))
+    segs = [(0.0, 12.0, "a"), (12.8, 24.8, "b"), (25.6, 37.6, "c")]
+    got = read_back_identities(segs, refs)
+    assert sorted(got.values()) == ["S0", "S1", "S2"]
+
+
+def test_the_assignment_maximises_total_shared_time():
+    """Le glouton pouvait choisir localement bien et globalement mal."""
+    from vocal_helper.rediar import read_back_identities
+
+    refs = _refs((0.0, 10.0), (10.0, 20.0))
+    # « a » couvre un peu plus de S0 que « b », mais le lui donner force « b »
+    # sur S0 aussi ; l'affectation optimale préfère la somme la plus grande.
+    segs = [(0.0, 6.0, "a"), (6.0, 10.0, "b"), (10.0, 20.0, "a")]
+    got = read_back_identities(segs, refs)
+    assert got == {"b": "S0", "a": "S1"}, got
+
+
+def test_min_coverage_refuses_a_label_that_merely_brushed_a_reference():
+    from vocal_helper.rediar import read_back_identities
+
+    refs = _refs((0.0, 12.0))
+    segs = [(11.9, 12.0, "c0")]  # 0,1 s sur une référence de 12 s
+    assert read_back_identities(segs, refs) == {"c0": "S0"}
+    assert read_back_identities(segs, refs, min_coverage=0.5) == {}
+
+
+def test_a_reference_with_no_duration_is_ignored():
+    from vocal_helper.rediar import read_back_identities
+
+    refs = _refs((5.0, 5.0))
+    assert read_back_identities([(0.0, 10.0, "c0")], refs) == {}
+
+
+def test_no_segments_at_all_places_nobody():
+    from vocal_helper.rediar import read_back_identities
+
+    assert read_back_identities([], _refs((0.0, 12.0))) == {}

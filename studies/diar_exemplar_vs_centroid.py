@@ -56,6 +56,11 @@ from diar_incremental_vs_greedy import der, reference_from_rttm  # noqa: E402
 
 NEIGHBOURS = (1, 2, 3)
 REFERENCES = ("confiance", "médoïde")
+#: Créer un locuteur se décide sur UNE observation ; en fusionner deux se décide
+#: sur tout ce qu'on a accumulé sur chacun. Une décision mieux informée doit être
+#: plus exigeante, pas aussi laxiste — reprendre le seuil de création comme seuil
+#: de fusion était une erreur de réglage, et elle coûte 0,795 de taux d'erreur.
+MERGE_THRESHOLDS = (0.1, 0.2, 0.3, 0.4, 0.6)
 
 
 def variants() -> dict[str, object]:
@@ -69,7 +74,10 @@ def variants() -> dict[str, object]:
     # plus dans la mesure. C'est la règle du magasin biométrique.
     for mode in REFERENCES:
         out[mode] = ExemplarPolicy(reference=mode, merge=False)
-        out[f"{mode} + reprise"] = ExemplarPolicy(reference=mode, merge=True)
+    for t in MERGE_THRESHOLDS:
+        out[f"médoïde + reprise {t:g}"] = ExemplarPolicy(
+            reference="médoïde", merge=True, merge_threshold=t
+        )
     return out
 
 
