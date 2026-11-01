@@ -71,7 +71,8 @@ Author
 Warith Harchaoui, Ph.D., https://linkedin.com/in/warith-harchaoui/
 """
 
-from vocal_helper import bench, sources
+from vocal_helper import accel, bench, sources
+from vocal_helper.accel import AccelPlan, Hardware, LiveBudget, StageLoad, live_budget
 from vocal_helper.asr import WhisperStage, transcribe_pcm, transcribe_pcm_with_language
 from vocal_helper.cloud import (
     CloudLivePipeline,
@@ -222,6 +223,16 @@ __all__ = [
     # decisions a library has no business making silently for a caller.
     "consolidate",
     "join_words",
+    # Acceleration: what this machine can run, and whether a given placement of the
+    # stages holds a live stream. Stage real-time factors are NOT additive — see
+    # `live_budget` — and getting that wrong hides the real problem, which is never
+    # the total but always one saturated compute unit.
+    "accel",
+    "AccelPlan",
+    "Hardware",
+    "LiveBudget",
+    "StageLoad",
+    "live_budget",
 ]
 
 __author__ = "Warith Harchaoui, Ph.D."

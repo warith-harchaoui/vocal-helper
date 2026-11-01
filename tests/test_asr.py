@@ -18,7 +18,6 @@ from vocal_helper.asr import (
     DEFAULT_MAX_CHUNK_S,
     DEFAULT_MIN_SEGMENT_MS,
     DEFAULT_MODEL,
-    DEFAULT_THREADS,
     WhisperStage,
     _assign_window,
     _pack_segments,
@@ -56,7 +55,18 @@ def test_whisper_construction_contract() -> None:
     stage = WhisperStage()
     assert stage.model_name == DEFAULT_MODEL
     assert stage.language == DEFAULT_LANGUAGE
-    assert stage.threads == DEFAULT_THREADS
+    # The thread count is no longer a constant. It is sized to THIS machine's
+    # performance cores, because a hard-coded number either leaves fast cores idle
+    # or spills onto efficiency cores — and spilling makes the stage slower, since
+    # every synchronisation point then waits on the slowest participant. What the
+    # contract pins is the SOURCE of the number, not the number.
+    from vocal_helper.accel import probe
+
+    assert stage.threads == probe().performance_threads >= 1
+    # And the stage records which accelerator it resolved, so a surprising
+    # real-time factor can be explained rather than guessed at.
+    assert stage.accel_plan.accelerator in ("ane", "coreml", "metal", "cpu")
+    assert stage.accel_plan.why
     assert stage.word_timestamps is True
     # Empty default keeps the zero-config path working; the docstring still
     # recommends a domain-aligned prompt.
@@ -252,3 +262,135 @@ def test_one_shot_helpers_surface_discovered_language(
     out = transcribe_pcm(np.zeros(SR, dtype=np.float32), sr=SR)
     assert out == "hola"
     assert isinstance(out, str)
+
+
+# --------------------------------------------------------------------------- #
+#  Acceleration: the hardware decides, and it says so
+# --------------------------------------------------------------------------- #
+
+
+def test_the_accelerator_is_resolved_from_the_hardware_not_assumed() -> None:
+    """A wheel built without Metal looks identical from the outside and costs a
+    measured 4.9× on the same model and audio. So the backend is PROBED, and the
+    probe's conclusion travels with the stage."""
+    from vocal_helper.accel import probe, resolve
+
+    hardware = probe()
+    plan = resolve("auto")
+    if hardware.whisper_backends & {"ane", "coreml", "metal"}:
+        assert plan.accelerator in hardware.whisper_backends
+    else:
+        assert plan.accelerator == "cpu"
+        assert "five times" in plan.why  # the cost of the fallback is stated, not hidden
+
+
+def test_an_explicit_accelerator_is_honoured_even_when_absent() -> None:
+    """An override exists for the case where the probe is wrong, so it must not be
+    overruled by the probe. But the plan records the discrepancy: a silent override
+    plus a disappointing result is an unchaseable bug."""
+    from vocal_helper.accel import probe, resolve
+
+    plan = resolve("ane")
+    assert plan.accelerator == "ane"
+    if "ane" not in probe().whisper_backends:
+        assert "not in the installed build" in plan.why
+
+
+def test_asking_for_the_cpu_actually_asks_for_it() -> None:
+    """whisper.cpp defaults to the GPU, so the CPU path is not the absence of a
+    choice — it has to be requested, or a 'CPU' benchmark silently measures Metal."""
+    from vocal_helper.accel import resolve
+
+    assert resolve("cpu").model_kwargs == {"context_params": {"use_gpu": False}}
+
+
+def test_an_unknown_accelerator_fails_at_the_decision_not_in_a_constructor() -> None:
+    from vocal_helper.accel import resolve
+
+    with pytest.raises(ValueError, match="unknown accelerator"):
+        resolve("tensorrt")
+
+
+def test_stage_real_time_factors_are_not_additive() -> None:
+    """The arithmetic that matters live. Stages on DIFFERENT units overlap in the
+    producer/consumer pipeline, so the chain costs the slower one; stages on the
+    SAME unit queue for it, and there the costs add.
+
+    Summing everything, which is the obvious reading, overstates a well-placed
+    chain and hides the real problem — never the total, always one saturated unit.
+    """
+    from vocal_helper.accel import StageLoad, live_budget
+
+    spread = live_budget([StageLoad("asr", "gpu", 0.40), StageLoad("diar", "cpu", 0.40)])
+    assert spread.effective_rtf == 0.40  # overlapped, not 0.80
+    assert spread.holds()
+
+    piled = live_budget([StageLoad("asr", "cpu", 0.40), StageLoad("diar", "cpu", 0.40)])
+    assert piled.effective_rtf == 0.80  # serialised on one unit
+    assert not piled.holds()
+    assert piled.bottleneck == "cpu"
+
+
+def test_the_default_live_placement_holds_with_room_to_spare() -> None:
+    """The measured default — whisper.cpp on Metal plus the NeMo online embedder,
+    both on the GPU, with Silero on the CPU. They share the GPU and therefore
+    serialise, and it still leaves roughly sixteen times real time."""
+    from vocal_helper.accel import MEASURED_RTF, StageLoad, live_budget
+
+    budget = live_budget(
+        [
+            StageLoad("vad", "cpu", MEASURED_RTF[("vad_silero", "cpu")]),
+            StageLoad("asr", "gpu", MEASURED_RTF[("asr", "metal")]),
+            StageLoad("diar", "gpu", MEASURED_RTF[("diar_online_nemo", "gpu")]),
+        ]
+    )
+    assert budget.bottleneck == "gpu"
+    assert budget.headroom > 10
+    assert budget.holds(margin=5.0)
+
+
+def test_the_torch_free_path_on_a_machine_without_a_gpu_is_the_tight_one() -> None:
+    """Everything lands on the CPU and the margin collapses to about 1.3×. One
+    slower machine, one bigger model or one competing process crosses 1 — and
+    crossing 1 is not a graceful degradation, it is a delay that grows for the rest
+    of the session. This is the case `source_policy="drop_oldest"` exists to bound.
+    """
+    from vocal_helper.accel import MEASURED_RTF, StageLoad, live_budget
+
+    budget = live_budget(
+        [
+            StageLoad("vad", "cpu", MEASURED_RTF[("vad_silero", "cpu")]),
+            StageLoad("asr", "cpu", MEASURED_RTF[("asr", "cpu")]),
+            StageLoad("diar", "cpu", MEASURED_RTF[("diar_online_sherpa", "cpu")]),
+        ]
+    )
+    assert budget.bottleneck == "cpu"
+    assert 1.2 < budget.headroom < 1.5
+    assert not budget.holds()
+
+
+def test_the_default_model_is_turbo_large_v3() -> None:
+    """The model family is a measured decision, not a preference, and it is the one
+    every real-time factor in this repository was measured against.
+
+    ``large-v3-turbo`` is the whole reason the numbers hold: it is a four-layer
+    decoder against large-v3's thirty-two, which is where the speed comes from at a
+    word-error rate close enough to be worth it. Dropping to ``base`` would make the
+    benchmarks meaningless; climbing to full ``large-v3`` would cost roughly an
+    order of magnitude and sink the live budget.
+
+    The quantisation suffix is deliberately NOT pinned: it is a tuning knob, and a
+    future q8 or a non-quantised build is a legitimate trade. The family is not.
+
+    **And it is already the newest one.** Checked on 2026-11-01 against OpenAI's own
+    published model list: the Whisper line stops at ``large-v3-turbo`` (October 2024,
+    0.8 billion parameters). There is no ``large-v4`` and no ``large-v4-turbo``.
+    OpenAI's later transcription models are API-only and closed, so they are not
+    available to a local-first free path at all — which is the path this stage is.
+    """
+    from vocal_helper.asr import DEFAULT_MODEL
+
+    assert DEFAULT_MODEL.startswith("large-v3-turbo"), (
+        f"default model is {DEFAULT_MODEL!r}; every RTF in studies/ was measured on "
+        f"large-v3-turbo, so changing the family invalidates them"
+    )

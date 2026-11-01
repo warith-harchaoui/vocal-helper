@@ -145,7 +145,12 @@ def extract_clip(audio: str, start: float, length: float, out_path: str) -> str:
     """
     import audio_helper as ah
 
-    ah.extract_audio_chunk(audio, out_path, start_time=start, end_time=start + length)
+    # Positional, and in this order: audio-helper's signature is
+    # (audio_file, start_time, end_time, output_audio_filename). Naming the first
+    # two as keywords while passing the destination positionally silently sent the
+    # output path where the start time belongs — a defect this call had until it was
+    # checked against the real signature rather than remembered.
+    ah.extract_audio_chunk(audio, start, start + length, out_path)
     return out_path
 
 

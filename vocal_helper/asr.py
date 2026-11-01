@@ -131,7 +131,8 @@ class WhisperStage:
         *,
         model: str = DEFAULT_MODEL,
         language: str = DEFAULT_LANGUAGE,
-        threads: int = DEFAULT_THREADS,
+        threads: int | None = None,
+        accelerator: str = "auto",
         word_timestamps: bool = True,
         initial_prompt: str = DEFAULT_INITIAL_PROMPT,
         min_segment_ms: int = DEFAULT_MIN_SEGMENT_MS,
@@ -148,9 +149,24 @@ class WhisperStage:
         language : str
             Transcription language, or ``"auto"`` to let whisper detect
             it. Default :data:`DEFAULT_LANGUAGE`.
-        threads : int
-            Number of CPU threads for whisper.cpp. Default
-            :data:`DEFAULT_THREADS`.
+        threads : int, optional
+            CPU threads for whisper.cpp. ``None`` (the default) sizes the pool to
+            this machine's **performance** cores, via
+            :func:`vocal_helper.accel.resolve`. A hard-coded count either leaves
+            fast cores idle or spills onto efficiency cores, and spilling makes the
+            stage *slower*: every synchronisation point then waits on the slowest
+            participant. Pass an integer only to pin it deliberately.
+        accelerator : str, optional
+            ``"auto"`` (default), ``"ane"``, ``"coreml"``, ``"metal"`` or ``"cpu"``.
+            ``"auto"`` probes which backends the installed whisper.cpp actually
+            carries and takes the best — measured at **4.9× between Metal and CPU**
+            on the same model and audio (``studies/asr_acceleration_rtf.md``), which
+            is the difference between a live session holding and not.
+
+            An explicit value is honoured even when the probe says it is absent, so
+            an override still works when the probe is wrong; the plan then records
+            that, so a disappointing real-time factor is traceable instead of
+            mysterious.
         word_timestamps : bool
             Emit per-word timestamps to fill ``Utterance.words``. Default
             ``True``.
@@ -173,9 +189,16 @@ class WhisperStage:
             inference on silence before consuming the queue. Off by
             default ; the streaming pipeline turns it on.
         """
+        from vocal_helper.accel import resolve
+
+        # Decide the acceleration path ONCE, here, rather than per inference: the
+        # probe shells out to sysctl and the answer cannot change while the process
+        # runs. The plan carries its own reason, which is what makes a surprising
+        # real-time factor explainable after the fact.
+        self.accel_plan = resolve(accelerator, threads=threads)
         self.model_name = model
         self.language = language
-        self.threads = threads
+        self.threads = self.accel_plan.threads
         self.word_timestamps = word_timestamps
         self.initial_prompt = initial_prompt
         self.min_segment_ms = min_segment_ms
@@ -217,11 +240,19 @@ class WhisperStage:
                 "Install with `pip install pywhispercpp` or "
                 "`pip install vocal-helper`."
             ) from e
+        # Engage the chosen accelerator before the model is built: the ANE backend
+        # is gated by an environment variable the library reads at load time, and a
+        # variable set after construction would arrive too late to do anything.
+        self.accel_plan.apply_env()
+        import os_helper as osh
+
+        osh.info(f"  asr: {self.accel_plan.describe()}")
         kwargs: dict[str, Any] = {
             "n_threads": self.threads,
             "print_realtime": False,
             "print_progress": False,
             "token_timestamps": self.word_timestamps,
+            **self.accel_plan.model_kwargs,
         }
         if self.language != "auto":
             kwargs["language"] = self.language

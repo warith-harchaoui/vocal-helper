@@ -27,6 +27,7 @@ Warith HARCHAOUI , https://linkedin.com/in/warith-harchaoui
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass, field
@@ -215,6 +216,27 @@ class PipelineConfig:
     llm: dict | None = None
     qsize_pcm: int = _DEFAULT_QSIZE_PCM
     qsize_seg: int = _DEFAULT_QSIZE_SEG
+    # WHAT HAPPENS WHEN THE PIPELINE FALLS BEHIND. The two answers are both right,
+    # for different sources, and picking the wrong one loses audio silently.
+    #
+    # ``"backpressure"`` (default) — the source waits for room. Correct for a FILE:
+    # reading more slowly costs nothing and not a sample is lost. It is also the
+    # only policy under which the transcript is guaranteed complete.
+    #
+    # ``"drop_oldest"`` — the source never waits; when the queue is full its oldest
+    # frame is discarded to make room, and the drop is counted. This is the policy
+    # for a LIVE source, and the reason is that back-pressure does not reach a
+    # microphone: blocking the loop that drains it makes a buffer grow inside
+    # capture-helper or the operating system, where this library cannot see it, and
+    # the audio is then lost with nobody logging it.
+    #
+    # Why the OLDEST and not the newest frame: dropping the newest bounds nothing.
+    # The pipeline keeps chewing through a stale backlog, stays maximally late
+    # forever, and every subsequent frame is refused too. Dropping the oldest keeps
+    # the queue full of the most RECENT audio, so latency stays bounded at the queue
+    # depth, which is what a live caption needs. A gap is a gap either way; only one
+    # of the two recovers.
+    source_policy: str = "backpressure"
 
 
 class Pipeline:
@@ -278,6 +300,9 @@ class Pipeline:
         #: ``(stage name, exception)`` for every stage that died this run. Populated even
         #: when ``strict=False``, so a lenient caller can still ask what went wrong.
         self.stage_failures: list[tuple[str, BaseException]] = []
+        #: Frames discarded under ``source_policy="drop_oldest"``. Zero under
+        #: back-pressure, by construction: that policy cannot lose a sample.
+        self.dropped_frames: int = 0
 
         # One bounded queue per hand-off. PCM gets the deep buffer (bursty,
         # 20 ms frames) ; the downstream segment queues stay shallow so a slow
@@ -430,14 +455,66 @@ class Pipeline:
     # ----- internal coroutines ------------------------------------------
 
     async def _source_loop(self) -> None:
-        """Pump frames from the source factory into ``q_pcm`` until it's exhausted."""
+        """Pump frames from the source into ``q_pcm``, under the configured policy.
+
+        See :attr:`PipelineConfig.source_policy` for why there are two policies and
+        which source each belongs to. A drop is **counted and reported**, never
+        silent: audio that goes missing without a number attached is the one failure
+        nobody can debug afterwards.
+        """
+        drop_oldest = getattr(self.config, "source_policy", "backpressure") == "drop_oldest"
         try:
             async for frame in self.source_factory():
-                await self._q_pcm.put(frame)
+                if not drop_oldest:
+                    await self._q_pcm.put(frame)
+                    continue
+                try:
+                    self._q_pcm.put_nowait(frame)
+                except asyncio.QueueFull:
+                    # Make room by discarding the oldest frame, then take the new one.
+                    # If the queue drained between the two calls there is nothing to
+                    # discard, and the fallback await below cannot block for long.
+                    with contextlib.suppress(asyncio.QueueEmpty):
+                        self._q_pcm.get_nowait()
+                    self.dropped_frames += 1
+                    if self.dropped_frames == 1:
+                        import os_helper as osh
+
+                        osh.warning(
+                            "  pipeline: falling behind the live source; dropping the oldest "
+                            "frames to bound latency. The count is reported when the run ends."
+                        )
+                    try:
+                        self._q_pcm.put_nowait(frame)
+                    except asyncio.QueueFull:
+                        await self._q_pcm.put(frame)
         finally:
+            if self.dropped_frames:
+                import os_helper as osh
+
+                osh.warning(
+                    f"  pipeline: {self.dropped_frames} frame(s) dropped to keep up with the "
+                    f"live source. The transcript has gaps, and they are these."
+                )
             # Always cap the stream with the None sentinel — even if the source
             # raised — so the sentinel cascades and every stage shuts down.
-            await self._q_pcm.put(None)
+            #
+            # Under "drop_oldest" the queue may be FULL at this moment, and a plain
+            # await here would wait for a consumer that is itself waiting for the
+            # sentinel: the whole pipeline hangs on shutdown. The sentinel is the one
+            # message that must never be dropped, so it is given room by discarding a
+            # frame — losing audio at the very end of a stream that is already over
+            # costs nothing, and losing the sentinel costs everything.
+            if drop_oldest:
+                while True:
+                    try:
+                        self._q_pcm.put_nowait(None)
+                        break
+                    except asyncio.QueueFull:
+                        with contextlib.suppress(asyncio.QueueEmpty):
+                            self._q_pcm.get_nowait()
+            else:
+                await self._q_pcm.put(None)
 
     async def _tee(
         self,
