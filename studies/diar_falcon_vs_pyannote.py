@@ -232,6 +232,7 @@ def run_falcon(audio: np.ndarray, sr: int) -> tuple[list[tuple[float, float, str
     is not installed; the caller catches failures and skips Falcon.
     """
     import tempfile
+
     import pvfalcon  # type: ignore
 
     # Falcon is gated behind a (free-tier) access key; fail loudly with a

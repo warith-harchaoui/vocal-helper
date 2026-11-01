@@ -54,9 +54,6 @@ from pathlib import Path
 import click
 import numpy as np
 
-from vocal_helper.asr import WhisperStage
-from vocal_helper.types import DiarizedSegment
-
 AMI_ROOT = Path("/Users/warithharchaoui/pasdebonneoudemauvaisesituation/data/ami/dev-slice")
 MEETINGS = ["IS1008a", "ES2011a"]
 DEFAULT_MODEL = "large-v3-turbo-q5_0"
@@ -261,7 +258,7 @@ def main(model: str) -> None:
     DEFAULT_LOG.write_text("")
 
     # Header echoes the run's fixed parameters for reproducibility.
-    log(f"# Whisper prompt × language sweep — 2026-06-30")
+    log("# Whisper prompt × language sweep — 2026-06-30")
     log(f"# model    : {model}")
     log(f"# meetings : {MEETINGS}")
     log(f"# bias prompt : {AMI_BIAS_PROMPT!r}")

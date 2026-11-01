@@ -269,9 +269,12 @@ exclude_lines = [
 [tool.ruff]
 line-length = 100
 target-version = "py310"
-# ``studies/`` holds one-off research scripts (sweeps, ablations) ; we
-# lint shipped library code (``vocal_helper/``) and tests instead.
-extend-exclude = ["assets", "studies"]
+# ``studies/`` used to sit here, excused as "one-off research scripts". It is in
+# fact the repo's measurement culture, and the lint earns its keep there : it
+# found a ``zip()`` without ``strict=`` pairing refined labels against their
+# segments, which truncates silently on a length mismatch — exactly the kind of
+# defect that quietly falsifies a published number.
+extend-exclude = ["assets"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "C4", "UP", "SIM"]

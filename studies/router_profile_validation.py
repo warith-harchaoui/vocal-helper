@@ -229,8 +229,8 @@ def main(bench: Path, corpus: str, n: int) -> None:
     # walls / audio accumulate the RTF numerator (diar wall) and denominator
     # (audio seconds) so the ratio is computed over the whole corpus, not
     # averaged per clip.
-    walls: dict[str, float] = {k: 0.0 for k in ders}
-    audio: dict[str, float] = {k: 0.0 for k in ders}
+    walls: dict[str, float] = dict.fromkeys(ders, 0.0)
+    audio: dict[str, float] = dict.fromkeys(ders, 0.0)
 
     t_start = time.perf_counter()
     for idx, (name, wav, rttm) in enumerate(pairs):

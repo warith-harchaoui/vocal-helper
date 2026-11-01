@@ -48,7 +48,6 @@ Author : Warith HARCHAOUI — 2026-06-30
 from __future__ import annotations
 
 import json
-import os
 import statistics
 import sys
 import time
@@ -338,7 +337,7 @@ def evaluate(
     spk_list = list(by_spk.keys())
     # Intra-speaker distances: every unordered pair within each speaker.
     # Lower = tighter same-speaker cluster.
-    for spk, embs in by_spk.items():
+    for embs in by_spk.values():
         for i in range(len(embs)):
             for j in range(i + 1, len(embs)):
                 intra.append(cosine(embs[i], embs[j]))
@@ -415,7 +414,7 @@ def main(hf_token: str | None) -> None:
     # before writing the run header.
     DEFAULT_LOG.parent.mkdir(parents=True, exist_ok=True)
     DEFAULT_LOG.write_text("")
-    log(f"# Diar embedding backend sweep — 2026-06-30")
+    log("# Diar embedding backend sweep — 2026-06-30")
     log(f"# meetings : {MEETINGS}")
 
     # pyannote/embedding is gated on HF; resolve the token once.
@@ -446,7 +445,7 @@ def main(hf_token: str | None) -> None:
         assert sr_in == SR
         dur = audio.shape[0] / SR
         spans = load_speaker_spans(rttm)
-        log(f"\n=== {m} === dur={dur:.0f}s  n_ref_speakers={len(set(s[2] for s in spans))}")
+        log(f"\n=== {m} === dur={dur:.0f}s  n_ref_speakers={len({s[2] for s in spans})}")
 
         # Silero VAD → voiced runs, matching the pipeline's segmentation.
         log("  running Silero VAD …")

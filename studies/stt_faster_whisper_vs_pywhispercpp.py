@@ -202,9 +202,9 @@ def main() -> None:
     DEFAULT_LOG.parent.mkdir(parents=True, exist_ok=True)
     DEFAULT_LOG.write_text("")
     # Header block pins the run parameters so the log is self-describing.
-    log(f"# STT engine comparison — 2026-06-30")
+    log("# STT engine comparison — 2026-06-30")
     log(f"# meetings : {MEETINGS}")
-    log(f"# language : en (locked)")
+    log("# language : en (locked)")
     log(f"# n_timed  : {N_TIMED} runs + 1 warmup\n")
 
     # jiwer is only needed for WER; import it lazily and self-install if the

@@ -38,9 +38,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-import statistics
 import sys
-import time
 from pathlib import Path
 
 import click
@@ -53,11 +51,11 @@ import click
 # Re-use single-meeting helpers.
 _STUDY_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(_STUDY_DIR))
-from llm_cadence_sweep import (  # type: ignore
+from llm_cadence_sweep import (  # type: ignore  # noqa: E402  (après sys.path, à dessein)
+    candidate_summary,
     cosine_sim,
     load_utterances,
     reference_summary,
-    candidate_summary,
 )
 
 DEFAULT_RTTM = Path(
@@ -129,9 +127,9 @@ async def amain(*, rttm: Path, host: str | None) -> None:
     DEFAULT_LOG.write_text("")
     # Header block: pin the run's provenance (corpus, cadence, model set) so
     # the log is self-describing when read back later.
-    log(f"# LLM model-size & family sweep — 2026-06-30")
+    log("# LLM model-size & family sweep — 2026-06-30")
     log(f"# corpus : {rttm}")
-    log(f"# cadence : flush_every_s=60.0 (canonical winner)")
+    log("# cadence : flush_every_s=60.0 (canonical winner)")
     log(f"# models : {MODELS}")
 
     # Load the transcript once and reuse it for every model — the utterances

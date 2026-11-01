@@ -388,7 +388,9 @@ def main(bench: Path, corpus: str, n: int) -> None:
             # Refined hypothesis: re-label using all embeddings at once
             # (the refine_on_close pass), keeping each segment's timing.
             refined = stage._refine_labels(labelled, embs)
-            hyp_ref = ann_from_segs([(s["t0"], s["t1"], lab) for lab, s in zip(refined, labelled)])
+            hyp_ref = ann_from_segs(
+                [(s["t0"], s["t1"], lab) for lab, s in zip(refined, labelled, strict=True)]
+            )
             # Score all four hypotheses against the same reference; a new
             # metric object per call keeps collar accounting independent.
             for key, hyp in [
