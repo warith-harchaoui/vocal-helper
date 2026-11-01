@@ -66,6 +66,7 @@ from __future__ import annotations
 
 import functools
 import hashlib
+import inspect
 import os
 from pathlib import Path
 
@@ -256,14 +257,30 @@ def paid(namespace: str, *, key_fields: tuple[str, ...] = ()):
         # Built on the first real call, then reused: the same one-time cost as eager
         # construction, just deferred past module import.
         state: dict = {}
+        signature = inspect.signature(fn)
 
-        def key(*_args, **kwargs):
+        def key(*args, **kwargs):
+            # Key on the EFFECTIVE arguments, defaults filled in — not on what the
+            # caller happened to type. Keying on the literal call would make
+            # ``diarize(audio=a)`` and ``diarize(audio=a, model="precision-3")``
+            # two different ledger entries for one identical request, so the same
+            # work would be billed twice depending on the caller's writing style.
+            # That is the exact failure this module exists to prevent, and it is
+            # invisible: both runs succeed, one of them just costs money.
+            bound = signature.bind(*args, **kwargs)
+            bound.apply_defaults()
+            effective = bound.arguments
+
             # Return the PAYLOAD, not a pre-made key: ``Wallet.call`` already runs
             # ``make_key(namespace, payload)``, so hashing here would double-wrap it.
-            payload: dict = {"audio": audio_fingerprint(kwargs["audio"])}
+            payload: dict = {"audio": audio_fingerprint(effective["audio"])}
             for field in key_fields:
-                if field in kwargs:
-                    payload[field] = kwargs[field]
+                value = effective.get(field)
+                # ``None`` is "not asked for" and must not change the key: a call
+                # that leaves a hint unset is the same call as one that passes
+                # ``None`` for it.
+                if value is not None:
+                    payload[field] = value
             return payload
 
         @functools.wraps(fn)

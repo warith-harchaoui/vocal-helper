@@ -591,3 +591,62 @@ def test_the_hybrid_also_gets_the_best_diarizer():
     stage = OfflineDiarStage(backend="pyannoteai")
     assert _PyannoteAiOfflineDiar(model=stage.pyannoteai_model).model == BATCH_MODEL
     assert _PyannoteAiOfflineDiar(model="community-1").model == "community-1"
+
+
+def test_the_ledger_key_follows_the_effective_arguments_not_the_call_style(tmp_path, monkeypatch):
+    """``f(audio=a)`` and ``f(audio=a, model=<the default>)`` are one identical
+    request. Keying on what the caller typed would bill it twice, and both runs
+    would succeed — one of them just costs money, invisibly.
+
+    The same holds for a hint left unset versus passed as ``None``: not asking is
+    not a different question.
+    """
+    monkeypatch.setenv("VOH_WALLET_DISABLED", "1")
+    audio = tmp_path / "a.wav"
+    audio.write_bytes(b"bytes")
+    keys: list[dict] = []
+
+    # Rebuild the decorator's key function the same way it does, so the payload can
+    # be inspected without a ledger, a network or a credential.
+    def payload_for(**kwargs):
+        import inspect
+
+        def diarize(*, audio: str, model: str = "precision-3", num_speakers: int | None = None):
+            return None
+
+        bound = inspect.signature(diarize).bind(**kwargs)
+        bound.apply_defaults()
+        effective = bound.arguments
+        out = {"audio": wallet.audio_fingerprint(effective["audio"])}
+        for field in ("model", "num_speakers"):
+            if effective.get(field) is not None:
+                out[field] = effective[field]
+        return out
+
+    keys.append(payload_for(audio=str(audio)))
+    keys.append(payload_for(audio=str(audio), model="precision-3"))
+    keys.append(payload_for(audio=str(audio), num_speakers=None))
+    assert keys[0] == keys[1] == keys[2]
+
+    # And a genuinely different request IS a different key.
+    assert payload_for(audio=str(audio), model="precision-2") != keys[0]
+    assert payload_for(audio=str(audio), num_speakers=3) != keys[0]
+
+
+def test_the_transcription_ledger_keys_stay_compatible_with_what_was_already_paid():
+    """The expensive stage is transcription. Its namespace and key fields must not
+    drift, or thousands of already-billed hours become unreachable and the next run
+    pays for them again.
+
+    Diarization is the stage whose key deliberately gained the model, which costs
+    the cached diarizations — the cheaper stage, and a precision-3 call genuinely is
+    a different call. That trade is the one being asserted here.
+    """
+    import inspect
+
+    source = inspect.getsource(asr_cloud)
+    assert '@paid("gladia.transcribe")' in source, (
+        "the Gladia ledger key must stay the audio alone; adding a field here "
+        "invalidates every transcription already paid for"
+    )
+    assert '@paid("elevenlabs.transcribe", key_fields=("diarize", "num_speakers"))' in source
