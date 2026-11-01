@@ -650,3 +650,106 @@ def test_the_transcription_ledger_keys_stay_compatible_with_what_was_already_pai
         "invalidates every transcription already paid for"
     )
     assert '@paid("elevenlabs.transcribe", key_fields=("diarize", "num_speakers"))' in source
+
+
+# ----- les formes réelles du fil pyannoteAI Live-1 --------------------
+#
+# Une version n'acceptant que ``data["timestamp"]`` rendait ZÉRO tour sur la
+# forme que l'exemple officiel de la provenance documente, sans lever d'erreur :
+# une session payante facturée pour rien, et aucun journal pour le dire. Ces cas
+# sont donc des tests de non-régression, pas de la prudence décorative.
+
+WIRE_SHAPES = [
+    ("enveloppe data, horloge 'start'", {"data": {"speaker": "SPEAKER_0", "start": 1.5}}),
+    ("enveloppe data, horloge 'time'", {"data": {"speaker": "S0", "time": 1.5}}),
+    ("enveloppe data, horloge 'timestamp'", {"data": {"speaker": "S0", "timestamp": 1.5}}),
+    ("à plat, sans enveloppe", {"speaker": "S0", "timestamp": 1.5}),
+    ("étiquette 'speaker_label'", {"data": {"speaker_label": "S0", "timestamp": 1.5}}),
+    ("étiquette 'label', à plat", {"label": "S0", "time": 1.5}),
+]
+
+
+@pytest.mark.parametrize("name,body", WIRE_SHAPES, ids=[n for n, _ in WIRE_SHAPES])
+def test_every_documented_wire_shape_parses(name, body):
+    from vocal_helper.diar_cloud import parse_pyannote_message
+
+    event = parse_pyannote_message({"type": "diarization_speaker_start", **body})
+    assert event is not None, name
+    assert event.kind == "start"
+    assert event.speaker is not None, f"étiquette perdue : {name}"
+    assert event.timestamp == pytest.approx(1.5), f"horodatage perdu : {name}"
+
+
+def test_the_official_example_shape_yields_a_turn():
+    """Le bout de la chaîne : parser puis apparier, comme en session réelle."""
+    from vocal_helper.diar_cloud import parse_pyannote_message
+    from vocal_helper.fusion import build_speaker_turns
+
+    frames = [
+        {"type": "diarization_speaker_start", "data": {"speaker": "SPEAKER_0", "start": 1.5}},
+        {"type": "diarization_speaker_end", "data": {"speaker": "SPEAKER_0", "end": 3.0}},
+    ]
+    events = [parse_pyannote_message(f) for f in frames]
+    turns = build_speaker_turns([e for e in events if e is not None])
+    assert [(t.speaker, t.start, t.end) for t in turns] == [("SPEAKER_0", 1.5, 3.0)]
+
+
+def test_a_nested_payload_missing_the_field_falls_back_to_the_top_level():
+    from vocal_helper.diar_cloud import parse_pyannote_message
+
+    event = parse_pyannote_message(
+        {"type": "diarization_speaker_start", "data": {"speaker": "S0"}, "timestamp": 4.0}
+    )
+    assert event.timestamp == pytest.approx(4.0)
+    assert event.speaker == "S0"
+
+
+def test_a_timestamp_arriving_as_a_string_is_still_a_number():
+    from vocal_helper.diar_cloud import parse_pyannote_message
+
+    event = parse_pyannote_message(
+        {"type": "diarization_speaker_start", "data": {"speaker": "S0", "start": "1.5"}}
+    )
+    assert event.timestamp == pytest.approx(1.5)
+
+
+def test_an_unlabelled_end_closes_the_only_open_turn():
+    from vocal_helper.diar_cloud import DiarEvent
+    from vocal_helper.fusion import build_speaker_turns
+
+    turns = build_speaker_turns([DiarEvent("start", 0.0, "A"), DiarEvent("end", 2.0, None)])
+    assert [(t.speaker, t.start, t.end) for t in turns] == [("A", 0.0, 2.0)]
+
+
+def test_an_unlabelled_end_is_dropped_when_several_turns_are_open():
+    """Perdre une frontière vaut mieux que l'attribuer à la mauvaise personne."""
+    from vocal_helper.diar_cloud import DiarEvent
+    from vocal_helper.fusion import build_speaker_turns
+
+    turns = build_speaker_turns(
+        [DiarEvent("start", 0.0, "A"), DiarEvent("start", 1.0, "B"), DiarEvent("end", 2.0, None)]
+    )
+    assert [t.end for t in turns] == [None, None]
+
+
+def test_an_unlabelled_start_cannot_index_a_turn():
+    from vocal_helper.diar_cloud import DiarEvent
+    from vocal_helper.fusion import build_speaker_turns
+
+    assert build_speaker_turns([DiarEvent("start", 0.0, None)]) == []
+
+
+def test_an_unlabelled_end_ignores_already_closed_turns():
+    """Un tour déjà fermé ne compte pas comme ouvert : il ne doit pas capter la fin."""
+    from vocal_helper.diar_cloud import DiarEvent
+    from vocal_helper.fusion import build_speaker_turns
+
+    turns = build_speaker_turns(
+        [
+            DiarEvent("start", 0.0, "A"),
+            DiarEvent("end", 1.0, "A"),
+            DiarEvent("start", 2.0, "B"),
+            DiarEvent("end", 3.0, None),
+        ]
+    )
+    assert [(t.speaker, t.start, t.end) for t in turns] == [("A", 0.0, 1.0), ("B", 2.0, 3.0)]

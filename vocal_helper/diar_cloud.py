@@ -151,10 +151,49 @@ class DiarEvent:
     message: str | None = None
 
 
+#: Où la provenance place l'horodatage d'un événement, par ordre de préférence.
+#: Cette liste n'est pas de la prudence gratuite : le propre exemple officiel de
+#: la provenance met ``start`` là où sa documentation annonce ``timestamp``, et
+#: une version n'acceptant que ``timestamp`` rendait **zéro tour** sur la forme
+#: documentée — sans lever d'erreur, donc une session payante facturée pour rien.
+TIMESTAMP_FIELDS = ("timestamp", "time", "start", "end")
+
+#: Où elle place l'étiquette du locuteur, même remarque.
+SPEAKER_FIELDS = ("speaker", "speaker_label", "label")
+
+
+def _first_present(sources: tuple[dict[str, Any], ...], keys: tuple[str, ...]) -> Any:
+    """La première de ces clés présente et non nulle, en parcourant les sources.
+
+    Examples
+    --------
+    >>> _first_present(({"b": 2},), ("a", "b"))
+    2
+    >>> _first_present(({"a": None}, {"a": 7}), ("a",))
+    7
+    >>> _first_present(({},), ("a",)) is None
+    True
+    """
+    for source in sources:
+        for key in keys:
+            value = source.get(key)
+            if value is not None:
+                return value
+    return None
+
+
 def parse_pyannote_message(raw: dict[str, Any]) -> DiarEvent | None:
     """Parse one decoded Live-1 message, or ``None`` when it is not an event.
 
     Pure: no input/output, so the wire format is testable without a socket.
+
+    Deliberately tolerant about **where** the fields sit. The payload may be
+    wrapped in ``data`` or flat at the top level, the clock may be called
+    ``timestamp``, ``time``, ``start`` or ``end``, and the label ``speaker``,
+    ``speaker_label`` or ``label``. A stricter reader is not safer here: it
+    returns no event rather than an error, so the whole session yields no
+    speaker turns and nothing says why — which is exactly what happened before
+    this lookup existed.
 
     Parameters
     ----------
@@ -171,16 +210,33 @@ def parse_pyannote_message(raw: dict[str, Any]) -> DiarEvent | None:
     >>> parse_pyannote_message({"type": "diarization_speaker_end",
     ...                         "data": {"timestamp": 9.0, "speaker": "S1"}}).kind
     'end'
+
+    La forme de l'exemple officiel : enveloppe ``data``, horloge ``start``.
+
+    >>> event = parse_pyannote_message({"type": "diarization_speaker_start",
+    ...                                 "data": {"speaker": "SPEAKER_0", "start": 1.5}})
+    >>> (event.kind, event.speaker, event.timestamp)
+    ('start', 'SPEAKER_0', 1.5)
+
+    À plat, sans enveloppe :
+
+    >>> event = parse_pyannote_message({"type": "diarization_speaker_start",
+    ...                                 "label": "S0", "time": 2.0})
+    >>> (event.speaker, event.timestamp)
+    ('S0', 2.0)
+
     >>> parse_pyannote_message({"type": "error", "message": "quota"}).message
     'quota'
     """
     kind = raw.get("type")
     if kind in ("diarization_speaker_start", "diarization_speaker_end"):
-        data = raw.get("data") or {}
+        nested = raw.get("data")
+        sources = (nested, raw) if isinstance(nested, dict) else (raw,)
+        timestamp = _first_present(sources, TIMESTAMP_FIELDS)
         return DiarEvent(
             "start" if kind == "diarization_speaker_start" else "end",
-            data.get("timestamp"),
-            data.get("speaker"),
+            None if timestamp is None else float(timestamp),
+            _first_present(sources, SPEAKER_FIELDS),
         )
     if kind == "error":
         return DiarEvent("error", None, None, message=raw.get("message"))

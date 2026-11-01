@@ -83,7 +83,7 @@ class SpeakerTurn:
 def build_speaker_turns(diar_events: list[DiarEvent]) -> list[SpeakerTurn]:
     """Pair ``start`` and ``end`` events into intervals.
 
-    Two defensive rules, because a live stream is not a well-formed document.
+    Three defensive rules, because a live stream is not a well-formed document.
 
     An ``end`` with no open ``start`` for that speaker is ignored: the protocol
     should never emit it, and a malformed or mocked stream must not crash fusion.
@@ -92,6 +92,12 @@ def build_speaker_turns(diar_events: list[DiarEvent]) -> list[SpeakerTurn]:
     one first**. A real stream keeps labels stable for a whole session, so two
     consecutive ``start`` events for the same speaker mean the first one's ``end``
     was dropped — not that one person is somehow speaking twice at once.
+
+    An ``end`` carrying **no speaker label** closes the only open turn when there
+    is exactly one, and is ignored otherwise. The provider does omit the label on
+    some end frames, and when a single turn is open there is nothing to guess;
+    with several open, guessing would silently attribute speech to the wrong
+    person, which is worse than losing a boundary.
 
     Parameters
     ----------
@@ -114,11 +120,34 @@ def build_speaker_turns(diar_events: list[DiarEvent]) -> list[SpeakerTurn]:
     [(1.0, 3.0), (3.0, None)]
     >>> build_speaker_turns([DiarEvent("end", 1.0, "ghost")])
     []
+
+    Une fin sans étiquette, un seul tour ouvert : il n’y a rien à deviner.
+
+    >>> turns = build_speaker_turns([DiarEvent("start", 0.0, "A"),
+    ...                              DiarEvent("end", 2.0, None)])
+    >>> [(t.speaker, t.start, t.end) for t in turns]
+    [('A', 0.0, 2.0)]
+
+    Deux tours ouverts : on perd la frontière plutôt que de l'attribuer au hasard.
+
+    >>> turns = build_speaker_turns([DiarEvent("start", 0.0, "A"),
+    ...                              DiarEvent("start", 1.0, "B"),
+    ...                              DiarEvent("end", 2.0, None)])
+    >>> [t.end for t in turns]
+    [None, None]
     """
     open_turns: dict[str, SpeakerTurn] = {}
     turns: list[SpeakerTurn] = []
     for event in diar_events:
-        if event.speaker is None or event.timestamp is None:
+        if event.timestamp is None:
+            continue
+        if event.speaker is None:
+            if event.kind != "end":
+                continue  # un début sans étiquette ne peut pas indexer un tour
+            still_open = [k for k, t in open_turns.items() if t.end is None]
+            if len(still_open) != 1:
+                continue
+            open_turns.pop(still_open[0]).end = event.timestamp
             continue
         if event.kind == "start":
             stale = open_turns.get(event.speaker)
