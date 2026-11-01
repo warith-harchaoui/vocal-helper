@@ -503,3 +503,67 @@ def test_old_audio_is_dropped_so_a_live_session_stays_bounded():
     asyncio.run(_drive(stage, segments))
     kept = sum(v[1] - v[0] for v in stage._voiced)
     assert kept <= 20.0 + 10.0 + 10.0  # window + period + the segment just added
+
+
+# --------------------------------------------------------------------------- #
+#  Reachable from the pipeline, by asking for it
+# --------------------------------------------------------------------------- #
+
+
+def test_the_pipeline_keeps_the_online_stage_by_default():
+    """The default must not change under anybody: `discussion-helper` wants a label
+    in half a second and no retroactive correction, which is the opposite priority."""
+    import vocal_helper as voh
+    from vocal_helper.diar import OnlineDiarStage
+
+    async def source():
+        yield {"t0": 0.0, "sample_rate": 16000, "pcm": np.zeros(320, dtype=np.float32)}
+
+    pipeline = voh.Pipeline(source=source, config=voh.PipelineConfig(llm=None))
+    assert isinstance(pipeline._diar, OnlineDiarStage)
+
+
+def test_asking_for_rediar_composes_both_stages_and_keeps_the_callback():
+    """The quality path is reachable by configuration, and the revision callback
+    survives the trip — a display that never hears about revisions keeps showing
+    labels it has been told are wrong."""
+    import vocal_helper as voh
+    from vocal_helper.rediar import PeriodicOfflineDiarStage
+
+    seen: list = []
+
+    def recolour(revisions):
+        seen.extend(revisions)
+
+    async def source():
+        yield {"t0": 0.0, "sample_rate": 16000, "pcm": np.zeros(320, dtype=np.float32)}
+
+    pipeline = voh.Pipeline(
+        source=source,
+        config=voh.PipelineConfig(llm=None, rediar={"period_s": 45.0, "on_revision": recolour}),
+    )
+    stage = pipeline._diar
+    assert isinstance(stage, PeriodicOfflineDiarStage)
+    assert stage.policy.period_s == 45.0
+    assert stage.on_revision is recolour
+    # The online stage is composed, not discarded: it is what answers in half a second.
+    assert stage.online is pipeline._online_diar
+
+
+def test_the_offline_backend_comes_from_the_policy_not_from_the_online_config():
+    """`config.diar["backend"]` names an EMBEDDER for the online stage; the policy's
+    names a whole offline pipeline. Conflating them would quietly ask for a
+    diarizer that does not exist."""
+    import vocal_helper as voh
+
+    async def source():
+        yield {"t0": 0.0, "sample_rate": 16000, "pcm": np.zeros(320, dtype=np.float32)}
+
+    pipeline = voh.Pipeline(
+        source=source,
+        config=voh.PipelineConfig(
+            llm=None, diar={"backend": "sherpa"}, rediar={"backend": "pyannote"}
+        ),
+    )
+    assert pipeline._diar.offline.backend == "pyannote"
+    assert pipeline._online_diar.backend == "sherpa"

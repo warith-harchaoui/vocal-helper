@@ -208,6 +208,26 @@ class PipelineConfig:
     # ``eot={"engine": resolve_engine()}``.
     eot: dict | None = None
     diar: dict = field(default_factory=dict)
+    # OFFLINE-QUALITY DIARIZATION ON A LIVE STREAM. ``None`` (default) keeps the
+    # online stage alone: a label in about half a second, at three to four times the
+    # offline error rate (0.586 against 0.122), because a latency-bound clusterer
+    # cannot model overlapping speech.
+    #
+    # A dict turns on :class:`vocal_helper.rediar.PeriodicOfflineDiarStage`, which
+    # keeps that fast label and then runs the OFFLINE diarizer periodically over a
+    # bounded window to correct the ones that were wrong. Measured, that buys the
+    # full 0.122 at an effective real-time factor near 0.29 on a Metal machine with
+    # six speakers — comfortably under the only constraint that matters live.
+    #
+    # The dict is splatted into :class:`vocal_helper.rediar.RediarPolicy`, except
+    # for ``on_revision``, which is pulled out and passed to the stage. Supply it:
+    # a display that ignores revisions shows labels it has been told are wrong.
+    #
+    #     rediar={"period_s": 60.0, "on_revision": my_recolour_callback}
+    #
+    # The cost is retroactive label changes, which the display must treat as a
+    # re-colouring rather than a silent rewrite.
+    rediar: dict | None = None
     asr: dict = field(default_factory=dict)
     # ``None`` disables the LLM analyst — useful when you only need
     # the transcript without summarisation. When set, the dict is splatted
@@ -323,7 +343,25 @@ class Pipeline:
         self._eot: SemanticEOTStage | None = (
             SemanticEOTStage(**self.config.eot) if self.config.eot is not None else None
         )
-        self._diar = OnlineDiarStage(**self.config.diar)
+        self._online_diar = OnlineDiarStage(**self.config.diar)
+        self._diar: Any = self._online_diar
+        if self.config.rediar is not None:
+            from vocal_helper.diar import OfflineDiarStage
+            from vocal_helper.rediar import PeriodicOfflineDiarStage, RediarPolicy
+
+            options = dict(self.config.rediar)
+            on_revision = options.pop("on_revision", None)
+            policy = RediarPolicy(**options)
+            # The offline backend comes from the policy, not from ``config.diar``:
+            # the online stage's backend is an EMBEDDER choice and the offline one is
+            # a whole pipeline, and conflating them would silently ask for a
+            # diarizer that does not exist.
+            self._diar = PeriodicOfflineDiarStage(
+                online=self._online_diar,
+                offline=OfflineDiarStage(backend=policy.backend),
+                policy=policy,
+                on_revision=on_revision,
+            )
         # Streaming enables whisper warm-up by default so the first
         # caption doesn't stall on the model's cold first inference. Any
         # explicit ``warmup`` in ``config.asr`` wins ; the offline
