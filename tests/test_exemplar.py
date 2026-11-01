@@ -294,3 +294,75 @@ def test_a_zero_vector_does_not_divide_by_zero():
 def test_an_exemplar_carries_its_confidence():
     e = Exemplar(vector=E0, confidence=3.5)
     assert e.confidence == pytest.approx(3.5)
+
+
+# ----- la référence : un point observé, jamais une moyenne ------------
+
+
+def test_the_confidence_reference_is_the_best_observed_point():
+    """La règle du magasin biométrique : la ressemblance au meilleur indice."""
+    c = ExemplarClusterer(policy=ExemplarPolicy(reference="confiance"))
+    c.assign(E0[None, :], [1.0])
+    c.assign(MODE_B[None, :], [9.0])  # mieux attestée, elle devient la référence
+    assert c.exemplar_counts == [2]
+    assert c.distances(MODE_B[None, :])[0, 0] == pytest.approx(0.0, abs=1e-6)
+    assert c.distances(E0[None, :])[0, 0] == pytest.approx(0.2, abs=1e-5)
+
+
+def test_the_confidence_reference_has_no_optimistic_bias():
+    """Le défaut mesuré du meilleur point : son minimum baisse avec la taille.
+
+    Un point observé unique ne bouge pas quand l'ensemble grandit, donc un seul
+    exemplaire bruité ne peut plus capturer un locuteur.
+    """
+    stable = ExemplarClusterer(policy=ExemplarPolicy(reference="confiance"))
+    optimistic = ExemplarClusterer(policy=ExemplarPolicy(reference="meilleur"))
+    probe = np.array([0.0, 0.6, 0.8], dtype=np.float32)
+    rng = np.random.default_rng(1)
+    for c in (stable, optimistic):
+        c.assign(E0[None, :], [9.0])
+        before = float(c.distances(probe[None, :])[0, 0])
+        for _ in range(20):
+            noisy = (E0 + 0.5 * rng.standard_normal(3).astype(np.float32)).astype(np.float32)
+            c.assign(noisy[None, :], [1.0])
+        c._before, c._after = before, float(c.distances(probe[None, :])[0, 0])
+    assert stable._after == pytest.approx(stable._before, abs=1e-6)
+    assert optimistic._after < optimistic._before - 0.05
+
+
+def test_the_medoid_reference_resists_a_lone_intruder():
+    """Le médoïde ne peut pas être l'intrus : il faut être central pour l'être.
+
+    L'intrus est ici à portée de jointure — sinon il formerait son propre
+    locuteur et il n'y aurait rien à tester — et il est le mieux attesté des
+    trois, donc la règle de confiance le choisirait. Le médoïde, non.
+    """
+    intruder = np.array([0.5, 0.866, 0.0], dtype=np.float32)  # à 0,5 de E0
+    policy = ExemplarPolicy(reference="médoïde", diversity_margin=0.0)
+    c = ExemplarClusterer(policy=policy)
+    c.assign(E0[None, :], [1.0])
+    c.assign((E0 + 0.2 * E1)[None, :], [1.0])
+    assert c.assign(intruder[None, :], [50.0]) == ["S0"], "l'intrus devait rejoindre"
+    assert c.exemplar_counts == [3]
+    assert c.distances(E0[None, :])[0, 0] < 0.1, "le médoïde a suivi l'intrus"
+
+
+def test_confidence_and_medoid_disagree_where_it_matters():
+    """Pourquoi le médoïde est le repli : la confiance seule peut être trompée."""
+    intruder = np.array([0.5, 0.866, 0.0], dtype=np.float32)
+    built = {}
+    for mode in ("confiance", "médoïde"):
+        c = ExemplarClusterer(policy=ExemplarPolicy(reference=mode, diversity_margin=0.0))
+        c.assign(E0[None, :], [1.0])
+        c.assign((E0 + 0.2 * E1)[None, :], [1.0])
+        c.assign(intruder[None, :], [50.0])
+        built[mode] = float(c.distances(E0[None, :])[0, 0])
+    assert built["confiance"] == pytest.approx(0.5, abs=1e-3)
+    assert built["médoïde"] < 0.1
+
+
+def test_an_unknown_reference_is_refused():
+    c = ExemplarClusterer(policy=ExemplarPolicy(reference="moyenne"))
+    c.assign(E0[None, :], _long(1))
+    with pytest.raises(ValueError, match="référence inconnue"):
+        c.distances(E1[None, :])

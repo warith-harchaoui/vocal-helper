@@ -55,17 +55,21 @@ from diar_incremental_delta_sweep import (  # noqa: E402  (après sys.path, à d
 from diar_incremental_vs_greedy import der, reference_from_rttm  # noqa: E402
 
 NEIGHBOURS = (1, 2, 3)
-MEMORIES = (6, 12, 24)
+REFERENCES = ("confiance", "médoïde")
 
 
 def variants() -> dict[str, object]:
     """Les politiques comparées, nommées comme elles seront lues."""
     out: dict[str, object] = {"centroïde": IncrementalPolicy(delta_new=0.6)}
     for k in NEIGHBOURS:
-        out[f"exempl. k={k} sans reprise"] = ExemplarPolicy(neighbours=k, merge=False)
-        out[f"exempl. k={k} avec reprise"] = ExemplarPolicy(neighbours=k, merge=True)
-    for m in MEMORIES:
-        out[f"exempl. mémoire={m}"] = ExemplarPolicy(max_exemplars=m, merge=True)
+        out[f"meilleur k={k}"] = ExemplarPolicy(neighbours=k, merge=False)
+        out[f"meilleur k={k} + reprise"] = ExemplarPolicy(neighbours=k, merge=True)
+    # Un point OBSERVÉ et non un minimum sur un ensemble : pas de moyenne, et
+    # pas de biais optimiste non plus, puisque la taille de la mémoire n'entre
+    # plus dans la mesure. C'est la règle du magasin biométrique.
+    for mode in REFERENCES:
+        out[mode] = ExemplarPolicy(reference=mode, merge=False)
+        out[f"{mode} + reprise"] = ExemplarPolicy(reference=mode, merge=True)
     return out
 
 

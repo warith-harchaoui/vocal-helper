@@ -64,6 +64,53 @@ from numpy.typing import NDArray
 __all__ = ["Exemplar", "ExemplarPolicy", "ExemplarClusterer"]
 
 
+def _reference_vector(exemplars: list[Exemplar], mode: str) -> NDArray[np.float32]:
+    """L'exemplaire qui représente l'ensemble — un point observé, jamais une moyenne.
+
+    Parameters
+    ----------
+    exemplars : list of Exemplar
+        Les observations gardées pour ce locuteur.
+    mode : {"confiance", "médoïde"}
+        ``"confiance"`` prend celui de meilleure confiance, ``"médoïde"`` le
+        plus central, c'est-à-dire de plus forte similarité totale aux autres —
+        robuste à un intrus isolé, qui ne peut pas être le plus central.
+
+    Returns
+    -------
+    NDArray[np.float32]
+        Le vecteur choisi, déjà normalisé.
+
+    Raises
+    ------
+    ValueError
+        Si ``mode`` n'est pas reconnu.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> a = Exemplar(vector=np.array([1.0, 0.0], dtype=np.float32), confidence=1.0)
+    >>> b = Exemplar(vector=np.array([0.0, 1.0], dtype=np.float32), confidence=9.0)
+    >>> _reference_vector([a, b], "confiance")
+    array([0., 1.], dtype=float32)
+
+    Deux voisins et un intrus : le médoïde est l'un des voisins.
+
+    >>> near = Exemplar(vector=np.array([0.99, 0.141], dtype=np.float32), confidence=1.0)
+    >>> far = Exemplar(vector=np.array([-1.0, 0.0], dtype=np.float32), confidence=50.0)
+    >>> bool(_reference_vector([a, near, far], "médoïde")[0] > 0.9)
+    True
+    """
+    if mode == "confiance":
+        best = max(range(len(exemplars)), key=lambda i: exemplars[i].confidence)
+        return exemplars[best].vector
+    if mode == "médoïde":
+        vectors = np.stack([e.vector for e in exemplars])
+        central = int(np.argmax((vectors @ vectors.T).sum(axis=1)))
+        return vectors[central]
+    raise ValueError(f"référence inconnue : {mode!r}")
+
+
 def _unit(rows: NDArray[np.float32]) -> NDArray[np.float32]:
     """Normaliser des lignes en L2, sans diviser par zéro."""
     norms = np.linalg.norm(rows, axis=1, keepdims=True)
@@ -105,8 +152,28 @@ class ExemplarPolicy:
         plutôt que de forcer une jointure. Reste à 0,6 : trois réunions d'AMI
         donnent 0,750 / 0,600 / 0,600 comme optimum, et aucune normalisation
         n'a réduit cette dispersion.
+    reference : str
+        Comment mesurer la ressemblance à un locuteur, sans jamais moyenner.
+
+        ``"meilleur"``
+            Distance au ``neighbours``-ième exemplaire le plus proche. Garde la
+            multimodalité, mais c'est un **minimum sur un ensemble**, donc un
+            estimateur optimiste : il diminue mécaniquement quand l'ensemble
+            grandit, si bien qu'un seul exemplaire bruité suffit à capturer un
+            locuteur. Mesuré sur AMI : taux d'erreur 0,529 contre 0,299 pour le
+            centroïde, et dérive 0,859. C'est ce biais que ``neighbours``
+            corrige partiellement, 0,529 puis 0,378 puis 0,363 pour k=1,2,3.
+        ``"confiance"``
+            Distance à l'unique exemplaire de meilleure confiance. Un point
+            **observé**, donc aucune moyenne, et pas de biais optimiste non plus
+            puisque le nombre d'exemplaires n'entre pas dans la mesure.
+        ``"médoïde"``
+            Distance au médoïde — l'exemplaire le plus central de l'ensemble,
+            celui de plus forte similarité totale aux autres. Également un point
+            observé, et robuste à un intrus isolé, qui ne peut pas devenir le
+            plus central.
     neighbours : int
-        Combien de voisins regarder. 1 est le meilleur point pur, donc un lien
+        Combien de voisins regarder, pour ``reference="meilleur"`` seulement. 1 est le meilleur point pur, donc un lien
         simple, sensible à un exemplaire aberrant faisant pont entre deux
         locuteurs. 2 ou 3 coupent le pont tout en gardant la multimodalité.
     max_exemplars : int
@@ -135,6 +202,7 @@ class ExemplarPolicy:
 
     rho_update_s: float = 0.4
     delta_new: float = 0.6
+    reference: str = "meilleur"
     neighbours: int = 1
     max_exemplars: int = 12
     diversity_margin: float = 0.10
@@ -250,12 +318,16 @@ class ExemplarClusterer:
         unit = _unit(np.atleast_2d(embeddings))
         if not self._sets:
             return np.zeros((len(unit), 0), dtype=np.float32)
+        mode = self.policy.reference
         out = np.empty((len(unit), len(self._sets)), dtype=np.float32)
         for j, exemplars in enumerate(self._sets):
             stored = np.stack([e.vector for e in exemplars])
-            every = 1.0 - unit @ stored.T  # (k, n_exemplaires)
-            rank = min(self.policy.neighbours, every.shape[1]) - 1
-            out[:, j] = np.partition(every, rank, axis=1)[:, rank]
+            if mode == "meilleur":
+                every = 1.0 - unit @ stored.T  # (k, n_exemplaires)
+                rank = min(self.policy.neighbours, every.shape[1]) - 1
+                out[:, j] = np.partition(every, rank, axis=1)[:, rank]
+            else:
+                out[:, j] = 1.0 - unit @ _reference_vector(exemplars, mode)
         return out
 
     # ----- la mémoire -------------------------------------------------
