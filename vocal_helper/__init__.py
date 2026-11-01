@@ -108,7 +108,13 @@ from vocal_helper.pipeline import (
     PipelineConfig,
     resolve_engine,
 )
-from vocal_helper.rediar import RediarPolicy, SpeakerReference, read_back_identities
+from vocal_helper.rediar import (
+    LabelRevision,
+    PeriodicOfflineDiarStage,
+    RediarPolicy,
+    SpeakerReference,
+    read_back_identities,
+)
 from vocal_helper.router import BackendPlan, select_diarization
 from vocal_helper.turns import consolidate, join_words
 from vocal_helper.types import (
@@ -239,6 +245,8 @@ __all__ = [
     # separated by harvested room tone, and identity recovered by READ-BACK rather
     # than by matching — exact, and needing no embeddings of our own.
     "RediarPolicy",
+    "PeriodicOfflineDiarStage",
+    "LabelRevision",
     "SpeakerReference",
     "read_back_identities",
 ]

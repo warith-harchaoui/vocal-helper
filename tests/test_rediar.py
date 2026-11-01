@@ -207,3 +207,299 @@ def test_the_primer_charges_one_gap_per_speaker_plus_one_before_the_window():
     and the audio being diarized, or the final reference merges into the window."""
     policy = RediarPolicy(ref_budget_s=10.0, gap_s=1.0)
     assert policy.primer_s(speakers=3) == pytest.approx(3 * 11.0 + 1.0)
+
+
+# --------------------------------------------------------------------------- #
+#  The primer, assembled
+# --------------------------------------------------------------------------- #
+
+
+def test_room_tone_is_harvested_from_the_quietest_span_not_synthesised():
+    """Digital zeros are out of distribution for a segmentation model trained on
+    real audio: it behaves oddly around them, exactly where a clean cut is needed."""
+    from vocal_helper.rediar import harvest_room_tone
+
+    sr = 16000
+    loud = np.ones(sr, dtype=np.float32)
+    ambience = np.full(sr, 0.002, dtype=np.float32)
+    room = harvest_room_tone(np.concatenate([loud, ambience, loud]), sr, 0.5)
+    assert len(room) == sr // 2
+    assert 0.0 < float(np.abs(room).max()) < 0.01  # real ambience, not zeros
+
+
+def test_room_tone_falls_back_to_zeros_only_when_there_is_not_enough_audio():
+    """A degenerate case, not a choice. Saying so is what keeps it from becoming one."""
+    from vocal_helper.rediar import harvest_room_tone
+
+    room = harvest_room_tone(np.ones(10, dtype=np.float32), 16000, 0.5)
+    assert len(room) == 8000
+    assert float(np.abs(room).max()) == 0.0
+
+
+def test_references_take_the_longest_turns_first():
+    """A long turn is the one most likely to be a single voice alone. Short turns are
+    where overlap and mislabelling live, and a reference built from them anchors the
+    wrong person — silently, since the result is plausible either way."""
+    from vocal_helper.rediar import build_references
+
+    sr = 1000
+    pcm = np.concatenate(
+        [
+            np.full(1000, 0.1, dtype=np.float32),  # A, 1 s — the short turn
+            np.full(3000, 0.9, dtype=np.float32),  # A, 3 s — the long one
+        ]
+    )
+    segments = [(0.0, 1.0, "A"), (1.0, 4.0, "A")]
+    refs = build_references(pcm=pcm, sample_rate=sr, segments=segments, offset_s=0.0, budget_s=1.0)
+    # The budget was filled from the LONG turn, so the reference carries its level.
+    assert float(np.abs(refs["A"] - 0.9).max()) < 1e-6
+
+
+def test_the_primer_puts_a_gap_before_every_reference_and_one_at_the_end():
+    """The last gap is not an off-by-one: without it the final reference merges into
+    the window that follows and anchors nothing at all."""
+    from vocal_helper.rediar import assemble_primer
+
+    sr = 1000
+    room = np.zeros(800, dtype=np.float32)
+    primer, refs = assemble_primer(
+        {"A": np.ones(1000, dtype=np.float32), "B": np.ones(1000, dtype=np.float32)},
+        room,
+        sr,
+    )
+    assert len(primer) == 3 * 800 + 2 * 1000
+    assert [r.speaker for r in refs] == ["A", "B"]
+    assert refs[0].primer_t0 == pytest.approx(0.8)
+    assert refs[1].primer_t0 == pytest.approx(0.8 + 1.0 + 0.8)
+
+
+def test_the_window_is_reconstructed_on_the_real_timeline():
+    """Concatenating voiced spans would compress time and every returned boundary
+    would be wrong. The gaps are filled, not removed."""
+    from vocal_helper.rediar import reconstruct_window
+
+    sr = 1000
+    room = np.full(100, 0.002, dtype=np.float32)
+    speech = np.ones(500, dtype=np.float32)
+    out = reconstruct_window(
+        [(10.0, 10.5, speech), (12.0, 12.5, speech)], room, sr, window_start_s=10.0
+    )
+    assert len(out) == 2500  # 0.5 s speech + 1.5 s gap + 0.5 s speech
+    assert float(out[100]) == pytest.approx(1.0)  # inside the first turn
+    assert float(out[1000]) == pytest.approx(0.002, abs=1e-5)  # ambience in the gap
+
+
+# --------------------------------------------------------------------------- #
+#  The stage: a provisional label, then a correction
+# --------------------------------------------------------------------------- #
+
+
+class _FakeOnline:
+    """Labels every segment with whatever it is told, in order."""
+
+    def __init__(self, labels):
+        self.labels = list(labels)
+
+    def _label(self, segment):
+        label = self.labels.pop(0) if self.labels else "S0"
+        return {
+            "t0": segment["t0"],
+            "t1": segment["t1"],
+            "sample_rate": segment["sample_rate"],
+            "speaker": label,
+            "pcm": segment["pcm"],
+        }
+
+
+class _FakeOffline:
+    """Returns a canned diarization, and records what it was asked to diarize."""
+
+    def __init__(self, answers):
+        self.answers = list(answers)
+        self.calls: list[int] = []
+
+    def diarize(self, pcm, sr, *, num_speakers=None, **_kw):
+        self.calls.append(len(pcm))
+        if not self.answers:
+            raise RuntimeError("no canned answer left")
+        return self.answers.pop(0)
+
+
+def _segment(t0, t1, sr=1000, level=0.5):
+    return {
+        "t0": t0,
+        "t1": t1,
+        "sample_rate": sr,
+        "pcm": np.full(int((t1 - t0) * sr), level, dtype=np.float32),
+    }
+
+
+def test_a_refresh_waits_for_its_period_and_then_runs_once():
+    """A refresh per segment would spend the whole budget on repetition."""
+    from vocal_helper.rediar import PeriodicOfflineDiarStage, RediarPolicy
+
+    offline = _FakeOffline([[(0.0, 30.0, "c0")]])
+    stage = PeriodicOfflineDiarStage(
+        online=_FakeOnline(["S0"] * 10),
+        offline=offline,
+        policy=RediarPolicy(window_s=60.0, period_s=30.0, min_speaker_s=1.0),
+    )
+    stage._voiced = [(0.0, 10.0, np.full(10000, 0.5, dtype=np.float32))]
+    assert stage.refresh(now_s=10.0, sample_rate=1000) == []
+    assert offline.calls == []  # not due
+
+
+def test_a_wrong_provisional_label_is_revised_and_reported():
+    """The whole point of the design: the fast label is allowed to be wrong, because
+    the slow one corrects it, and the correction is reported rather than hidden."""
+    from vocal_helper.rediar import PeriodicOfflineDiarStage, RediarPolicy
+
+    # The offline diarizer says the first ten seconds were one voice, not two.
+    offline = _FakeOffline([[(0.0, 20.0, "c0")]])
+    seen: list = []
+    stage = PeriodicOfflineDiarStage(
+        online=_FakeOnline([]),
+        offline=offline,
+        policy=RediarPolicy(window_s=60.0, period_s=20.0, min_speaker_s=1.0),
+        on_revision=seen.append,
+    )
+    stage._published = [
+        {"t0": 0.0, "t1": 10.0, "speaker": "S0"},
+        {"t0": 10.0, "t1": 20.0, "speaker": "S1"},
+    ]
+    stage._voiced = [(0.0, 20.0, np.full(20000, 0.5, dtype=np.float32))]
+
+    revisions = stage.refresh(now_s=20.0, sample_rate=1000)
+
+    assert [(r.old_speaker, r.new_speaker) for r in revisions] == [("S1", "S0")]
+    assert seen and seen[0] is revisions
+    # The published row was corrected in place, so a later refresh does not re-report it.
+    assert stage._published[1]["speaker"] == "S0"
+
+
+def test_a_correct_provisional_label_produces_no_revision():
+    """Reporting a revision that changes nothing would make a display flicker for
+    no reason, and would train whoever reads it to ignore revisions."""
+    from vocal_helper.rediar import PeriodicOfflineDiarStage, RediarPolicy
+
+    offline = _FakeOffline([[(0.0, 20.0, "c0")]])
+    stage = PeriodicOfflineDiarStage(
+        online=_FakeOnline([]),
+        offline=offline,
+        policy=RediarPolicy(window_s=60.0, period_s=20.0, min_speaker_s=1.0),
+    )
+    stage._published = [{"t0": 0.0, "t1": 20.0, "speaker": "S0"}]
+    stage._voiced = [(0.0, 20.0, np.full(20000, 0.5, dtype=np.float32))]
+    assert stage.refresh(now_s=20.0, sample_rate=1000) == []
+
+
+def test_a_failed_refresh_keeps_the_labels_it_has():
+    """A diarizer that raises must cost nothing: the provisional labels are still
+    the best available answer, and discarding them would make a transient failure
+    worse than no refresh at all."""
+    from vocal_helper.rediar import PeriodicOfflineDiarStage, RediarPolicy
+
+    stage = PeriodicOfflineDiarStage(
+        online=_FakeOnline([]),
+        offline=_FakeOffline([]),  # empty: raises
+        policy=RediarPolicy(window_s=60.0, period_s=20.0, min_speaker_s=1.0),
+    )
+    stage._published = [{"t0": 0.0, "t1": 20.0, "speaker": "S0"}]
+    stage._voiced = [(0.0, 20.0, np.full(20000, 0.5, dtype=np.float32))]
+    assert stage.refresh(now_s=20.0, sample_rate=1000) == []
+    assert stage._published[0]["speaker"] == "S0"
+    assert stage.refreshes == 0
+
+
+def test_a_newcomer_is_promoted_only_past_the_floor():
+    """A cluster no reference covered is either a person who just joined or an
+    artefact. The floor is the only thing separating them, and promoting an artefact
+    adds a speaker who never existed."""
+    from vocal_helper.rediar import PeriodicOfflineDiarStage, RediarPolicy
+
+    # "c1" speaks 0.5 s — under any sane floor. "c0" holds the rest.
+    offline = _FakeOffline([[(0.0, 19.5, "c0"), (19.5, 20.0, "c1")]])
+    stage = PeriodicOfflineDiarStage(
+        online=_FakeOnline([]),
+        offline=offline,
+        policy=RediarPolicy(window_s=60.0, period_s=20.0, min_speaker_s=5.0),
+    )
+    stage._published = [{"t0": 19.5, "t1": 20.0, "speaker": "S0"}]
+    stage._voiced = [(0.0, 20.0, np.full(20000, 0.5, dtype=np.float32))]
+    stage.refresh(now_s=20.0, sample_rate=1000)
+    # No S1 invented from half a second of audio.
+    assert all(r.new_speaker != "S1" for r in stage.revisions)
+
+
+async def _drive(stage, segments, sr=1000):
+    """Push segments through the stage's queue contract and collect the output."""
+    import asyncio
+
+    inbox: asyncio.Queue = asyncio.Queue()
+    outbox: asyncio.Queue = asyncio.Queue()
+    for seg in segments:
+        inbox.put_nowait(seg)
+    inbox.put_nowait(None)
+    await stage.run(inbox, outbox)
+    out = []
+    while not outbox.empty():
+        out.append(outbox.get_nowait())
+    return out
+
+
+def test_the_stage_is_a_drop_in_and_emits_each_segment_once():
+    """The audio path stays once-only: a revision carries labels, never audio, so
+    nothing downstream re-transcribes anything."""
+    import asyncio
+
+    from vocal_helper.rediar import PeriodicOfflineDiarStage, RediarPolicy
+
+    offline = _FakeOffline([[(0.0, 30.0, "c0")], [(0.0, 30.0, "c0")]])
+    stage = PeriodicOfflineDiarStage(
+        online=_FakeOnline(["S0", "S0", "S0"]),
+        offline=offline,
+        policy=RediarPolicy(window_s=60.0, period_s=15.0, min_speaker_s=1.0),
+    )
+    out = asyncio.run(
+        _drive(stage, [_segment(0.0, 10.0), _segment(10.0, 20.0), _segment(20.0, 30.0)])
+    )
+    assert out[-1] is None
+    emitted = [o for o in out if o is not None]
+    assert len(emitted) == 3  # one per segment, never twice
+    assert [(e["t0"], e["t1"]) for e in emitted] == [(0.0, 10.0), (10.0, 20.0), (20.0, 30.0)]
+
+
+def test_the_stream_closing_forces_one_last_refresh():
+    """The final window has never been re-diarized, and it is the part the reader is
+    still looking at. Ending without it would leave the worst labels on screen."""
+    import asyncio
+
+    from vocal_helper.rediar import PeriodicOfflineDiarStage, RediarPolicy
+
+    offline = _FakeOffline([[(0.0, 10.0, "c0")]])
+    stage = PeriodicOfflineDiarStage(
+        online=_FakeOnline(["S0"]),
+        offline=offline,
+        policy=RediarPolicy(window_s=60.0, period_s=3600.0, min_speaker_s=1.0),
+    )
+    asyncio.run(_drive(stage, [_segment(0.0, 10.0)]))
+    assert stage.refreshes == 1  # the period never elapsed, yet the close forced it
+
+
+def test_old_audio_is_dropped_so_a_live_session_stays_bounded():
+    """A live session is unbounded; keeping every voiced segment would make this
+    stage the memory leak that the bounded window exists to avoid."""
+    import asyncio
+
+    from vocal_helper.rediar import PeriodicOfflineDiarStage, RediarPolicy
+
+    offline = _FakeOffline([[(0.0, 10.0, "c0")] for _ in range(20)])
+    stage = PeriodicOfflineDiarStage(
+        online=_FakeOnline(["S0"] * 20),
+        offline=offline,
+        policy=RediarPolicy(window_s=20.0, period_s=10.0, min_speaker_s=1.0),
+    )
+    segments = [_segment(float(i * 10), float(i * 10 + 10)) for i in range(12)]
+    asyncio.run(_drive(stage, segments))
+    kept = sum(v[1] - v[0] for v in stage._voiced)
+    assert kept <= 20.0 + 10.0 + 10.0  # window + period + the segment just added

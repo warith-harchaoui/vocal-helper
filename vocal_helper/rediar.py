@@ -388,3 +388,519 @@ def read_back_identities(
         if covered:
             out[covered.most_common(1)[0][0]] = reference.speaker
     return out
+
+
+# --------------------------------------------------------------------------- #
+#  Assembling the primer, and reconstructing the window
+# --------------------------------------------------------------------------- #
+
+
+def harvest_room_tone(
+    pcm: NDArray[np.float32], sample_rate: int, gap_s: float
+) -> NDArray[np.float32]:
+    """The quietest contiguous ``gap_s`` of this recording, to splice between pieces.
+
+    Ported from the native block-wise diarizer. The recording's **own** quietest
+    ambience is both the right level and the right *nature* of silence: a
+    segmentation model trained on real audio has never seen digital zeros, and
+    behaves oddly around them. Spliced zeros are not a neutral separator, they are
+    an out-of-distribution input placed exactly where a clean cut is needed.
+
+    Found by prefix sums of squares, so the scan is linear in the buffer rather
+    than quadratic in the number of candidate windows.
+
+    Parameters
+    ----------
+    pcm : NDArray[np.float32]
+        Mono audio to harvest from.
+    sample_rate : int
+        Its sample rate.
+    gap_s : float
+        Length to harvest.
+
+    Returns
+    -------
+    NDArray[np.float32]
+        The harvested span. True zeros **only** when the buffer is shorter than one
+        gap, which is a degenerate case, not a choice.
+
+    Examples
+    --------
+    >>> sr = 16000
+    >>> loud = np.ones(sr, dtype=np.float32)
+    >>> quiet = np.full(sr, 0.001, dtype=np.float32)
+    >>> room = harvest_room_tone(np.concatenate([loud, quiet]), sr, 0.5)
+    >>> len(room) == sr // 2 and float(np.abs(room).max()) < 0.01
+    True
+    >>> len(harvest_room_tone(np.zeros(10, dtype=np.float32), sr, 0.5))
+    8000
+    """
+    window = int(gap_s * sample_rate)
+    if window <= 0:
+        return np.zeros(1, dtype=np.float32)
+    if pcm.size < window:
+        return np.zeros(window, dtype=np.float32)
+
+    squares = np.concatenate([[0.0], np.cumsum(np.asarray(pcm, dtype=np.float64) ** 2)])
+    hop = max(1, sample_rate // 100)
+    starts = np.arange(0, pcm.size - window + 1, hop)
+    energies = squares[starts + window] - squares[starts]
+    best = int(starts[int(np.argmin(energies))])
+    return np.asarray(pcm[best : best + window], dtype=np.float32)
+
+
+def build_references(
+    *,
+    pcm: NDArray[np.float32],
+    sample_rate: int,
+    segments: list[tuple[float, float, str]],
+    offset_s: float,
+    budget_s: float,
+) -> dict[str, NDArray[np.float32]]:
+    """Harvest up to ``budget_s`` of each speaker's own audio, longest turns first.
+
+    Longest first, because a long turn is the one most likely to be a single voice
+    speaking alone: short turns are where overlap and mislabelling live, and a
+    reference built from them anchors the wrong person.
+
+    Parameters
+    ----------
+    pcm : NDArray[np.float32], keyword-only
+        The window's audio.
+    sample_rate : int, keyword-only
+    segments : list of tuple, keyword-only
+        ``(t0, t1, speaker)`` in absolute time.
+    offset_s : float, keyword-only
+        Absolute time of ``pcm[0]``, so segment times can be placed in it.
+    budget_s : float, keyword-only
+        Per-speaker audio to harvest.
+
+    Returns
+    -------
+    dict of ndarray
+        One concatenated clip per speaker. A speaker whose audio falls outside the
+        window is absent rather than represented by an empty clip.
+
+    Examples
+    --------
+    >>> sr = 1000
+    >>> pcm = np.arange(5000, dtype=np.float32)
+    >>> segs = [(0.0, 1.0, "A"), (1.0, 4.0, "B"), (4.0, 5.0, "A")]
+    >>> refs = build_references(pcm=pcm, sample_rate=sr, segments=segs,
+    ...                         offset_s=0.0, budget_s=2.0)
+    >>> sorted(refs), [len(refs[k]) for k in sorted(refs)]
+    (['A', 'B'], [2000, 2000])
+    """
+    by_speaker: dict[str, list[tuple[float, float]]] = {}
+    for t0, t1, speaker in segments:
+        by_speaker.setdefault(speaker, []).append((t0, t1))
+
+    out: dict[str, NDArray[np.float32]] = {}
+    budget_samples = int(budget_s * sample_rate)
+    for speaker, spans in by_speaker.items():
+        pieces: list[NDArray[np.float32]] = []
+        taken = 0
+        for t0, t1 in sorted(spans, key=lambda s: s[1] - s[0], reverse=True):
+            lo = max(0, int((t0 - offset_s) * sample_rate))
+            hi = min(pcm.size, int((t1 - offset_s) * sample_rate))
+            if hi <= lo:
+                continue
+            piece = pcm[lo : lo + min(hi - lo, budget_samples - taken)]
+            if piece.size == 0:
+                continue
+            pieces.append(np.asarray(piece, dtype=np.float32))
+            taken += piece.size
+            if taken >= budget_samples:
+                break
+        if pieces:
+            out[speaker] = np.concatenate(pieces)
+    return out
+
+
+def assemble_primer(
+    references: dict[str, NDArray[np.float32]],
+    room: NDArray[np.float32],
+    sample_rate: int,
+) -> tuple[NDArray[np.float32], list[SpeakerReference]]:
+    """Splice the references into one primer, separated by room tone.
+
+    A gap goes **before** each reference and once more at the end, so the
+    segmentation model cuts a boundary between every pair of references *and*
+    between the last reference and the window that follows. Without that final gap
+    the last reference merges into the window and anchors nothing.
+
+    Parameters
+    ----------
+    references : dict of ndarray
+        Per-speaker clips, from :func:`build_references`.
+    room : ndarray
+        One gap of harvested room tone, from :func:`harvest_room_tone`.
+    sample_rate : int
+
+    Returns
+    -------
+    tuple
+        ``(primer_pcm, references)`` where each :class:`SpeakerReference` carries
+        the span it occupies in the primer's own time base — which is what
+        :func:`read_back_identities` reads.
+
+    Examples
+    --------
+    >>> sr = 1000
+    >>> room = np.zeros(800, dtype=np.float32)
+    >>> primer, refs = assemble_primer(
+    ...     {"A": np.ones(1000, dtype=np.float32), "B": np.ones(2000, dtype=np.float32)},
+    ...     room, sr)
+    >>> len(primer) == 800 + 1000 + 800 + 2000 + 800
+    True
+    >>> [(r.speaker, round(r.primer_t0, 1), round(r.primer_t1, 1)) for r in refs]
+    [('A', 0.8, 1.8), ('B', 2.6, 4.6)]
+    """
+    chunks: list[NDArray[np.float32]] = []
+    spans: list[SpeakerReference] = []
+    cursor = 0
+    for speaker in sorted(references):
+        clip = references[speaker]
+        chunks.append(room)
+        cursor += room.size
+        start = cursor
+        chunks.append(clip)
+        cursor += clip.size
+        spans.append(SpeakerReference(speaker, clip, start / sample_rate, cursor / sample_rate))
+    if chunks:
+        chunks.append(room)
+    primer = np.concatenate(chunks) if chunks else np.zeros(0, dtype=np.float32)
+    return primer, spans
+
+
+def reconstruct_window(
+    voiced: list[tuple[float, float, NDArray[np.float32]]],
+    room: NDArray[np.float32],
+    sample_rate: int,
+    *,
+    window_start_s: float,
+) -> NDArray[np.float32]:
+    """Rebuild a contiguous window from voiced spans, filling gaps with room tone.
+
+    The offline diarizer wants continuous audio, and what arrives from
+    voice-activity detection is speech with the silence removed. Concatenating the
+    voiced spans would compress the timeline and every returned boundary would be
+    wrong; padding with digital zeros would place out-of-distribution input in
+    every gap. So the gaps are filled with the recording's own ambience, tiled.
+
+    Parameters
+    ----------
+    voiced : list of tuple
+        ``(t0, t1, pcm)`` in absolute time, in order.
+    room : ndarray
+        Harvested room tone, tiled to fill each gap.
+    sample_rate : int
+    window_start_s : float, keyword-only
+        Absolute time the reconstructed window begins at.
+
+    Returns
+    -------
+    ndarray
+        Audio whose sample ``i`` is at absolute time
+        ``window_start_s + i / sample_rate``.
+
+    Examples
+    --------
+    >>> sr = 1000
+    >>> room = np.full(100, 0.001, dtype=np.float32)
+    >>> speech = np.ones(500, dtype=np.float32)
+    >>> out = reconstruct_window([(1.0, 1.5, speech), (2.0, 2.5, speech)],
+    ...                          room, sr, window_start_s=1.0)
+    >>> len(out)  # 0.5 s speech + 0.5 s gap + 0.5 s speech
+    1500
+    >>> round(float(out[700]), 4)  # inside the gap: ambience, not zeros
+    0.001
+    """
+    if not voiced:
+        return np.zeros(0, dtype=np.float32)
+
+    total = int(round((voiced[-1][1] - window_start_s) * sample_rate))
+    if room.size:
+        canvas = np.tile(room, total // room.size + 1)[:total].astype(np.float32).copy()
+    else:
+        canvas = np.zeros(total, dtype=np.float32)
+    for t0, _t1, pcm in voiced:
+        lo = int(round((t0 - window_start_s) * sample_rate))
+        if lo < 0:
+            pcm = pcm[-lo:]
+            lo = 0
+        hi = min(total, lo + pcm.size)
+        if hi > lo:
+            canvas[lo:hi] = np.asarray(pcm[: hi - lo], dtype=np.float32)
+    return canvas
+
+
+# --------------------------------------------------------------------------- #
+#  The stage
+# --------------------------------------------------------------------------- #
+
+
+@dataclass(frozen=True)
+class LabelRevision:
+    """One already-published span whose speaker turned out to be somebody else."""
+
+    t0: float
+    t1: float
+    old_speaker: str
+    new_speaker: str
+
+
+class PeriodicOfflineDiarStage:
+    """Live diarization at offline quality: a fast provisional label, then a correction.
+
+    Composes rather than replaces. The existing online stage gives a label within
+    about half a second, which is what a live display needs; this stage then runs
+    the **offline** diarizer periodically over a bounded window and reports the
+    labels that were wrong. Neither half is sufficient alone: the online stage is
+    three to four times worse, and the offline one cannot answer in half a second.
+
+    The audio path stays once-only: a revision carries **labels**, never audio, so
+    nothing downstream re-transcribes anything. Transcription hears each segment
+    exactly as many times as the online stage would have let it.
+
+    Parameters
+    ----------
+    online : Any
+        An :class:`~vocal_helper.diar.OnlineDiarStage`-shaped object, used for the
+        provisional label. Injected so this class is testable without an embedder.
+    offline : Any
+        An :class:`~vocal_helper.diar.OfflineDiarStage`-shaped object exposing
+        ``diarize(pcm, sr, *, num_speakers=...)``. Injected for the same reason.
+    policy : RediarPolicy, optional
+    on_revision : callable, optional
+        ``(list[LabelRevision]) -> None``, called after each refresh. ``None``
+        means revisions are only recorded on :attr:`revisions`, which is the right
+        default for a batch caller and the wrong one for a live display — a display
+        that ignores revisions shows labels it has been told are wrong.
+
+    Notes
+    -----
+    **Labels change retroactively, and that has to be visible.** A line shown as
+    ``S1`` may become ``S2``. Keeping a label known to be wrong would be worse, and
+    silently rewriting history would be worse still: the display must re-colour,
+    which is a deliberate behaviour, not an accident of ordering.
+    """
+
+    def __init__(
+        self,
+        *,
+        online: object,
+        offline: object,
+        policy: RediarPolicy | None = None,
+        on_revision: object | None = None,
+    ) -> None:
+        self.online = online
+        self.offline = offline
+        self.policy = policy or RediarPolicy()
+        self.on_revision = on_revision
+        #: Every revision this stage has produced, newest last.
+        self.revisions: list[LabelRevision] = []
+        #: Refresh count, for a caller that wants to report the cadence.
+        self.refreshes = 0
+        self._published: list[dict] = []
+        self._voiced: list[tuple[float, float, NDArray[np.float32]]] = []
+        self._references: dict[str, NDArray[np.float32]] = {}
+        self._room: NDArray[np.float32] | None = None
+        self._last_refresh_s = 0.0
+        # Learned from the first frame; the fallback only matters for a stream that
+        # closes without ever delivering one.
+        self._sample_rate = 16000
+
+    # ----- the refresh ----------------------------------------------------
+
+    def refresh(
+        self, *, now_s: float, sample_rate: int, force: bool = False
+    ) -> list[LabelRevision]:
+        """Re-diarize the trailing window and return the labels that were wrong.
+
+        Returns an empty list when no refresh is due, when there is nothing in the
+        window, or when the offline diarizer declined — a refresh that fails must
+        cost the provisional labels nothing.
+
+        Parameters
+        ----------
+        now_s : float, keyword-only
+            Audio time reached.
+        sample_rate : int, keyword-only
+        force : bool, keyword-only, optional
+            Refresh even if the period has not elapsed. Used when the stream closes:
+            the period is a rate limit for a session that continues, and this one does
+            not. Resetting the clock instead does not work — the period is measured
+            forward from the last refresh, not backward from now.
+
+        Returns
+        -------
+        list of LabelRevision
+        """
+        if force:
+            plan: tuple[float, float] | None = (max(0.0, now_s - self.policy.window_s), now_s)
+        else:
+            plan = plan_refresh(
+                now_s=now_s, last_refresh_s=self._last_refresh_s, policy=self.policy
+            )
+        if plan is None:
+            return []
+        window_start, window_end = plan
+        self._last_refresh_s = now_s
+
+        voiced = [v for v in self._voiced if v[1] > window_start]
+        if not voiced:
+            return []
+
+        if self._room is None or self._room.size == 0:
+            # Harvest once, from the quietest span of everything heard so far: the
+            # ambience of a room does not change, and re-harvesting every refresh
+            # would spend the scan again for the same answer.
+            everything = np.concatenate([v[2] for v in self._voiced])
+            self._room = harvest_room_tone(everything, sample_rate, self.policy.gap_s)
+
+        window = reconstruct_window(voiced, self._room, sample_rate, window_start_s=window_start)
+        primer, references = assemble_primer(self._references, self._room, sample_rate)
+        audio = np.concatenate([primer, window]) if primer.size else window
+        shift = primer.size / sample_rate
+
+        try:
+            segments = self.offline.diarize(
+                audio,
+                sample_rate,
+                num_speakers=len(self._references) or None,
+            )
+        except Exception:  # noqa: BLE001 - a failed refresh must not lose the labels we have
+            import os_helper as osh
+
+            osh.warning(
+                "  rediar: refresh failed; keeping the provisional labels. The next "
+                "refresh will try again."
+            )
+            return []
+
+        self.refreshes += 1
+        mapping = read_back_identities(segments, references)
+
+        # Window turns, back in absolute time, with the primer's offset removed.
+        absolute: list[tuple[float, float, str]] = [
+            (t0 - shift + window_start, t1 - shift + window_start, label)
+            for t0, t1, label in segments
+            if t0 >= shift
+        ]
+
+        # A local label nobody's reference covered is a candidate newcomer, and it
+        # is promoted only if it speaks past the floor — guessing would merge a
+        # passer-by into a participant, the one error reading cannot repair.
+        unknown: dict[str, float] = {}
+        for t0, t1, label in absolute:
+            if label not in mapping:
+                unknown[label] = unknown.get(label, 0.0) + max(0.0, t1 - t0)
+        next_index = len(self._references)
+        for label, spoken in sorted(unknown.items(), key=lambda kv: -kv[1]):
+            if spoken >= self.policy.min_speaker_s:
+                mapping[label] = f"S{next_index}"
+                next_index += 1
+
+        revisions = self._apply(absolute, mapping, window_start=window_start)
+        self._harvest_references(window, sample_rate, absolute, mapping, offset_s=window_start)
+        if revisions and callable(self.on_revision):
+            self.on_revision(revisions)
+        self.revisions.extend(revisions)
+        return revisions
+
+    def _apply(
+        self,
+        absolute: list[tuple[float, float, str]],
+        mapping: dict[str, str],
+        *,
+        window_start: float,
+    ) -> list[LabelRevision]:
+        """Compare the refresh against what was published, and record the differences."""
+        import collections
+
+        revisions: list[LabelRevision] = []
+        for row in self._published:
+            if row["t1"] <= window_start:
+                continue  # outside the window; this refresh says nothing about it
+            overlap: collections.Counter = collections.Counter()
+            for t0, t1, label in absolute:
+                shared = min(row["t1"], t1) - max(row["t0"], t0)
+                if shared > 0 and label in mapping:
+                    overlap[mapping[label]] += shared
+            if not overlap:
+                continue
+            best = overlap.most_common(1)[0][0]
+            if best != row["speaker"]:
+                revisions.append(LabelRevision(row["t0"], row["t1"], row["speaker"], best))
+                row["speaker"] = best
+        return revisions
+
+    def _harvest_references(
+        self,
+        window: NDArray[np.float32],
+        sample_rate: int,
+        absolute: list[tuple[float, float, str]],
+        mapping: dict[str, str],
+        *,
+        offset_s: float,
+    ) -> None:
+        """Keep one reference clip per known speaker, refreshed from this window."""
+        named = [(t0, t1, mapping[label]) for t0, t1, label in absolute if label in mapping]
+        harvested = build_references(
+            pcm=window,
+            sample_rate=sample_rate,
+            segments=named,
+            offset_s=offset_s,
+            budget_s=self.policy.ref_budget_s,
+        )
+        # Replace rather than accumulate: a reference from the recent past tracks a
+        # voice that changed (a head turn, a different microphone distance) better
+        # than the first clip ever harvested. A speaker absent from this window
+        # keeps the reference they had — losing it would make them a newcomer again.
+        self._references.update(harvested)
+
+    # ----- the stage contract --------------------------------------------
+
+    async def run(self, inbox, outbox) -> None:  # noqa: ANN001 - asyncio.Queue, duck-typed
+        """Consume voiced segments, publish provisionally, and revise periodically.
+
+        Same contract as the online stage, so this is a drop-in: a consumer that
+        reads ``outbox`` needs no change. What is new is that labels already in
+        ``outbox`` may be superseded, which is what ``on_revision`` reports.
+        """
+        while True:
+            item = await inbox.get()
+            if item is None:
+                # A final refresh before closing: the last window has never been
+                # re-diarized, and it is the one the reader is still looking at.
+                if self._voiced:
+                    # The period is a rate limit for a session that continues; this one
+                    # does not, and the last window is what the reader is still looking at.
+                    self.refresh(
+                        now_s=self._voiced[-1][1],
+                        sample_rate=self._sample_rate,
+                        force=True,
+                    )
+                await outbox.put(None)
+                return
+
+            self._sample_rate = int(item["sample_rate"])
+            self._voiced.append((item["t0"], item["t1"], item["pcm"]))
+            # Keep only what a window plus a period could ever need; the rest is
+            # memory that will never be re-read, and a live session is unbounded.
+            horizon = item["t1"] - (self.policy.window_s + self.policy.period_s)
+            self._voiced = [v for v in self._voiced if v[1] > horizon]
+
+            labelled = self.online._label(item)
+            if labelled is not None:
+                self._published.append(
+                    {
+                        "t0": labelled["t0"],
+                        "t1": labelled["t1"],
+                        "speaker": labelled["speaker"],
+                    }
+                )
+                await outbox.put(labelled)
+
+            self.refresh(now_s=item["t1"], sample_rate=self._sample_rate)
