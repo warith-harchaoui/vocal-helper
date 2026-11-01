@@ -1776,6 +1776,15 @@ class OfflineDiarStage:
 # this constant is only the last-resort default when nothing is configured.
 DEFAULT_DIARIZATION_ENGINES_URL: str | None = "https://deraison.ai/diarization-engines-slim.zip"
 
+#: Digest of the bundle served at :data:`DEFAULT_DIARIZATION_ENGINES_URL`, so the
+#: default path is verified without anyone configuring anything. It belongs to
+#: THAT url and to no other: a digest applied to a different, configured source
+#: would fail every time and read as a corrupt download, so it is only ever
+#: passed when the resolved source is the default one.
+DEFAULT_DIARIZATION_ENGINES_SHA256: str | None = (
+    "91573874f77f27351e810ae8d542ab57a04faf39412f826dceb61766312e6ad6"
+)
+
 
 def resolve_diarization_engines() -> Path | None:
     """Locate the HF-free diarization-engines bundle, or ``None``.
@@ -1801,7 +1810,9 @@ def resolve_diarization_engines() -> Path | None:
     src = resolve_diarization_engines_url() or DEFAULT_DIARIZATION_ENGINES_URL
     if not src:
         return None
-    expected_sha256 = os.environ.get("VH_DIARIZATION_ENGINES_SHA256") or None
+    expected_sha256 = os.environ.get("VH_DIARIZATION_ENGINES_SHA256") or (
+        DEFAULT_DIARIZATION_ENGINES_SHA256 if src == DEFAULT_DIARIZATION_ENGINES_URL else None
+    )
 
     if not src.startswith(("http://", "https://")):
         p = Path(src).expanduser()

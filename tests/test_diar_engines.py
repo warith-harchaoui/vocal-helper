@@ -230,3 +230,51 @@ def test_an_unknown_mode_is_refused():
 
     with pytest.raises(ValueError, match="unknown mode"):
         resolve_backend("auto", mode="streaming")
+
+
+def test_the_default_bundle_is_verified_without_configuration(tmp_path: Path, monkeypatch) -> None:
+    """Le chemin par défaut doit être vérifié sans que personne ne règle rien."""
+    from vocal_helper.diar import (
+        DEFAULT_DIARIZATION_ENGINES_SHA256,
+        DEFAULT_DIARIZATION_ENGINES_URL,
+    )
+
+    monkeypatch.delenv("VH_DIARIZATION_ENGINES_SHA256", raising=False)
+    monkeypatch.setattr(
+        "vocal_helper._settings.resolve_diarization_engines_url",
+        lambda *a, **k: DEFAULT_DIARIZATION_ENGINES_URL,
+    )
+    monkeypatch.setenv("VH_CACHE_DIR", str(tmp_path / "cache"))
+
+    captured: dict[str, object] = {}
+
+    def _fake_download_file(url: str, dst: str, **kwargs) -> None:
+        captured.update(kwargs)
+        with zipfile.ZipFile(dst, "w") as z:
+            z.writestr("manifest.json", "{}")
+
+    monkeypatch.setattr("os_helper.download_file", _fake_download_file, raising=False)
+    resolve_diarization_engines()
+    assert captured.get("sha256") == DEFAULT_DIARIZATION_ENGINES_SHA256
+
+
+def test_a_digest_is_never_applied_to_someone_elses_url(tmp_path: Path, monkeypatch) -> None:
+    """Un condensé vaut pour SON archive : l'appliquer ailleurs ferait échouer
+    tous les téléchargements et se lirait comme une corruption."""
+    monkeypatch.delenv("VH_DIARIZATION_ENGINES_SHA256", raising=False)
+    monkeypatch.setattr(
+        "vocal_helper._settings.resolve_diarization_engines_url",
+        lambda *a, **k: "https://ailleurs.invalid/mon-bundle.zip",
+    )
+    monkeypatch.setenv("VH_CACHE_DIR", str(tmp_path / "cache"))
+
+    captured: dict[str, object] = {}
+
+    def _fake_download_file(url: str, dst: str, **kwargs) -> None:
+        captured.update(kwargs)
+        with zipfile.ZipFile(dst, "w") as z:
+            z.writestr("manifest.json", "{}")
+
+    monkeypatch.setattr("os_helper.download_file", _fake_download_file, raising=False)
+    resolve_diarization_engines()
+    assert captured.get("sha256") is None
