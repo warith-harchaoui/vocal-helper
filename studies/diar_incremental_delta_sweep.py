@@ -51,7 +51,16 @@ PLAUSIBLE_LABEL_FACTOR = 3.0
 
 
 def is_degenerate(labels: int, truth: int) -> bool:
-    """Le nombre d'étiquettes est-il hors de toute plausibilité ?
+    """La réponse est-elle effondrée au point que son score ne veuille rien dire ?
+
+    Le garde est **asymétrique**, et une première version ne l'était pas — à
+    tort. Seul l'effondrement flatte le taux d'erreur : une réponse qui met
+    tout le monde sur une étiquette est correcte sur la part du locuteur
+    dominant et ne distingue personne. La sur-segmentation est l'inverse ; sous
+    appariement optimal, les étiquettes en trop ne s'apparient à rien et sont
+    comptées comme fautes, donc elle est déjà pénalisée et n'a pas besoin d'être
+    écartée. La confondre avec l'effondrement rejetait les bons résultats et
+    retenait les mauvais.
 
     Examples
     --------
@@ -59,14 +68,32 @@ def is_degenerate(labels: int, truth: int) -> bool:
     False
     >>> is_degenerate(1, 4)
     True
-    >>> is_degenerate(122, 4)
-    True
     >>> is_degenerate(11, 4)
+    False
+
+    Sur-segmenté n'est pas dégénéré : ce score-là est honnête, et mauvais.
+
+    >>> is_degenerate(122, 4)
     False
     """
     if truth <= 0:
         return False
-    return labels * PLAUSIBLE_LABEL_FACTOR < truth or labels > truth * PLAUSIBLE_LABEL_FACTOR
+    return labels * PLAUSIBLE_LABEL_FACTOR < truth
+
+
+def is_oversegmented(labels: int, truth: int) -> bool:
+    """Trop d'étiquettes pour le compte attendu — à signaler, pas à écarter.
+
+    Examples
+    --------
+    >>> is_oversegmented(122, 4)
+    True
+    >>> is_oversegmented(11, 4)
+    False
+    """
+    if truth <= 0:
+        return False
+    return labels > truth * PLAUSIBLE_LABEL_FACTOR
 
 
 @click.command()

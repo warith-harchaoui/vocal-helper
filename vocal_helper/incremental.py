@@ -257,6 +257,27 @@ def intra_speaker_scale(
     return float(np.quantile(gathered, quantile))
 
 
+# MESURÉ ET RÉFUTÉ, 2026-11-01. Les quatre paramétrages de seuil essayés ne
+# transfèrent aucun d'un enregistrement à l'autre : absolu, fraction de l'inter
+# médian, fraction d'un quantile bas de l'inter, et position dans l'écart
+# intra/inter. Sur trois réunions d'AMI dev-slice, les seuils optimaux sont
+# 0,750 / 0,600 / 0,600 — dispersion 0,150 — et les positions normalisées
+# correspondantes 0,879 / 0,666 / 0,687 — dispersion 0,213. Normaliser **élargit**
+# donc la dispersion au lieu de la réduire, et le défaut fixe de 0,6 est
+# exactement l'optimum de deux réunions sur trois.
+#
+# Ce qui reste utile de ce travail, et pourquoi les deux mesures restent ici :
+# elles sont d'excellents diagnostics. Sur du réel, l'intra tourne autour de
+# 0,12 et l'inter autour de 0,83, soit une marge d'un facteur sept — l'espace
+# d'empreintes est donc sain, et ce n'est pas lui qui limite. Ce qui limite est
+# la sur-segmentation qui subsiste à l'optimum du taux d'erreur (vingt
+# étiquettes pour quatre locuteurs), et aucun seuil ne la corrige : elle demande
+# une reprise **globale** des empreintes accumulées, pas une meilleure décision
+# locale. C'est précisément ce que fait le mode différé, qui atteint 0,176 et le
+# bon compte en regroupant d'un seul tenant.
+#
+# Conclusion : garder ``delta_new=0.6``, garder ces mesures comme diagnostics, ne
+# pas remettre d'effort dans la calibration du seuil.
 def separating_threshold(windows: list[WindowFeatures], *, position: float = 0.5) -> float:
     """Le seuil qui sépare « même voix » de « voix différentes », pour cet audio.
 
