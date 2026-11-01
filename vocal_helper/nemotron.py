@@ -77,6 +77,27 @@ GRAPH_NAME = "nemotron-3-diarization.onnx"
 #: Préfixe des métadonnées que l'export inscrit dans le graphe.
 META_PREFIX = "vernacula.diar."
 
+#: Calendrier par défaut, et pourquoi ce n'est **pas** celui du graphe.
+#:
+#: Le graphe porte dans ses métadonnées le calendrier hors ligne — 340 trames
+#: de morceau plus 40 de contexte, soit 30,4 s de tampon — et son export
+#: affirme que c'est le seul vérifié de bout en bout. Mesuré ici, il **tombe**
+#: dès que le cache de locuteurs se remplit :
+#:
+#:     Reshape '/pos_enc/Reshape_3' : Input shape {5000,64},
+#:     requested shape {1,1,5144,64}
+#:
+#: L'encodage positionnel est tracé pour 5000 positions et la séquence
+#: ``[cache | file | morceau]`` en demande 5144 au régime établi. Le défaut
+#: échouait donc sur tout audio dépassant quelques minutes — exactement le cas
+#: pour lequel un mode hors ligne existe — et passait inaperçu sur un extrait
+#: court, le cache n'étant pas encore plein.
+#:
+#: ``"low_latency"`` tient largement dans la longueur tracée et se trouve être
+#: le mieux mesuré : 0,090 de taux d'erreur avec une confusion de locuteurs
+#: nulle, contre 0,209 pour le meilleur autre moteur gratuit local.
+DEFAULT_MODE = "low_latency"
+
 
 # --------------------------------------------------------------------------- #
 #  Le front-end log-mel
@@ -737,8 +758,10 @@ class NemotronOnnxDiar:
         Le fichier ``.onnx``. ``None`` le cherche dans le bundle de poids que
         le projet sert déjà, donc sans jeton ni appel réseau.
     mode : str, optional
-        Un des calendriers de :data:`STREAMING_MODES`. ``None`` garde celui que
-        le graphe porte dans ses métadonnées.
+        Un des calendriers de :data:`STREAMING_MODES`. ``"low_latency"`` par
+        défaut, et **non** celui que le graphe porte dans ses métadonnées : ce
+        dernier est le calendrier hors ligne, et il dépasse l'encodage
+        positionnel que l'export a tracé. Voir :data:`DEFAULT_MODE`.
     providers : list of str, optional
         Les moteurs d'exécution, par ordre de préférence. ``None`` prend
         CoreML s'il est disponible — c'est la voie du GPU et du moteur neuronal
@@ -758,7 +781,7 @@ class NemotronOnnxDiar:
         self,
         graph: str | Path | None = None,
         *,
-        mode: str | None = None,
+        mode: str | None = DEFAULT_MODE,
         providers: list[str] | None = None,
         threads: int | None = None,
         threshold: float = 0.5,
@@ -902,17 +925,19 @@ class NemotronOnnxDiar:
             if usable < schedule.subsampling:
                 break
             window = window[:usable]
-            outputs = session.run(
-                None,
-                {
-                    "chunk": window[None, :, :].astype(np.float32),
-                    "chunk_lengths": np.array([usable], dtype=np.int64),
-                    "spkcache": state.spkcache[None, :, :],
-                    "spkcache_lengths": np.array([len(state.spkcache)], dtype=np.int64),
-                    "fifo": state.fifo[None, :, :],
-                    "fifo_lengths": np.array([len(state.fifo)], dtype=np.int64),
-                },
-            )
+            try:
+                outputs = _run_step(session, window, usable, state)
+            except Exception as problem:  # noqa: BLE001 - on explique plutôt que de relayer
+                raise RuntimeError(
+                    f"le graphe a refusé une séquence de "
+                    f"{schedule.spkcache_len + schedule.fifo_len + usable // schedule.subsampling} "
+                    f"trames ({schedule.spkcache_len} de cache, {schedule.fifo_len} de "
+                    f"file, {usable // schedule.subsampling} de morceau). Son encodage "
+                    f"positionnel est tracé pour une longueur finie, et le calendrier "
+                    f"hors ligne la dépasse dès que le cache se remplit — d'où un échec "
+                    f"qui n'apparaît pas sur un extrait court. Demander un calendrier "
+                    f"de flux : {sorted(STREAMING_MODES)}."
+                ) from problem
             named = dict(zip([o.name for o in session.get_outputs()], outputs, strict=True))
             coarse = np.asarray(named["spkcache_fifo_chunk_preds"][0], dtype=np.float32)
             fine = np.asarray(named["spkcache_fifo_chunk_preds_hr"][0], dtype=np.float32)
@@ -935,6 +960,26 @@ class NemotronOnnxDiar:
         return probabilities_to_segments(
             np.concatenate(collected, axis=0), threshold=self.threshold
         )
+
+
+def _run_step(
+    session: Any,
+    window: NDArray[np.float32],
+    usable: int,
+    state: StreamingState,
+) -> list[Any]:
+    """Un pas de flux : ``[cache | file | morceau]`` dans le graphe."""
+    return session.run(
+        None,
+        {
+            "chunk": window[None, :, :].astype(np.float32),
+            "chunk_lengths": np.array([usable], dtype=np.int64),
+            "spkcache": state.spkcache[None, :, :],
+            "spkcache_lengths": np.array([len(state.spkcache)], dtype=np.int64),
+            "fifo": state.fifo[None, :, :],
+            "fifo_lengths": np.array([len(state.fifo)], dtype=np.int64),
+        },
+    )
 
 
 def _graph_metadata(path: Path) -> dict[str, str]:

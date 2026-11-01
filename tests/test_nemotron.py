@@ -319,3 +319,25 @@ def test_coreml_stays_reachable_when_asked_for_explicitly():
     """Le défaut est mesuré, pas imposé : une autre machine peut mieux découper."""
     stage = NemotronOnnxDiar(providers=["CoreMLExecutionProvider"])
     assert stage._providers == ["CoreMLExecutionProvider"]
+
+
+def test_the_default_schedule_is_a_streaming_one_not_the_graphs_offline_one():
+    """Le défaut du graphe plante dès que son cache se remplit.
+
+    Son export affirme que le calendrier hors ligne — 340 trames de morceau plus
+    40 de contexte — est le seul vérifié de bout en bout. Mesuré, il lève
+    ``Reshape '/pos_enc/Reshape_3' : Input shape {5000,64}, requested shape
+    {1,1,5144,64}`` : l'encodage positionnel est tracé pour une longueur finie
+    que la séquence dépasse au régime établi. Le piège est qu'un extrait court
+    passe, le cache n'étant pas encore plein, donc le défaut échouait
+    précisément sur les durées pour lesquelles un mode hors ligne existe.
+    """
+    from vocal_helper.nemotron import DEFAULT_MODE, STREAMING_MODES
+
+    assert DEFAULT_MODE in STREAMING_MODES
+    assert NemotronOnnxDiar()._mode == DEFAULT_MODE
+
+
+def test_the_graphs_own_schedule_stays_reachable_for_a_short_clip():
+    """Un extrait court y tient, et quelqu'un peut vouloir le contexte long."""
+    assert NemotronOnnxDiar(mode=None)._mode is None

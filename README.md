@@ -38,6 +38,7 @@ Internally it is a **producer/consumer pipeline**. Each processing step — dete
 Two paths ship:
 
 - **Online** (`voh.Pipeline`): live Pulse-Code Modulation (PCM) stream → live transcript + live summary. Each stage runs at its own cadence, decoupled by bounded queues. The Speech-to-Text (STT) stage warms up on start so the first caption doesn't stall on whisper's cold inference.
+  - **Diarization** defaults to Nemotron 3 Diarization through its ONNX graph — torch-free, no HuggingFace, weights in the diarization-engines bundle — falling back to a growing-buffer re-diarization when that graph is not installed. See [Live diarization: what changed and why](#live-diarization-what-changed-and-why).
 - **Offline** (`voh.OfflinePipeline`): full audio buffer → highest-quality diarization → full-throttle batched transcript → summary.
   - **Diarization** runs pyannote community-1 over the whole meeting in one call. The 2026-07-14 offline map-reduce study found whole-buffer strictly best for Diarization Error Rate (DER); chunk-and-stitch survives only as a memory backstop past ~1 h.
   - **Transcription** concatenates consecutive segments into ≤ 24 s whisper calls: ~6.5× lower Real-Time Factor (RTF) at a better Word Error Rate (WER), per the 2026-07-09 sweep. Opt back into per-segment Automatic Speech Recognition (ASR) with `OfflinePipelineConfig(asr={"batch": False})`.
@@ -118,6 +119,26 @@ and does its own segmentation.
 ## Backend router: the *aiguilleur*
 
 Diarization is the one stage with a real backend fork — several competing implementations, each better in some cases — and there is **no single winner**: the best backend depends on the scenario.
+
+### Live diarization: what changed and why
+
+Until `2026-11-01` the live default was the per-segment online clusterer alone. The argument was sound — a conversational agent wants a label in half a second and cannot un-say one — but the number was not: on AMI dev-slice, eight meetings of four speakers each, that stage measures **0.369 DER with sixty-five labels for four speakers**. A nearest-centroid clusterer has no mechanism for holding an identity across an hour, and no threshold fixes it: four parameterisations were tried and refuted (absolute, fraction of the median inter-speaker distance, fraction of a low quantile, position between the intra- and inter-speaker scales). The optimum moved from recording to recording, and normalising **widened** the spread rather than narrowing it.
+
+Two replacements now ship, and the pipeline picks between them:
+
+| | DER | labels (truth: 4) | latency | needs |
+|---|---:|---:|---|---|
+| online clusterer *(the old default)* | 0.369 | 65 | ~0.5 s | nothing |
+| growing-buffer re-diarization | **0.176** | 4 | minutes, then exact | nothing |
+| Nemotron 3 ONNX | **0.090 – 0.252** | 4 | 1.04 s | the bundle's graph |
+
+**Growing buffer** (`voh.GrowingBufferDiarStage`) keeps the fast provisional label and periodically re-diarizes *everything heard so far*. Because the last pass sees the whole session, its final answer **is** the full-file answer — 0.176 median on those same eight meetings, to the third decimal. Passes are spaced geometrically, so the cost stays proportional to the session rather than to its square: 2.6–3.3× the audio, RTF 0.10–0.16. What it costs is not quality but **freshness**, and `on_revision` says so out loud rather than rewriting history in silence.
+
+**Nemotron 3** (`voh.NemotronOnnxDiar`) is end-to-end: it carries its own arrival-ordered speaker cache, so identity is *learned* instead of arbitrated by a cosine threshold — which is, in hindsight, exactly why those four threshold parameterisations failed. Measured on a synthetic mix whose ground truth is exact by construction, anechoic then reverberated at 0.3 s and 0.6 s RT60: **0.090 / 0.105 / 0.252 DER** against pyannote's 0.299 / 0.296 / 0.553. Two to three times better in every room, the right speaker count everywhere, and speaker confusion of 0.000 on clean speech.
+
+Two honest caveats. On AMI it looks far worse (0.363–0.487) because it emits only 616 s of the 815 s annotated — but AMI's reference is transcribed from the **headset** microphones while the model is given the room mix, so the reference marks words the signal does not carry, and pyannote has AMI in its training data. Three candidate explanations for that missed speech were tested and rejected: the extraction threshold (0.05 recovers almost nothing), the signal level (a 2.8× gain makes it slightly *worse*), and reverberation (Nemotron's missed detection stays flat at 0.090/0.093/0.101 across rooms). Only the annotation is left. And the evidence favouring Nemotron is all synthetic: the one real corpus available is the one whose annotation is the problem.
+
+`growing=None` restores the old behaviour for a caller that can never revise a label — `discussion-helper` is the real case.
 
 `vocal_helper.router` (`voh.select_diarization`) plays the role of an *aiguilleur*, French for the railway signalman who switches each train onto the right track before it arrives. It reads three things about the job:
 
