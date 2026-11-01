@@ -77,14 +77,19 @@ def test_resolver_local_dir_without_manifest_is_rejected(tmp_path: Path, monkeyp
     assert resolve_diarization_engines() == tmp_path
 
 
-def test_resolver_url_branch_cleans_up_its_temp_zip(tmp_path: Path, monkeypatch) -> None:
-    """The URL-download branch must not leak its downloaded ``.zip``.
+def test_resolver_downloads_through_os_helper_and_leaves_nothing_behind(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """La branche de téléchargement passe par os-helper, et ne laisse rien.
 
-    ``resolve_diarization_engines`` downloads a (real-world: ~750 MB) bundle
-    to a ``NamedTemporaryFile(delete=False)`` before extracting it — it owns
-    cleanup itself, and used to never unlink it, leaking one temp file per
-    fresh-machine bootstrap. No network here: ``osh.download_file`` is faked
-    to write a small real zip so the extract path is genuinely exercised.
+    Elle a bricolé deux fois : un ``NamedTemporaryFile(delete=False)`` jamais
+    supprimé, qui fuyait une archive de près d'un gigaoctet par amorçage de
+    machine, puis un ``zipfile.extractall`` qui honore un membre nommé
+    ``../ailleurs``. Les deux appartiennent à os-helper, dont le dossier
+    temporaire se nettoie seul et dont ``unzip_folder`` refuse un membre
+    s'échappant de la destination. Aucun réseau ici : le téléchargement est
+    simulé par l'écriture d'un vrai petit zip, pour que l'extraction soit
+    réellement exercée.
     """
     monkeypatch.setattr(
         "vocal_helper._settings.resolve_diarization_engines_url",
@@ -92,20 +97,66 @@ def test_resolver_url_branch_cleans_up_its_temp_zip(tmp_path: Path, monkeypatch)
     )
     monkeypatch.setenv("VH_CACHE_DIR", str(tmp_path / "cache"))
 
-    def _fake_download_file(url: str, dst: str) -> None:
+    seen: dict[str, object] = {}
+
+    def _fake_download_file(url: str, dst: str, **kwargs) -> None:
+        seen["url"] = url
+        seen["kwargs"] = kwargs
+        seen["dst"] = dst
         with zipfile.ZipFile(dst, "w") as z:
             z.writestr("manifest.json", "{}")
 
     monkeypatch.setattr("os_helper.download_file", _fake_download_file, raising=False)
 
-    tmp_zip_glob = str(Path(tempfile.gettempdir()) / "tmp*.zip")
-    before = set(glob.glob(tmp_zip_glob))
+    before = set(glob.glob(str(Path(tempfile.gettempdir()) / "*")))
     result = resolve_diarization_engines()
-    after = set(glob.glob(tmp_zip_glob))
+    after = set(glob.glob(str(Path(tempfile.gettempdir()) / "*")))
 
     assert result == tmp_path / "cache" / "diarization-engines"
     assert (result / "manifest.json").exists()
-    assert after == before, f"leaked temp zip(s): {after - before}"
+    assert after == before, f"restes dans le dossier temporaire : {after - before}"
+    assert "sha256" in seen["kwargs"], "le condensé doit être proposé au téléchargement"
+
+
+def test_the_resolver_passes_a_configured_digest_to_the_download(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Sans condensé, une archive tronquée donne un bundle faux et muet."""
+    monkeypatch.setattr(
+        "vocal_helper._settings.resolve_diarization_engines_url",
+        lambda *a, **k: "https://example.invalid/diarization-engines.zip",
+    )
+    monkeypatch.setenv("VH_CACHE_DIR", str(tmp_path / "cache"))
+    monkeypatch.setenv("VH_DIARIZATION_ENGINES_SHA256", "a" * 64)
+
+    captured: dict[str, object] = {}
+
+    def _fake_download_file(url: str, dst: str, **kwargs) -> None:
+        captured.update(kwargs)
+        with zipfile.ZipFile(dst, "w") as z:
+            z.writestr("manifest.json", "{}")
+
+    monkeypatch.setattr("os_helper.download_file", _fake_download_file, raising=False)
+    resolve_diarization_engines()
+    assert captured.get("sha256") == "a" * 64
+
+
+def test_the_resolver_prefers_a_bundle_already_on_disk(tmp_path: Path, monkeypatch) -> None:
+    """Présent localement, on l'utilise : aucun téléchargement ne doit partir."""
+    monkeypatch.setattr(
+        "vocal_helper._settings.resolve_diarization_engines_url",
+        lambda *a, **k: "https://example.invalid/diarization-engines.zip",
+    )
+    cache = tmp_path / "cache" / "diarization-engines" / "diarization-engines"
+    cache.mkdir(parents=True)
+    (cache / "manifest.json").write_text("{}")
+    monkeypatch.setenv("VH_CACHE_DIR", str(tmp_path / "cache"))
+
+    def _must_not_run(*a, **k):
+        raise AssertionError("un bundle présent a quand même déclenché un téléchargement")
+
+    monkeypatch.setattr("os_helper.download_file", _must_not_run, raising=False)
+    assert resolve_diarization_engines() == cache
 
 
 # --------------------------------------------------------------------------- #

@@ -1786,6 +1786,12 @@ def resolve_diarization_engines() -> Path | None:
     used as-is ; a URL to ``diarization-engines.zip`` is downloaded once
     and cached under ``$VH_CACHE_DIR`` (default ``~/.cache/vocal-helper``).
     Returns the directory that contains ``manifest.json``.
+
+    Present locally, it is used; absent, it is fetched — and the fetch goes
+    through os-helper, which streams, resumes, retries, writes atomically and
+    verifies a digest when one is configured. ``$VH_DIARIZATION_ENGINES_SHA256``
+    carries that digest: without it a truncated download of a near-gigabyte
+    archive yields a bundle that is simply wrong, with nothing to say so.
     """
     import os
 
@@ -1795,6 +1801,7 @@ def resolve_diarization_engines() -> Path | None:
     src = resolve_diarization_engines_url() or DEFAULT_DIARIZATION_ENGINES_URL
     if not src:
         return None
+    expected_sha256 = os.environ.get("VH_DIARIZATION_ENGINES_SHA256") or None
 
     if not src.startswith(("http://", "https://")):
         p = Path(src).expanduser()
@@ -1806,37 +1813,21 @@ def resolve_diarization_engines() -> Path | None:
     if hits:
         return hits[0].parent
 
-    import tempfile
-    import zipfile
-
     import os_helper as osh
 
+    # Download once, through os-helper rather than by hand. ``download_file``
+    # streams with a progress bar, resumes a partial file, retries, writes
+    # atomically and can verify a digest — a bundle near a gigabyte needs all
+    # of that, and a hand-rolled urllib copy had none of it. ``unzip_folder``
+    # refuses any member that would land outside the destination, which
+    # ``zipfile.extractall`` cheerfully allows. The temporary folder's lifetime
+    # belongs to os-helper too, so a partial archive cannot outlive this call
+    # whether the download succeeds or raises.
     dest.mkdir(parents=True, exist_ok=True)
-    # A path only, not a handle: osh.download_file and the plain urllib
-    # fallback both write to a path, so mkstemp (close the fd immediately,
-    # reopen by name) rather than NamedTemporaryFile. That means WE own
-    # cleanup — unlink in finally, always, so a ~750 MB temp .zip never
-    # survives this function, download-succeeds or not.
-    fd, tmp_name = tempfile.mkstemp(suffix=".zip")
-    os.close(fd)
-    try:
-        # Prefer os_helper.download_file (streams the ~750 MB bundle with a
-        # progress bar — tqdm on a TTY, quiet on CI). It landed in a newer
-        # os-helper; on an older *published* release that lacks it, fall back to
-        # a plain stdlib streaming download so the base pin stays satisfiable
-        # against PyPI (one-time fetch either way, cached below).
-        if hasattr(osh, "download_file"):
-            osh.download_file(src, tmp_name)
-        else:  # pragma: no cover - exercised only on older os-helper
-            import shutil
-            import urllib.request
-
-            with urllib.request.urlopen(src) as resp, open(tmp_name, "wb") as out:
-                shutil.copyfileobj(resp, out)
-        with zipfile.ZipFile(tmp_name) as z:
-            z.extractall(dest)
-    finally:
-        os.unlink(tmp_name)
+    with osh.temporary_folder() as scratch:
+        archive = osh.join(scratch, "diarization-engines.zip")
+        osh.download_file(src, archive, sha256=expected_sha256)
+        osh.unzip_folder(archive, str(dest), overwrite=True)
     hits = list(dest.rglob("manifest.json"))
     return hits[0].parent if hits else None
 
