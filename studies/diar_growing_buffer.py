@@ -108,7 +108,7 @@ def main(
         )
         print(
             f"   {'passe':>6} {'jusqu’à':>8} {'DER préfixe':>12} {'étiq.':>6} "
-            f"{'renommés':>9} {'révisions':>10} {'RTF cumulé':>11}"
+            f"{'créées':>7} {'révisions':>10} {'RTF cumulé':>11}"
         )
 
         previous: list[tuple[float, float, str]] = []
@@ -133,6 +133,7 @@ def main(
             # est ici presque tout l'audio, d'où un appariement quasi exact.
             bridge = best_bijection(raw, previous) if previous else {}
             mapping: dict[str, str] = {}
+            minted_here = 0
             for label in sorted({lab for _, _, lab in raw}):
                 carried = bridge.get(label)
                 if carried is not None and carried in stable:
@@ -140,6 +141,7 @@ def main(
                 else:
                     mapping[label] = f"P{minted}"
                     minted += 1
+                    minted_here += 1
             renamed = [(t0, t1, mapping[lab]) for t0, t1, lab in raw]
 
             revisions = 0
@@ -158,14 +160,18 @@ def main(
                 "upto_s": upto,
                 "der": der(prefix_truth, renamed) if prefix_truth else float("nan"),
                 "labels": len({lab for _, _, lab in renamed}),
-                "renamed": sum(1 for lab, name in mapping.items() if name.startswith("P")),
+                # Les identités que CETTE passe a dû créer, faute d'avoir pu les
+                # rattacher à la précédente. Une version antérieure comptait les
+                # noms commençant par « P », c'est-à-dire tous : elle ne mesurait
+                # rien. Ce chiffre-là dit si le transport entre passes tient.
+                "minted_here": minted_here,
                 "revisions": revisions,
                 "rtf_cumulative": spent / upto,
             }
             passes.append(row)
             print(
                 f"   {index:6} {upto:8.0f} {row['der']:12.3f} {row['labels']:6} "
-                f"{row['renamed']:9} {revisions:10} {row['rtf_cumulative']:11.3f}",
+                f"{row['minted_here']:7} {revisions:10} {row['rtf_cumulative']:11.3f}",
                 flush=True,
             )
 
