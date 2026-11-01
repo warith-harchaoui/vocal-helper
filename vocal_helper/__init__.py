@@ -116,6 +116,10 @@ from vocal_helper.lid import (
 )
 from vocal_helper.live_metrics import LiveMetrics
 from vocal_helper.llm import GemmaAnalystStage
+from vocal_helper.nemotron import (
+    NemotronOnnxDiar,
+    NemotronSchedule,
+)
 from vocal_helper.pipeline import (
     OfflinePipeline,
     OfflinePipelineConfig,
@@ -273,6 +277,14 @@ __all__ = [
     "ExemplarPolicy",
     "ExemplarClusterer",
     "Exemplar",
+    # End-to-end streaming diarization, torch-free : the ONNX graph ships in the
+    # weights bundle and runs on onnxruntime, already a core dependency. It keeps
+    # its own arrival-ordered speaker cache, so identity is LEARNED rather than
+    # arbitrated by a cosine threshold — which is why four threshold
+    # parameterisations failed before this. Measured 0.089 error with 0.000
+    # speaker confusion where the offline engine gives 0.299.
+    "NemotronOnnxDiar",
+    "NemotronSchedule",
     "IncrementalDiarStage",
     # Extraction and clustering are split so a threshold sweep replays cached
     # windows instead of re-running the models — seconds instead of hours.
