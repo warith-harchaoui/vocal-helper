@@ -95,6 +95,7 @@ from vocal_helper.incremental import (
     IncrementalDiarStage,
     IncrementalPolicy,
     WindowFeatures,
+    inter_speaker_scale,
 )
 from vocal_helper.lid import (
     LangRegion,
@@ -261,6 +262,11 @@ __all__ = [
     # Extraction and clustering are split so a threshold sweep replays cached
     # windows instead of re-running the models — seconds instead of hours.
     "WindowFeatures",
+    # An absolute cosine threshold does not transfer between recordings — room
+    # and mic distance change the scale of the distances themselves. Two local
+    # speakers in one window are different people by construction, so their
+    # median distance calibrates the threshold per recording, for free.
+    "inter_speaker_scale",
     "RediarPolicy",
     "PeriodicOfflineDiarStage",
     "LabelRevision",

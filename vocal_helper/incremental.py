@@ -54,7 +54,14 @@ from dataclasses import dataclass, field
 import numpy as np
 from numpy.typing import NDArray
 
-__all__ = ["IncrementalPolicy", "IncrementalClusterer", "cosine_distances"]
+__all__ = [
+    "IncrementalPolicy",
+    "IncrementalClusterer",
+    "IncrementalDiarStage",
+    "WindowFeatures",
+    "cosine_distances",
+    "inter_speaker_scale",
+]
 
 
 def cosine_distances(
@@ -88,6 +95,65 @@ def cosine_distances(
     return (1.0 - locals_ @ centroids.T).astype(np.float32)
 
 
+def inter_speaker_scale(windows: list[WindowFeatures]) -> float:
+    """L'échelle des distances entre locuteurs **différents**, pour cet audio.
+
+    Un seuil cosinus absolu ne transfère pas d'un enregistrement à l'autre : la
+    salle, le micro et la distance changent l'échelle même des distances. Deux
+    réunions AMI de quatre personnes l'ont montré sans ambiguïté — le seuil qui
+    donne le meilleur taux d'erreur sur l'une (0,8) fusionne deux vrais
+    locuteurs sur l'autre, dérive 1,000.
+
+    La calibration est pourtant gratuite, et elle vient de la structure même du
+    problème : **deux locuteurs locaux présents dans la même fenêtre sont des
+    personnes différentes par construction**, puisque la segmentation locale les
+    a distingués. La médiane de leurs distances donne donc l'échelle
+    inter-locuteurs propre à cet enregistrement, sans vérité terrain, sans
+    réglage et sans second passage.
+
+    Parameters
+    ----------
+    windows : list of WindowFeatures
+        Ce que :meth:`IncrementalDiarStage.extract` a rendu.
+
+    Returns
+    -------
+    float
+        La distance médiane entre locuteurs connus différents. ``nan`` si
+        aucune fenêtre n'a vu deux locuteurs à la fois — un monologue, où la
+        question ne se pose pas.
+
+    Examples
+    --------
+    Deux voix orthogonales, vues ensemble : l'échelle est leur distance, 1,0.
+
+    >>> import numpy as np
+    >>> pair = np.eye(2, dtype=np.float32)
+    >>> w = WindowFeatures(t0=0.0, local=[], embeddings=pair,
+    ...                    clean_durations=[1.0, 1.0], speakers=["A", "B"])
+    >>> float(inter_speaker_scale([w]))
+    1.0
+
+    Un monologue ne renseigne sur rien.
+
+    >>> lone = WindowFeatures(t0=0.0, local=[], embeddings=pair[:1],
+    ...                       clean_durations=[1.0], speakers=["A"])
+    >>> bool(np.isnan(inter_speaker_scale([lone])))
+    True
+    """
+    gathered: list[float] = []
+    for window in windows:
+        rows = window.embeddings
+        if len(rows) < 2:
+            continue
+        norms = np.linalg.norm(rows, axis=1, keepdims=True)
+        unit = rows / np.where(norms > 0, norms, 1.0)
+        distances = cosine_distances(unit.astype(np.float32), unit.astype(np.float32))
+        for i in range(len(unit)):
+            gathered.extend(float(distances[i, j]) for j in range(i + 1, len(unit)))
+    return float(np.median(gathered)) if gathered else float("nan")
+
+
 @dataclass
 class IncrementalPolicy:
     """Les réglages du regroupement incrémental.
@@ -105,7 +171,13 @@ class IncrementalPolicy:
         soit autorisé à mettre son centroïde à jour.
     delta_new : float
         Distance cosinus au-delà de laquelle on crée un locuteur global plutôt
-        que de forcer une jointure.
+        que de forcer une jointure. Ignoré si ``delta_scale`` est posé.
+    delta_scale : float, optional
+        Si posé, ``delta_new`` est recalculé pour chaque enregistrement comme
+        ``delta_scale`` fois l'échelle inter-locuteurs mesurée par
+        :func:`inter_speaker_scale`. C'est la seule façon qu'on ait trouvée de
+        tenir deux enregistrements différents avec un seul réglage : un seuil
+        absolu ne transfère pas, une fraction de l'échelle locale peut.
     max_speakers : int, optional
         Plafond dur du nombre de locuteurs globaux. ``None`` (défaut) laisse le
         compte libre — c'est le mode « devine ». Un plafond est la garde la plus
@@ -120,6 +192,7 @@ class IncrementalPolicy:
     tau_active: float = 0.5
     rho_update_s: float = 0.4
     delta_new: float = 0.6
+    delta_scale: float | None = None
     max_speakers: int | None = None
     ema_alpha: float | None = None
 
@@ -562,6 +635,11 @@ class IncrementalDiarStage:
         list of tuple
             ``[(t0, t1, locuteur), …]`` trié par début.
         """
+        if self.policy.delta_scale is not None:
+            scale = inter_speaker_scale(windows)
+            if not np.isnan(scale):
+                self.policy.delta_new = float(self.policy.delta_scale * scale)
+                self.clusterer.policy = self.policy
         grid_hz = 100.0
         n_frames = int(round(duration_s * grid_hz))
         votes: dict[str, NDArray[np.float32]] = {}

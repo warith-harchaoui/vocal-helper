@@ -41,6 +41,33 @@ from diar_incremental_vs_greedy import (  # noqa: E402  (après sys.path, à des
 
 DELTAS = (0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9)
 
+#: Au-delà de ce facteur du vrai compte, une réponse n'est pas « moins bonne »,
+#: elle est dégénérée, et son taux d'erreur ne veut plus rien dire. Le garde
+#: existe parce que son absence a coûté une conclusion fausse : une réponse
+#: effondrée sur une seule étiquette avait été lue comme la meilleure des trois
+#: pour l'identité longue portée, alors que son score était le plancher
+#: mécanique d'une réponse qui ne distingue personne.
+PLAUSIBLE_LABEL_FACTOR = 3.0
+
+
+def is_degenerate(labels: int, truth: int) -> bool:
+    """Le nombre d'étiquettes est-il hors de toute plausibilité ?
+
+    Examples
+    --------
+    >>> is_degenerate(4, 4)
+    False
+    >>> is_degenerate(1, 4)
+    True
+    >>> is_degenerate(122, 4)
+    True
+    >>> is_degenerate(11, 4)
+    False
+    """
+    if truth <= 0:
+        return False
+    return labels * PLAUSIBLE_LABEL_FACTOR < truth or labels > truth * PLAUSIBLE_LABEL_FACTOR
+
 
 @click.command()
 @click.option("--root", required=True, help="Le dossier dev-slice d'AMI.")
@@ -48,8 +75,14 @@ DELTAS = (0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9)
 @click.option("--segmenter", default="sherpa")
 @click.option("--limit", default=3, help="Nombre de réunions.")
 @click.option("--cap/--no-cap", default=False, help="Plafonner au vrai compte.")
-def main(root: str, out_path: str, segmenter: str, limit: int, cap: bool) -> None:
-    """Balayer ``delta_new`` sur chaque réunion, extraction mise en cache."""
+@click.option(
+    "--mode",
+    type=click.Choice(["absolu", "relatif"]),
+    default="absolu",
+    help="Seuil absolu, ou fraction de l'échelle inter-locuteurs de l'enregistrement.",
+)
+def main(root: str, out_path: str, segmenter: str, limit: int, cap: bool, mode: str) -> None:
+    """Balayer le seuil de création sur chaque réunion, extraction mise en cache."""
     meetings = sorted(p for p in pathlib.Path(root).iterdir() if (p / "mix.wav").exists())
     relevé: dict[str, dict] = {}
 
@@ -66,19 +99,26 @@ def main(root: str, out_path: str, segmenter: str, limit: int, cap: bool) -> Non
         windows = stage.extract(pcm, sr)
         extraction_rtf = (time.perf_counter() - started) / duration
         embeddings = sum(len(w.speakers) for w in windows)
+        scale = voh.inter_speaker_scale(windows)
         print(
             f"\n── {meeting.name} · {duration / 60:.1f} min · {truth} locuteurs"
             f" · {len(windows)} fenêtres · {embeddings} empreintes"
+            f" · échelle inter-locuteurs {scale:.3f}"
             f" · extraction RTF {extraction_rtf:.3f}"
         )
+        header = "fraction" if mode == "relatif" else "delta_new"
         print(
-            f"   {'delta_new':>9} {'DER':>6} {'dérive':>7} {'mal attr.':>10} "
+            f"   {header:>9} {'seuil':>6} {'DER':>6} {'dérive':>7} {'mal attr.':>10} "
             f"{'étiq.':>6} {'≥300s':>7}"
         )
 
         here: dict[str, dict] = {}
         for delta in DELTAS:
-            stage.policy = IncrementalPolicy(delta_new=delta, max_speakers=truth if cap else None)
+            cap_at = truth if cap else None
+            if mode == "relatif":
+                stage.policy = IncrementalPolicy(delta_scale=delta, max_speakers=cap_at)
+            else:
+                stage.policy = IncrementalPolicy(delta_new=delta, max_speakers=cap_at)
             stage.reset()
             hypothesis = stage.label(windows, duration)
             report = speaker_consistency(reference, hypothesis)
@@ -89,14 +129,17 @@ def main(root: str, out_path: str, segmenter: str, limit: int, cap: bool) -> Non
                 "labels": len({s for _, _, s in hypothesis}),
                 "long_range_300": report.long_range_agreement(gap_s=300),
             }
+            row["degenerate"] = is_degenerate(row["labels"], truth)
             here[f"{delta:.1f}"] = row
+            row["threshold"] = stage.policy.delta_new
+            flag = " ⚠ dégénéré" if row["degenerate"] else ""
             print(
-                f"   {delta:9.1f} {row['der']:6.3f} {row['drift']:7.3f} "
-                f"{row['misattributed']:10.3f} {row['labels']:6} "
-                f"{row['long_range_300']:7.3f}",
+                f"   {delta:9.1f} {row['threshold']:6.3f} {row['der']:6.3f} "
+                f"{row['drift']:7.3f} {row['misattributed']:10.3f} "
+                f"{row['labels']:6} {row['long_range_300']:7.3f}{flag}",
                 flush=True,
             )
-        relevé[meeting.name] = {"truth": truth, "sweep": here}
+        relevé[meeting.name] = {"truth": truth, "scale": scale, "sweep": here}
         pathlib.Path(out_path).write_text(json.dumps(relevé, indent=2, ensure_ascii=False))
 
     print("\n── médianes sur l'ensemble")
@@ -110,14 +153,21 @@ def main(root: str, out_path: str, segmenter: str, limit: int, cap: bool) -> Non
         median_der = float(np.median([r["der"] for r in rows]))
         median_labels = float(np.median([r["labels"] for r in rows]))
         median_lr = float(np.median([r["long_range_300"] for r in rows]))
-        print(f"   {delta:9.1f} {median_der:6.3f} {median_labels:6.1f} {median_lr:7.3f}")
-        if best is None or median_der < best[1]:
+        degenerate = any(r["degenerate"] for r in rows)
+        flag = " ⚠ dégénéré sur au moins une réunion" if degenerate else ""
+        print(f"   {delta:9.1f} {median_der:6.3f} {median_labels:6.1f} {median_lr:7.3f}{flag}")
+        # Un réglage dégénéré ne concourt pas : son taux d'erreur est flatté par
+        # une réponse qui ne distingue personne, et le retenir reproduirait la
+        # faute que ce garde-fou existe pour empêcher.
+        if not degenerate and (best is None or median_der < best[1]):
             best = (delta, median_der, median_labels)
     if best:
         print(
-            f"\n   meilleur delta_new : {best[0]:.1f}"
+            f"\n   meilleur delta_new non dégénéré : {best[0]:.1f}"
             f" (DER médian {best[1]:.3f}, {best[2]:.1f} étiquettes)"
         )
+    else:
+        print("\n   aucun réglage plausible : tous dégénérés")
     print(f"\nrelevé écrit : {out_path}")
 
 
