@@ -133,9 +133,9 @@ def _stored() -> dict[str, str]:
     overlay = overlay_path()
     if overlay.is_file():
         try:
-            section = _parse_minimal_yaml(
-                overlay.read_text(encoding="utf-8")
-            ).get("credentials", {})
+            section = _parse_minimal_yaml(overlay.read_text(encoding="utf-8")).get(
+                "credentials", {}
+            )
         except OSError:
             section = {}
         merged.update({str(k).lower(): str(v) for k, v in section.items() if v})

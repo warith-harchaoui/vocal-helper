@@ -108,8 +108,15 @@ def test_the_fingerprint_follows_the_bytes_not_the_path_or_the_clock(tmp_path):
 def test_the_escape_hatch_is_off_unless_asked_in_so_many_words(monkeypatch):
     """A typo must not start billing, so anything unset, zero, false or no reads as
     'ledger active'."""
-    for value, expected in (("", False), ("0", False), ("false", False), ("no", False),
-                            ("1", True), ("yes", True), ("whatever", True)):
+    for value, expected in (
+        ("", False),
+        ("0", False),
+        ("false", False),
+        ("no", False),
+        ("1", True),
+        ("yes", True),
+        ("whatever", True),
+    ):
         monkeypatch.setenv("VOH_WALLET_DISABLED", value)
         assert wallet.wallet_disabled() is expected, value
 
@@ -149,10 +156,10 @@ def test_the_ledger_file_is_configurable_so_a_migration_keeps_what_it_paid(monke
 @pytest.mark.parametrize(
     ("duration", "expected"),
     [
-        (100.0, [0.0]),                      # fits in one call
-        (8000.0, [0.0]),                     # exactly the cap, still one call
-        (8001.0, [0.0, 7880.0]),             # one second over → two chunks
-        (16000.0, [0.0, 7880.0, 15760.0]),   # the tail gets its own short chunk
+        (100.0, [0.0]),  # fits in one call
+        (8000.0, [0.0]),  # exactly the cap, still one call
+        (8001.0, [0.0, 7880.0]),  # one second over → two chunks
+        (16000.0, [0.0, 7880.0, 15760.0]),  # the tail gets its own short chunk
     ],
 )
 def test_chunks_cover_the_whole_recording_with_a_shared_window(duration, expected):
@@ -187,10 +194,14 @@ def test_labels_are_matched_through_the_shared_window():
     """Two chunks transcribed the same seconds, so one voice occupies the same
     absolute time in both. That co-occurrence is what makes per-chunk labels
     globally consistent."""
-    base = [{"start": 0.0, "end": 10.0, "speaker": "S0"},
-            {"start": 10.0, "end": 20.0, "speaker": "S1"}]
-    new = [{"start": 1.0, "end": 9.0, "speaker": "spk_b"},
-           {"start": 11.0, "end": 19.0, "speaker": "spk_a"}]
+    base = [
+        {"start": 0.0, "end": 10.0, "speaker": "S0"},
+        {"start": 10.0, "end": 20.0, "speaker": "S1"},
+    ]
+    new = [
+        {"start": 1.0, "end": 9.0, "speaker": "spk_b"},
+        {"start": 11.0, "end": 19.0, "speaker": "spk_a"},
+    ]
     assert cloud_media.match_speakers_across_overlap(base, new, 0.0, 20.0) == {
         "spk_b": "S0",
         "spk_a": "S1",
@@ -200,8 +211,12 @@ def test_labels_are_matched_through_the_shared_window():
 def test_an_unmatched_label_is_absent_rather_than_guessed():
     """A voice that only speaks after the shared window has no counterpart. The
     caller must name it per-chunk; inventing a match would merge two people."""
-    assert cloud_media.match_speakers_across_overlap([], [{"start": 0.0, "end": 1.0,
-                                                           "speaker": "x"}], 0.0, 1.0) == {}
+    assert (
+        cloud_media.match_speakers_across_overlap(
+            [], [{"start": 0.0, "end": 1.0, "speaker": "x"}], 0.0, 1.0
+        )
+        == {}
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -212,13 +227,19 @@ def test_an_unmatched_label_is_absent_rather_than_guessed():
 def test_transcript_parser_keeps_good_words_and_drops_malformed_ones():
     """One malformed word must not discard the utterance around it: a provider
     glitch should cost a word, not a sentence."""
-    event = asr_cloud.parse_gladia_message({
-        "type": "final",
-        "utterances": [{"words": [
-            {"word": "bonjour", "time_begin": 0.0, "time_end": 0.5, "confidence": 0.9},
-            {"word": "cassé"},  # no timings
-        ]}],
-    })
+    event = asr_cloud.parse_gladia_message(
+        {
+            "type": "final",
+            "utterances": [
+                {
+                    "words": [
+                        {"word": "bonjour", "time_begin": 0.0, "time_end": 0.5, "confidence": 0.9},
+                        {"word": "cassé"},  # no timings
+                    ]
+                }
+            ],
+        }
+    )
     assert [w.word for w in event.words] == ["bonjour"]
 
 
@@ -249,8 +270,9 @@ def test_the_transcriber_clamps_before_scaling():
 def test_the_diarizer_gets_float32_at_the_documented_chunk_size():
     """Live-1 is specified at 16 kHz mono float32 in 100 ms chunks; the constant and
     the bytes must agree, or every frame is silently misaligned."""
-    one_chunk = np.zeros(int(diar_cloud.PCM_SAMPLE_RATE * diar_cloud.PCM_CHUNK_MS / 1000),
-                         dtype=np.float32)
+    one_chunk = np.zeros(
+        int(diar_cloud.PCM_SAMPLE_RATE * diar_cloud.PCM_CHUNK_MS / 1000), dtype=np.float32
+    )
     assert len(diar_cloud.pcm_f32_to_wire_bytes(one_chunk)) == diar_cloud.PCM_CHUNK_BYTES
 
 
@@ -262,10 +284,12 @@ def test_the_diarizer_gets_float32_at_the_documented_chunk_size():
 def test_a_dropped_end_event_closes_the_stale_turn():
     """A real stream keeps labels stable, so two starts for one speaker mean the
     first end was lost — not that somebody is speaking twice at once."""
-    turns = fusion.build_speaker_turns([
-        diar_cloud.DiarEvent("start", 0.0, "A"),
-        diar_cloud.DiarEvent("start", 5.0, "A"),
-    ])
+    turns = fusion.build_speaker_turns(
+        [
+            diar_cloud.DiarEvent("start", 0.0, "A"),
+            diar_cloud.DiarEvent("start", 5.0, "A"),
+        ]
+    )
     assert [(t.start, t.end) for t in turns] == [(0.0, 5.0), (5.0, None)]
 
 
@@ -318,8 +342,16 @@ def test_confidence_survives_fusion_index_aligned_with_the_words():
 def test_relabelling_keeps_the_original_when_the_diarizer_says_nothing():
     """A gap in the diarization is not evidence about who was talking, so the
     transcriber's own guess is better than losing the speaker entirely."""
-    utterances = [{"t0": 0.0, "t1": 1.0, "speaker": "spk_0", "text": "a",
-                   "words": [(0.0, 1.0, "a")], "language": None}]
+    utterances = [
+        {
+            "t0": 0.0,
+            "t1": 1.0,
+            "speaker": "spk_0",
+            "text": "a",
+            "words": [(0.0, 1.0, "a")],
+            "language": None,
+        }
+    ]
     assert fusion.relabel_utterances(utterances, [])[0]["speaker"] == "spk_0"
     relabelled = fusion.relabel_utterances(
         utterances, [{"start": 0.0, "end": 2.0, "speaker": "SPEAKER_01"}], engine="hybrid"
@@ -344,14 +376,15 @@ def test_an_unknown_engine_is_refused_at_construction_not_mid_run():
 def test_the_offline_pipeline_names_the_engines_it_used():
     """A record names what wrote it. Without that, a result from the cheaper path is
     indistinguishable from the reference one and the reader blames the tool."""
-    assert cloud.CloudOfflinePipeline().engine_name() == (
-        "gladia:solaria-3+pyannoteai:precision-3"
-    )
+    assert cloud.CloudOfflinePipeline().engine_name() == ("gladia:solaria-3+pyannoteai:precision-3")
     # With no diarizer there is nothing to append: the transcriber's own speakers
     # are what the record carries, and saying otherwise would overstate it.
-    assert cloud.CloudOfflinePipeline(
-        cloud.CloudOfflineConfig(transcriber="elevenlabs", diarizer="")
-    ).engine_name() == "elevenlabs:scribe"
+    assert (
+        cloud.CloudOfflinePipeline(
+            cloud.CloudOfflineConfig(transcriber="elevenlabs", diarizer="")
+        ).engine_name()
+        == "elevenlabs:scribe"
+    )
 
 
 class _MockSocket:
@@ -375,12 +408,22 @@ class _MockSocket:
 def test_the_live_pipeline_fans_one_stream_out_to_both_and_fuses_the_answers():
     """The whole premise in one test: the transcriber has no speakers, the diarizer
     has no words, and the same audio reaches both."""
-    asr_socket = _MockSocket([{"type": "final", "words": [
-        {"word": "bonsoir", "time_begin": 0.1, "time_end": 0.9, "confidence": 0.95}]}])
-    diar_socket = _MockSocket([
-        {"type": "diarization_speaker_start", "data": {"timestamp": 0.0, "speaker": "S0"}},
-        {"type": "diarization_speaker_end", "data": {"timestamp": 1.0, "speaker": "S0"}},
-    ])
+    asr_socket = _MockSocket(
+        [
+            {
+                "type": "final",
+                "words": [
+                    {"word": "bonsoir", "time_begin": 0.1, "time_end": 0.9, "confidence": 0.95}
+                ],
+            }
+        ]
+    )
+    diar_socket = _MockSocket(
+        [
+            {"type": "diarization_speaker_start", "data": {"timestamp": 0.0, "speaker": "S0"}},
+            {"type": "diarization_speaker_end", "data": {"timestamp": 1.0, "speaker": "S0"}},
+        ]
+    )
 
     async def source():
         for _ in range(3):
@@ -392,7 +435,7 @@ def test_the_live_pipeline_fans_one_stream_out_to_both_and_fuses_the_answers():
     assert len(asr_socket.sent) == 3
     assert len(diar_socket.sent) == 3
     # Each provider got ITS OWN encoding of the same audio, not a shared buffer.
-    assert len(asr_socket.sent[0]) == 3200   # int16
+    assert len(asr_socket.sent[0]) == 3200  # int16
     assert len(diar_socket.sent[0]) == 6400  # float32
 
 
@@ -411,9 +454,7 @@ def test_the_pre_send_hook_sees_every_frame_before_it_leaves_the_machine():
         yield np.zeros(800, dtype=np.float32)
         yield np.zeros(1600, dtype=np.float32)
 
-    asyncio.run(
-        cloud.CloudLivePipeline(asr_socket, diar_socket, pre_send=hook).run(source())
-    )
+    asyncio.run(cloud.CloudLivePipeline(asr_socket, diar_socket, pre_send=hook).run(source()))
     assert seen == [800, 1600]
     assert len(asr_socket.sent) == len(diar_socket.sent) == 2
 
@@ -429,9 +470,7 @@ def test_a_stop_event_ends_a_session_that_would_never_end_on_its_own():
         stop.set()
         yield np.zeros(1600, dtype=np.float32)  # must not be sent
 
-    asyncio.run(
-        cloud.CloudLivePipeline(asr_socket, diar_socket).run(source(), stop=stop)
-    )
+    asyncio.run(cloud.CloudLivePipeline(asr_socket, diar_socket).run(source(), stop=stop))
     assert len(asr_socket.sent) == 1
 
 
@@ -471,9 +510,7 @@ def test_the_router_never_routes_to_a_paid_backend():
     for live in (True, False):
         for duration in (10.0, 600.0, 7200.0):
             for speakers in (None, 2, 6):
-                plan = select_diarization(
-                    live=live, duration_s=duration, num_speakers=speakers
-                )
+                plan = select_diarization(live=live, duration_s=duration, num_speakers=speakers)
                 assert plan.backend != "pyannoteai", (live, duration, speakers)
 
 
@@ -540,12 +577,8 @@ def test_the_record_names_the_model_not_merely_the_provider():
     """Two runs through one provider on different generations are not the same
     measurement. A record that hid which one produced it could not be compared
     against itself a year later."""
-    assert cloud.CloudOfflinePipeline().engine_name() == (
-        "gladia:solaria-3+pyannoteai:precision-3"
-    )
-    downgraded = cloud.CloudOfflinePipeline(
-        cloud.CloudOfflineConfig(diarizer_model="precision-2")
-    )
+    assert cloud.CloudOfflinePipeline().engine_name() == ("gladia:solaria-3+pyannoteai:precision-3")
+    downgraded = cloud.CloudOfflinePipeline(cloud.CloudOfflineConfig(diarizer_model="precision-2"))
     assert downgraded.engine_name() == "gladia:solaria-3+pyannoteai:precision-2"
 
 

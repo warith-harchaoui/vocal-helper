@@ -371,6 +371,7 @@ def pyannoteai_diarize(
             continue
     raise RuntimeError("pyannoteAI returned no diarization segments")
 
+
 def pcm_f32_to_wire_bytes(pcm: Any) -> bytes:
     """Mono float32 samples to Live-1's ``f32le`` wire format.
 

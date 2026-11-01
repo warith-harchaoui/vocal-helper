@@ -361,7 +361,9 @@ def gladia_transcribe(
                 timeout=1800,
             )
 
-    uploaded = resp.json() if resp.headers.get("content-type", "").startswith("application/json") else {}
+    uploaded = (
+        resp.json() if resp.headers.get("content-type", "").startswith("application/json") else {}
+    )
     if "audio_url" not in uploaded:
         raise RuntimeError(
             f"Gladia upload failed ({resp.status_code}) for {name} [{megabytes} MB]: "
@@ -396,7 +398,11 @@ def gladia_transcribe(
         json=config,
         timeout=60,
     )
-    job = submit.json() if submit.headers.get("content-type", "").startswith("application/json") else {}
+    job = (
+        submit.json()
+        if submit.headers.get("content-type", "").startswith("application/json")
+        else {}
+    )
     if "id" not in job:
         raise RuntimeError(
             f"Gladia rejected the job ({submit.status_code}): {str(job) or submit.text[:300]}"
@@ -665,6 +671,7 @@ def elevenlabs_transcribe(
             f"[{megabytes} MB]: {resp.text[:300]}"
         )
     return resp.json()
+
 
 def pcm_f32_to_wire_bytes(pcm: Any) -> bytes:
     """Mono float32 samples in ``[-1, 1]`` to Gladia live's 16-bit PCM wire format.

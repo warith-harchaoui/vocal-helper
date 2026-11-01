@@ -2010,10 +2010,7 @@ class _PyannoteAiOfflineDiar:
                 min_speakers=min_speakers,
                 max_speakers=max_speakers,
             )
-        return [
-            (float(seg["start"]), float(seg["end"]), str(seg["speaker"]))
-            for seg in segments
-        ]
+        return [(float(seg["start"]), float(seg["end"]), str(seg["speaker"])) for seg in segments]
 
 
 class _PyannoteOfflineDiar:

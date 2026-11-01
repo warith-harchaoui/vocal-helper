@@ -155,9 +155,7 @@ class CloudOfflineConfig:
                 f"choose from {', '.join(sorted(TRANSCRIBERS))}"
             )
         if self.diarizer not in ("", "pyannoteai"):
-            raise ValueError(
-                f"unknown diarizer {self.diarizer!r}; choose from '' or pyannoteai"
-            )
+            raise ValueError(f"unknown diarizer {self.diarizer!r}; choose from '' or pyannoteai")
 
 
 def _from_gladia(utterances: list[dict], engine: str) -> list[CloudUtterance]:
@@ -175,9 +173,7 @@ def _from_gladia(utterances: list[dict], engine: str) -> list[CloudUtterance]:
                 "t1": float(utterance["end"]),
                 "speaker": str(utterance.get("speaker", "?")),
                 "text": str(utterance.get("text", "")).strip(),
-                "words": [
-                    (float(w["start"]), float(w["end"]), str(w["word"])) for w in words
-                ],
+                "words": [(float(w["start"]), float(w["end"]), str(w["word"])) for w in words],
                 "language": utterance.get("language"),
                 "word_confidence": [float(w.get("confidence", 1.0)) for w in words],
                 "engine": engine,
