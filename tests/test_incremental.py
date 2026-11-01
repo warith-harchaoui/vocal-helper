@@ -15,8 +15,10 @@ from vocal_helper.incremental import (
     IncrementalClusterer,
     IncrementalDiarStage,
     IncrementalPolicy,
+    WindowFeatures,
     _votes_to_segments,
     cosine_distances,
+    inter_speaker_scale,
 )
 
 E0 = np.array([1.0, 0.0, 0.0], dtype=np.float32)
@@ -289,3 +291,73 @@ def test_the_stage_reports_what_it_discovered():
     stage.clusterer.assign(np.stack([E0, E1]), _long(2))
     assert stage.discovered_speakers == 2
     assert stage.speaker_labels == ["S0", "S1"]
+
+
+# ----- l'échelle inter-locuteurs --------------------------------------
+
+
+def _window(vectors: list[np.ndarray]) -> WindowFeatures:
+    """Une fenêtre où tous ces locuteurs sont vus ensemble."""
+    return WindowFeatures(
+        t0=0.0,
+        local=[],
+        embeddings=np.stack(vectors),
+        clean_durations=[1.0] * len(vectors),
+        speakers=[f"L{i}" for i in range(len(vectors))],
+    )
+
+
+def test_the_scale_of_two_orthogonal_voices_is_one():
+    assert inter_speaker_scale([_window([E0, E1])]) == pytest.approx(1.0)
+
+
+def test_a_monologue_yields_no_scale():
+    assert np.isnan(inter_speaker_scale([_window([E0])]))
+
+
+def test_no_windows_yields_no_scale():
+    assert np.isnan(inter_speaker_scale([]))
+
+
+def test_a_low_quantile_surfaces_the_confusable_pair():
+    """Ce que la médiane noie, et qui décide pourtant du seuil.
+
+    Deux réunions AMI ont rendu la même échelle médiane (0,834 et 0,847) alors
+    que leur seuil optimal diffère d'un tiers : ce qui les sépare est la paire
+    la plus proche, pas la distance moyenne.
+    """
+    close = np.array([1.0, 0.1, 0.0], dtype=np.float32)
+    windows = [_window([E0, close]), _window([E0, E1]), _window([E0, E2])]
+    median = inter_speaker_scale(windows, quantile=0.5)
+    low = inter_speaker_scale(windows, quantile=0.0)
+    assert low < median, f"le quantile bas ({low}) devrait être sous la médiane ({median})"
+    assert low < 0.1, "la paire confusable doit ressortir"
+
+
+def test_the_quantile_is_monotone():
+    windows = [_window([E0, E1, E2]), _window([E0, np.array([1.0, 0.2, 0.0], np.float32)])]
+    scales = [inter_speaker_scale(windows, quantile=q) for q in (0.0, 0.25, 0.5, 0.75, 1.0)]
+    assert scales == sorted(scales)
+
+
+def test_the_policy_quantile_reaches_the_scale():
+    """Le réglage doit arriver jusqu'au calcul, pas rester dans la politique."""
+    close = np.array([1.0, 0.1, 0.0], dtype=np.float32)
+    windows = [_window([E0, close]), _window([E0, E1])]
+    stage = IncrementalDiarStage()
+    thresholds = []
+    for quantile in (0.0, 1.0):
+        stage.policy = IncrementalPolicy(delta_scale=1.0, delta_quantile=quantile)
+        stage.reset()
+        stage.label(windows, 2.0)
+        thresholds.append(stage.policy.delta_new)
+    assert thresholds[0] < thresholds[1]
+
+
+def test_a_monologue_leaves_the_threshold_untouched():
+    """Sans paire simultanée, rien à calibrer : on ne doit pas poser un nan."""
+    stage = IncrementalDiarStage()
+    stage.policy = IncrementalPolicy(delta_scale=1.0)
+    stage.reset()
+    stage.label([_window([E0])], 1.0)
+    assert stage.policy.delta_new == pytest.approx(0.6)

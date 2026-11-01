@@ -95,7 +95,7 @@ def cosine_distances(
     return (1.0 - locals_ @ centroids.T).astype(np.float32)
 
 
-def inter_speaker_scale(windows: list[WindowFeatures]) -> float:
+def inter_speaker_scale(windows: list[WindowFeatures], quantile: float = 0.5) -> float:
     """L'échelle des distances entre locuteurs **différents**, pour cet audio.
 
     Un seuil cosinus absolu ne transfère pas d'un enregistrement à l'autre : la
@@ -115,13 +115,20 @@ def inter_speaker_scale(windows: list[WindowFeatures]) -> float:
     ----------
     windows : list of WindowFeatures
         Ce que :meth:`IncrementalDiarStage.extract` a rendu.
+    quantile : float
+        Quel quantile de ces distances retenir. La médiane (0,5) décrit
+        l'enregistrement en moyenne, et c'est insuffisant : deux réunions AMI
+        ont rendu 0,834 et 0,847 — indiscernables — alors que leur seuil
+        optimal diffère d'un tiers. Ce qui les sépare n'est pas l'échelle
+        moyenne mais la **paire la plus confusable**, que la médiane noie. Un
+        quantile bas la fait remonter.
 
     Returns
     -------
     float
-        La distance médiane entre locuteurs connus différents. ``nan`` si
-        aucune fenêtre n'a vu deux locuteurs à la fois — un monologue, où la
-        question ne se pose pas.
+        La distance au quantile demandé entre locuteurs connus différents.
+        ``nan`` si aucune fenêtre n'a vu deux locuteurs à la fois — un
+        monologue, où la question ne se pose pas.
 
     Examples
     --------
@@ -151,7 +158,9 @@ def inter_speaker_scale(windows: list[WindowFeatures]) -> float:
         distances = cosine_distances(unit.astype(np.float32), unit.astype(np.float32))
         for i in range(len(unit)):
             gathered.extend(float(distances[i, j]) for j in range(i + 1, len(unit)))
-    return float(np.median(gathered)) if gathered else float("nan")
+    if not gathered:
+        return float("nan")
+    return float(np.quantile(gathered, quantile))
 
 
 @dataclass
@@ -172,6 +181,9 @@ class IncrementalPolicy:
     delta_new : float
         Distance cosinus au-delà de laquelle on crée un locuteur global plutôt
         que de forcer une jointure. Ignoré si ``delta_scale`` est posé.
+    delta_quantile : float
+        Quantile des distances inter-locuteurs servant d'échelle, passé à
+        :func:`inter_speaker_scale`. Sans effet si ``delta_scale`` est absent.
     delta_scale : float, optional
         Si posé, ``delta_new`` est recalculé pour chaque enregistrement comme
         ``delta_scale`` fois l'échelle inter-locuteurs mesurée par
@@ -193,6 +205,7 @@ class IncrementalPolicy:
     rho_update_s: float = 0.4
     delta_new: float = 0.6
     delta_scale: float | None = None
+    delta_quantile: float = 0.5
     max_speakers: int | None = None
     ema_alpha: float | None = None
 
@@ -636,7 +649,7 @@ class IncrementalDiarStage:
             ``[(t0, t1, locuteur), …]`` trié par début.
         """
         if self.policy.delta_scale is not None:
-            scale = inter_speaker_scale(windows)
+            scale = inter_speaker_scale(windows, quantile=self.policy.delta_quantile)
             if not np.isnan(scale):
                 self.policy.delta_new = float(self.policy.delta_scale * scale)
                 self.clusterer.policy = self.policy
