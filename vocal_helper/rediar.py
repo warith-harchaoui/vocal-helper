@@ -149,6 +149,29 @@ class RediarPolicy:
     period_s: float = DEFAULT_PERIOD_S
     min_speaker_s: float = DEFAULT_MIN_SPEAKER_S
     backend: str = "pyannote"
+    max_speakers: int = 12
+    """Hard ceiling on discovered speakers.
+
+    The lesson of ``DIARIZATION-TROUBLES.md``: an unbounded greedy clusterer minted
+    **203 labels for a four-speaker podcast**. A ceiling is not a quality knob, it
+    is the difference between a transcript and a list of 203 strangers. Twelve is
+    past any panel and short of any runaway.
+    """
+
+    stable_rounds_before_pinning: int = 1
+    """Consecutive refreshes with no new speaker before the count gets pinned.
+
+    Discovery and stability pull opposite ways, and both are needed. While the count
+    is still growing, the diarizer must be free to find a voice nobody has heard yet,
+    so it runs with a **floor**. Once the set has stopped growing, the count is
+    **pinned**, and that is what makes cross-window identity clean: the engine
+    returns exactly as many clusters as there are references, every one of them maps
+    back to a reference, and there is nothing left over to mint a new name from.
+
+    Measured: without this, the identity drifted *worse than the online stage it was
+    meant to fix* — seven labels for four speakers, long-range agreement 0.297
+    against the online stage's 0.969.
+    """
 
     def primer_s(self, *, speakers: int) -> float:
         """Primer length for a given number of known speakers.
@@ -713,14 +736,45 @@ class PeriodicOfflineDiarStage:
         self.revisions: list[LabelRevision] = []
         #: Refresh count, for a caller that wants to report the cadence.
         self.refreshes = 0
+
         self._published: list[dict] = []
         self._voiced: list[tuple[float, float, NDArray[np.float32]]] = []
         self._references: dict[str, NDArray[np.float32]] = {}
         self._room: NDArray[np.float32] | None = None
         self._last_refresh_s = 0.0
+        #: Consecutive refreshes that discovered nobody new. Drives the switch from
+        #: discovery (a floor) to pinned (an exact count) — see the policy.
+        self._stable_rounds = 0
         # Learned from the first frame; the fallback only matters for a stream that
         # closes without ever delivering one.
         self._sample_rate = 16000
+
+    # ----- what was discovered -------------------------------------------
+
+    @property
+    def discovered_speakers(self) -> int:
+        """How many speakers have been **discovered**, never assumed.
+
+        Determining the number of people talking is part of what diarization does,
+        not an input to it. Nothing in the free path forces a count: the first
+        refresh runs the engine in auto-detect, each later one runs with a floor
+        while the set is still growing, and only once it has stopped growing is the
+        count pinned — to the number discovered, not to a number supplied.
+
+        A caller that genuinely knows the count can still pass hints, and a caller
+        that does not gets an answer rather than a guess.
+
+        Returns
+        -------
+        int
+            Zero before the first refresh.
+        """
+        return len(self._references)
+
+    @property
+    def speaker_labels(self) -> list[str]:
+        """The discovered speakers, in discovery order."""
+        return sorted(self._references)
 
     # ----- the refresh ----------------------------------------------------
 
@@ -775,19 +829,30 @@ class PeriodicOfflineDiarStage:
         audio = np.concatenate([primer, window]) if primer.size else window
         shift = primer.size / sample_rate
 
+        # DISCOVER, THEN PIN — the discipline ported from the native block-wise
+        # diarizer, and the half I had left out.
+        #
+        # While the speaker set is still growing, the engine runs with a **floor**:
+        # the references are physically in the primer so at least that many voices
+        # are present, and a voice nobody has heard yet must stay findable. Passing
+        # the count as an exact ``num_speakers`` here is self-fulfilling — with one
+        # reference every later refresh is forced to find one speaker, so a second
+        # never appears, and the error rate stays *exactly* the online stage's.
+        #
+        # Once the set stops growing, the count is **pinned**, and that is what makes
+        # cross-window identity clean: the engine returns exactly as many clusters as
+        # there are references, every one maps back through the read-back, and nothing
+        # is left over to mint a new name from. Without the pin, identity drifted
+        # worse than the online stage it was meant to repair.
+        known = len(self._references)
+        pinned = bool(known) and self._stable_rounds >= self.policy.stable_rounds_before_pinning
+        hints: dict = {}
+        if pinned:
+            hints["num_speakers"] = known
+        elif known:
+            hints["min_speakers"] = known
         try:
-            # A FLOOR, never an exact count. The references are physically in the
-            # primer, so at least that many voices are present — but passing the
-            # count as ``num_speakers`` pinned the diarizer to exactly the number
-            # already known, and that is self-fulfilling: with one reference, every
-            # later refresh was forced to find one speaker, so a second could never
-            # be discovered. Measured on AMI: the error rate stayed exactly the
-            # online stage's, because the refresh could not disagree with itself.
-            segments = self.offline.diarize(
-                audio,
-                sample_rate,
-                min_speakers=len(self._references) or None,
-            )
+            segments = self.offline.diarize(audio, sample_rate, **hints)
         except Exception:  # noqa: BLE001 - a failed refresh must not lose the labels we have
             import os_helper as osh
 
@@ -799,6 +864,7 @@ class PeriodicOfflineDiarStage:
 
         self.refreshes += 1
         mapping = read_back_identities(segments, references)
+        before = len(self._references)
 
         # Window turns, back in absolute time, with the primer's offset removed.
         absolute: list[tuple[float, float, str]] = [
@@ -814,11 +880,33 @@ class PeriodicOfflineDiarStage:
         for t0, t1, label in absolute:
             if label not in mapping:
                 unknown[label] = unknown.get(label, 0.0) + max(0.0, t1 - t0)
+        promoted = 0
         next_index = len(self._references)
-        for label, spoken in sorted(unknown.items(), key=lambda kv: -kv[1]):
-            if spoken >= self.policy.min_speaker_s:
-                mapping[label] = f"S{next_index}"
-                next_index += 1
+        if not pinned:
+            for label, spoken in sorted(unknown.items(), key=lambda kv: -kv[1]):
+                if next_index >= self.policy.max_speakers:
+                    import os_helper as osh
+
+                    osh.warning(
+                        f"  rediar: speaker ceiling of {self.policy.max_speakers} reached; "
+                        f"further clusters stay unlabelled rather than inflating the count"
+                    )
+                    break
+                if spoken >= self.policy.min_speaker_s:
+                    mapping[label] = f"S{next_index}"
+                    next_index += 1
+                    promoted += 1
+        # Stability is what flips discovery into pinning. A refresh that found nobody
+        # new is evidence the set is complete; one that found somebody resets the
+        # count, because a newcomer means the room changed.
+        self._stable_rounds = self._stable_rounds + 1 if promoted == 0 else 0
+        if promoted:
+            import os_helper as osh
+
+            osh.info(
+                f"  rediar: discovered {promoted} new speaker(s) "
+                f"({before} → {before + promoted}); the count is found, not supplied"
+            )
 
         revisions = self._apply(absolute, mapping, window_start=window_start)
         self._harvest_references(window, sample_rate, absolute, mapping, offset_s=window_start)

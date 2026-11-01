@@ -2112,18 +2112,57 @@ class _PyannoteOfflineDiar:
 
         local_cfg = _cfg_for(self.checkpoint)
         if (local_cfg is None or not local_cfg.exists()) and self.checkpoint != "3.1":
-            # An existing bundle predates community-1. Degrading to 3.1 with a warning beats
-            # failing: 3.1 is the same median quality, it simply has the bad meetings.
+            # THE FALLBACK TO 3.1 IS NOW OPT-IN, and this used to be the single most
+            # expensive silent degradation in the package.
+            #
+            # It warned and carried on, which reads as handling the problem. It is
+            # not: 3.1 and community-1 tie on median error rate, so nothing looks
+            # wrong, and the whole difference sits in the tail — worst meeting 0.474
+            # against 0.149, and a spread of 0.412 against 0.086. A warning in a log
+            # nobody reads bought a threefold worse worst case, on exactly the hard
+            # recordings this library exists for.
+            #
+            # Measured consequence, found on 2026-11-01: every diarization campaign
+            # run that day had silently used 3.1, because the installed bundle
+            # predated community-1. The numbers were real; the engine was not the one
+            # the code said it was.
+            #
+            # So: fail, and say how to fix it. ``checkpoint="3.1"`` is the explicit
+            # opt-out, and ``VOH_ALLOW_PYANNOTE_FALLBACK=1`` keeps the old behaviour
+            # for an installation that cannot be re-provisioned today.
+            import os
+
             fallback = _cfg_for("3.1")
-            if fallback is not None and fallback.exists():
+            allowed = os.environ.get("VOH_ALLOW_PYANNOTE_FALLBACK", "").strip().lower() not in (
+                "",
+                "0",
+                "false",
+                "no",
+            )
+            if fallback is not None and fallback.exists() and allowed:
                 import os_helper as osh  # local, matching this module's style
 
                 osh.warning(
-                    f"pyannote {self.checkpoint} is not in the diarization-engines bundle; "
-                    "falling back to 3.1. They tie on median DER, but 3.1 keeps the "
-                    "catastrophic cases community-1 removes (worst meeting 0.474 vs 0.149)."
+                    f"pyannote {self.checkpoint} is absent and VOH_ALLOW_PYANNOTE_FALLBACK "
+                    "is set: using 3.1. Same median error rate, a threefold worse worst "
+                    "case (0.474 against 0.149). This run is NOT community-1."
                 )
                 self.checkpoint, local_cfg = "3.1", fallback
+            elif fallback is not None and fallback.exists():
+                raise RuntimeError(
+                    f"pyannote {self.checkpoint} is not in the diarization-engines "
+                    f"bundle at {engines}, and the automatic fallback to 3.1 is off.\n"
+                    "\n"
+                    "They tie on median error rate, so a silent fallback looks harmless "
+                    "and is not: 3.1's worst meeting is 0.474 against community-1's "
+                    "0.149, and it over-splits more.\n"
+                    "\n"
+                    "Fix it one of three ways:\n"
+                    f"  - put pyannote-community-1/ in the bundle at {engines}\n"
+                    "  - ask for the older one on purpose: "
+                    "OfflineDiarStage(backend='pyannote', checkpoint='3.1')\n"
+                    "  - keep the old behaviour for now: VOH_ALLOW_PYANNOTE_FALLBACK=1"
+                )
         if local_cfg is None or not local_cfg.exists():
             raise RuntimeError(
                 "No diarization-engines bundle found. Set `engines.diarization_url` "

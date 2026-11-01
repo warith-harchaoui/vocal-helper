@@ -79,6 +79,7 @@ from vocal_helper.cloud import (
     CloudOfflineConfig,
     CloudOfflinePipeline,
 )
+from vocal_helper.consistency import ConsistencyReport, speaker_consistency
 from vocal_helper.credentials import credential, credentials_status
 from vocal_helper.diar import (
     EMBEDDER_BACKENDS,
@@ -249,6 +250,10 @@ __all__ = [
     "LabelRevision",
     "SpeakerReference",
     "read_back_identities",
+    # Identity quality, independent of boundary quality — and the error rate does
+    # not measure it. Reconciled by the Hungarian assignment, like the error rate.
+    "speaker_consistency",
+    "ConsistencyReport",
 ]
 
 __author__ = "Warith Harchaoui, Ph.D."
