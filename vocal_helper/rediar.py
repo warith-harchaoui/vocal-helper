@@ -102,8 +102,19 @@ DEFAULT_REF_BUDGET_S = 12.0
 DEFAULT_GAP_S = 0.8
 """Room tone between pieces. **Must exceed the segmentation model's ``min_duration_off``** (0.5 s)."""
 
-DEFAULT_MIN_SPEAKER_S = 15.0
-"""In-window speech before a new cluster becomes a speaker. The guard against over-segmentation."""
+DEFAULT_MIN_SPEAKER_S = 5.0
+"""In-window speech before a new cluster becomes a speaker.
+
+**Not the native block-wise diarizer's 15 s, and the difference matters.** That value
+was tuned for windows cut from a whole recording, where a real participant holds the
+floor a good stretch within *some* window. Here the window is bounded and short, and a
+genuine but quiet participant can legitimately hold it for ten seconds in three
+minutes — a 15 s floor then never promotes them, the speaker count never grows past
+one, and the refresh degenerates into agreeing with whatever it already believed.
+Measured on AMI: that is exactly what happened.
+
+Five seconds still clears a spurious fragment, which lasts under two.
+"""
 
 DEFAULT_PERIOD_S = 60.0
 """New audio between refreshes. Also the worst case for how long a wrong label stays on screen."""
@@ -765,10 +776,17 @@ class PeriodicOfflineDiarStage:
         shift = primer.size / sample_rate
 
         try:
+            # A FLOOR, never an exact count. The references are physically in the
+            # primer, so at least that many voices are present — but passing the
+            # count as ``num_speakers`` pinned the diarizer to exactly the number
+            # already known, and that is self-fulfilling: with one reference, every
+            # later refresh was forced to find one speaker, so a second could never
+            # be discovered. Measured on AMI: the error rate stayed exactly the
+            # online stage's, because the refresh could not disagree with itself.
             segments = self.offline.diarize(
                 audio,
                 sample_rate,
-                num_speakers=len(self._references) or None,
+                min_speakers=len(self._references) or None,
             )
         except Exception:  # noqa: BLE001 - a failed refresh must not lose the labels we have
             import os_helper as osh

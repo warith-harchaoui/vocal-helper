@@ -164,15 +164,37 @@ transcription et diarisation sur **la même** unité, donc les coûts s'ajoutent
 
 | option de diarisation en direct | DER | RTF total (6 voix) | marge | tient ? |
 |---|---:|---:|---:|---|
-| en ligne nemo (ancien défaut) | 0,586 | 0,063 | 16× | oui |
-| **re-diar pyannote, f=180 s, période 60 s** | **0,122** | **0,288** | **3,4×** | **oui** |
-| re-diar pyannote, f=180 s, période 30 s | 0,122 | 0,537 | 1,9× | limite |
-| re-diar sherpa (sans torch), période 60 s | 0,174 | 2,5 | 0,4× | **non** |
-| re-diar pyannote, ASR sur CPU, période 60 s | 0,122 | 0,452 | 2,2× | oui |
+| en ligne seul | **0,666 mesuré** | 0,063 | 16× | oui |
+| **re-diar pyannote, f=120 s, période 60 s** | **0,348 mesuré** | 0,288 | 3,4× | **oui** |
+| différé pleine fenêtre (hors d'atteinte en direct) | 0,149 mesuré | — | — | — |
+| re-diar sherpa (sans torch), période 60 s | — | 2,5 | 0,4× | **non** |
 
-Donc : **on achète un DER 4,8× meilleur pour une marge qui passe de 16× à 3,4×**, et la
-contrainte « sous 1 » est tenue avec un facteur trois de réserve. C'est exactement l'échange
-demandé.
+**Mesuré, pas supposé**, sur cinq minutes d'AMI IS1008a avec la vérité terrain `words.rttm`,
+collar 0,25 (`studies/rediar_live_der.py`). Une première version de ce document annonçait
+0,122 pour la fenêtre glissante : c'était le chiffre du différé pleine fenêtre réutilisé
+comme si la version bornée l'atteignait. Elle ne l'atteint pas.
+
+**Ce qu'on achète réellement : l'erreur divisée par deux** (0,666 → 0,348) pour une marge
+qui passe de 16× à 3,4×. C'est nettement moins que ce que j'avais écrit, et c'est encore
+l'échange demandé — la qualité d'abord, sous 1 avec de la réserve.
+
+**Pourquoi ça s'arrête à mi-chemin, et c'est structurel.** Les lignes publiées sont les
+segments du **détecteur d'activité vocale**, et réétiqueter ne répare pas un segment qui
+contient un changement de locuteur. La passe différée choisit ses propres frontières ;
+celle-ci en hérite. Le prochain levier est donc d'**émettre la segmentation du différé** au
+lieu de réétiqueter celle du VAD — pas un meilleur regroupeur.
+
+**Deux bugs trouvés par cette campagne, et ils expliquent pourquoi il fallait la faire.**
+Le premier : je passais `num_speakers = len(références)` au diariseur, donc dès qu'une
+référence existait, chaque rafraîchissement était épinglé à **un seul locuteur** et ne
+pouvait jamais en découvrir un deuxième. Auto-réalisateur : le DER restait **exactement**
+celui de l'étage en ligne, à trois décimales, parce que le rafraîchissement ne pouvait pas
+se contredire. C'est désormais un **plancher** (`min_speakers`), jamais un compte exact — la
+doctrine que j'avais écrite pour le cloud et pas appliquée ici. Le second : le plancher de
+promotion à 15 s venait du diariseur par blocs, où une fenêtre est découpée dans un
+enregistrement entier ; sur une fenêtre bornée de deux minutes, un participant réel mais
+discret ne l'atteint jamais, le compte reste à un, et tout s'effondre. Descendu à 5 s, ce
+qui écarte encore un fragment parasite (moins de deux secondes).
 
 La politique par défaut porte **18 locuteurs** sur machine Metal avant de rompre, et **9**
 sans GPU — bien au-delà d'un plateau réel. Le cas qui ne tient pas est le diariseur sans

@@ -71,9 +71,18 @@ Two independent findings, both measured on this machine:
    When the speaker labels matter as much as the words, the answer is not a better
    online clusterer, it is :mod:`vocal_helper.rediar` — run the **offline**
    diarizer periodically on a bounded window and correct the labels already shown.
-   Measured, that buys the full 0.122 at an effective real-time factor around 0.29
-   on a Metal machine with six speakers, which is 3.4 times real time: ample under
-   the only constraint that matters live, which is staying below 1.
+
+   **Measured, it halves the error, and it does not reach the offline number.** On
+   five minutes of AMI IS1008a: online alone 0.666, windowed re-diarization 0.348,
+   offline whole-file 0.149. An earlier version of this docstring claimed the full
+   0.122, which was an assumption dressed as a measurement; the campaign is
+   ``studies/rediar_live_der.py``.
+
+   Why it stops halfway is structural and worth knowing: the published rows are the
+   **voice-activity detector's** segments, and relabelling cannot repair a segment
+   that contains a speaker change. The offline pass gets to choose its own
+   boundaries; this one inherits them. Emitting the offline segmentation instead of
+   relabelling the VAD's is the next lever, not a better clusterer.
 
    The online stage remains the right choice for the opposite priority — a label
    within 500 ms and no retroactive correction, which an interactive agent needs

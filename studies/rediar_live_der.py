@@ -170,7 +170,12 @@ def main(meetings, window_s, period_s, out_path):
             click.echo(f"  {name} : absent, ignoré")
             continue
 
-        pcm = np.asarray(ah.load_audio(str(wav), sample_rate=SR), dtype=np.float32)
+        # audio-helper returns (audio, rate) and takes ``target_sample_rate``; it also
+        # hands back a torch tensor unless asked for numpy. Both are easy to get wrong
+        # from memory, which is why this was checked against the real signature.
+        audio, rate = ah.load_audio(str(wav), target_sample_rate=SR, to_mono=True, to_numpy=True)
+        pcm = np.asarray(audio, dtype=np.float32).reshape(-1)
+        assert rate == SR, f"{name}: attendu {SR} Hz, reçu {rate}"
         duration = pcm.size / SR
         reference = load_reference(rttm)
         click.echo(f"\n── {name} · {duration / 60:.1f} min")
