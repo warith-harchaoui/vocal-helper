@@ -155,8 +155,19 @@ def truth_on(
 @click.option("--chunk-s", default=60.0, help="Longueur d'un morceau.")
 @click.option("--budget-s", default=8.0, help="Durée de référence par locuteur dans l'amorçage.")
 @click.option("--limit", default=2, help="Nombre de réunions.")
+@click.option(
+    "--refresh/--freeze",
+    default=False,
+    help="Remplacer une référence par un échantillon plus long, ou la figer à la première vue.",
+)
 def main(
-    root: str, out_path: str, segmenter: str, chunk_s: float, budget_s: float, limit: int
+    root: str,
+    out_path: str,
+    segmenter: str,
+    chunk_s: float,
+    budget_s: float,
+    limit: int,
+    refresh: bool,
 ) -> None:
     """Mesurer le transport d'identité par recouvrement temporel."""
     meetings = sorted(p for p in pathlib.Path(root).iterdir() if (p / "mix.wav").exists())
@@ -173,6 +184,7 @@ def main(
         print(
             f"\n── {meeting.name} · {duration / 60:.1f} min · {n_truth} locuteurs"
             f" · morceaux de {chunk_s:g} s · amorçage {budget_s:g} s/locuteur"
+            f" · références {'rafraîchies' if refresh else 'figées'}"
         )
 
         room = harvest_room_tone(pcm[: int(min(duration, 120.0) * sr)], sr, 0.8)
@@ -240,8 +252,16 @@ def main(
             fresh = build_references(
                 pcm=chunk, sample_rate=sr, segments=renamed, offset_s=0.0, budget_s=budget_s
             )
+            # Figer une référence sur les premières secondes jamais entendues est
+            # ce qui plafonnait la relecture : sur une réunion dont le moteur ne
+            # trouve que trois locuteurs sur quatre, le premier morceau n'a aucune
+            # identité à laquelle se raccrocher, donc la référence récoltée peut
+            # être un mélange de deux voix — et elle le reste pour toute la séance.
             for name, sample in fresh.items():
-                if name not in references and len(sample):
+                if not len(sample):
+                    continue
+                held = references.get(name)
+                if held is None or (refresh and len(sample) > len(held)):
                     references[name] = sample
 
         elapsed = time.perf_counter() - started
@@ -275,6 +295,9 @@ def main(
         here["placement"] = placed_total / known_total if known_total else float("nan")
         here["carried"] = carried_total / labels_total if labels_total else float("nan")
         here["minted"] = minted
+        here["refresh"] = refresh
+        here["chunk_s"] = chunk_s
+        here["budget_s"] = budget_s
         print(
             f"   relecture : {here['placement']:.1%} des créneaux placés"
             f" · transport : {here['carried']:.1%} des étiquettes nommées"
