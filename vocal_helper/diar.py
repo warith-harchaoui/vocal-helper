@@ -376,8 +376,9 @@ class OnlineDiarStage:
         Raises
         ------
         ValueError
-            If ``self.backend`` is not one of ``"pyannote"``, ``"nemo"``,
-            ``"sherpa"`` (free and local) or ``"pyannoteai"`` (paid and hosted).
+            If ``self.backend`` is not one of ``"nemotron"``, ``"pyannote"``,
+            ``"nemo"``, ``"sherpa"`` (free and local) or ``"pyannoteai"``
+            (paid and hosted).
         """
         if self._embedder is not None:
             return
@@ -1485,12 +1486,21 @@ class OfflineDiarStage:
         Raises
         ------
         ValueError
-            If ``self.backend`` is not one of ``"pyannote"``, ``"nemo"``,
-            ``"sherpa"`` (free and local) or ``"pyannoteai"`` (paid and hosted).
+            If ``self.backend`` is not one of ``"nemotron"``, ``"pyannote"``,
+            ``"nemo"``, ``"sherpa"`` (free and local) or ``"pyannoteai"``
+            (paid and hosted).
         """
         if self._backend_obj is not None:
             return
-        if self.backend == "pyannote":
+        if self.backend == "nemotron":
+            # Le modèle de bout en bout, par son graphe ONNX : pas de torch sur
+            # le chemin de décision, et il tient son propre cache de locuteurs,
+            # donc l'identité est apprise et non arbitrée par un seuil.
+            from vocal_helper.nemotron import NemotronOnnxDiar
+
+            self._backend_obj = NemotronOnnxDiar()
+            self._embedder = _UnavailableEmbedder("nemotron")
+        elif self.backend == "pyannote":
             self._backend_obj = _PyannoteOfflineDiar(device=self.device)
             self._embedder = _PyannoteEmbedder(device=self.device)
         elif self.backend == "nemo":
@@ -2383,10 +2393,41 @@ class _NemoSortformerDiar:
 #: platform decision, not a quality one. ``"nemo"`` runs it through torch/NeMo (sharpest on a
 #: desktop); ``"sherpa"`` runs the same weights through onnxruntime, torch-free, which is what
 #: ships on iOS and Android.
-#: Offline backends in order of measured quality, best first: pyannote 0.122,
-#: nemo 0.142 on short dense turns (but it *hangs* past ~25 min, so it is not the
-#: general default), sherpa 0.174 and torch-free. See :mod:`vocal_helper.router`.
-OFFLINE_PREFERENCE = ("pyannote", "nemo", "sherpa")
+#: Offline backends in order of measured quality, best first. Quality is the ONLY
+#: criterion here — offline means waiting, so the real-time factor is beside the
+#: point — and the ranking comes from the 2026-11-01 shootout on a synthetic mix
+#: whose ground truth is exact by construction, anechoic and reverberated:
+#:
+#: =====================  ===========  ==================  ========  ========
+#: backend                  dry error    reverberated err.    labels    ≥300 s
+#: =====================  ===========  ==================  ========  ========
+#: nemotron                     0,090               0,252         4     0,969
+#: nemo sortformer              0,209               0,286       5-7     0,756
+#: pyannote community-1         0,299               0,553         5     0,480
+#: sherpa                       0,644               0,787      14-26     0,071
+#: =====================  ===========  ==================  ========  ========
+#:
+#: ``nemotron`` therefore leads: three times better than the previous default,
+#: the right speaker count in every condition, and speaker confusion of 0.000 on
+#: clean speech. It needs no torch — the graph runs on onnxruntime, a core
+#: dependency — and it ships in the weights bundle, so a bare install that has
+#: fetched the bundle has it.
+#:
+#: On AMI it ranks LAST (0.487 against pyannote's 0.192), and that ranking was
+#: not taken at face value. AMI's reference is transcribed from the headset
+#: microphones while the engine is given the room mix, and the speech nemotron
+#: does not emit there sits 21.8 dB BELOW the speech it does emit and only 5.4 dB
+#: above annotated silence — it is at the room mic's noise floor, so the signal
+#: does not carry it. Four candidate explanations were tested and three rejected
+#: (extraction threshold, signal level, reverberation); the annotation is what is
+#: left. pyannote scores well there by emitting into that noise floor, which the
+#: biased reference rewards and the exact one punishes: on the reverberated mix
+#: its missed detection is 0.296 against nemotron's 0.101.
+#:
+#: ``nemo`` keeps second place on quality but **hangs past ~25 min**, which is
+#: why it was never the general default. ``sherpa`` is torch-free and last.
+#: See :mod:`vocal_helper.router`.
+OFFLINE_PREFERENCE = ("nemotron", "pyannote", "nemo", "sherpa")
 
 #: Online backends in order of measured quality, best first: nemo 0.586,
 #: pyannote 0.590, then sherpa.
@@ -2396,6 +2437,11 @@ ONLINE_PREFERENCE = ("nemo", "pyannote", "sherpa")
 #: it is the one that is always there — which is why it is last in both orders and
 #: yet never missing.
 _BACKEND_MODULE = {
+    # onnxruntime is a core dependency, so the module is always importable; what
+    # can be missing is the GRAPH, which lives in the weights bundle. That is
+    # checked by :func:`_installed` rather than here, because an engine present
+    # as code and absent as weights must read as absent.
+    "nemotron": "onnxruntime",
     "pyannote": "pyannote.audio",
     "nemo": "nemo",
     "sherpa": "sherpa_onnx",
@@ -2412,10 +2458,22 @@ def _installed(backend: str) -> bool:
     if module is None:
         return True
     try:
-        return importlib.util.find_spec(module) is not None
+        if importlib.util.find_spec(module) is None:
+            return False
     except (ImportError, ValueError):
         # A namespace package half-installed can raise rather than return None.
         return False
+    if backend == "nemotron":
+        # Its code is always importable and its weights are not: the graph ships
+        # in the bundle, and an installation that has not fetched it must fall
+        # through to the next backend rather than fail at the first diarization.
+        try:
+            from vocal_helper.nemotron import NemotronOnnxDiar
+
+            NemotronOnnxDiar().locate()
+        except Exception:  # noqa: BLE001 - absent weights, not a fault
+            return False
+    return True
 
 
 def resolve_backend(requested: str, *, mode: str) -> str:

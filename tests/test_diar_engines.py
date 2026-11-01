@@ -202,13 +202,29 @@ def test_an_explicit_backend_is_returned_even_if_it_looks_absent():
 
 
 def test_the_preference_order_is_the_measured_quality_order():
-    """Not alphabetical and not a preference: offline pyannote 0.122 beats nemo
-    0.142 and sherpa 0.174, and online nemo 0.586 beats pyannote 0.590. Installing
-    an extra therefore upgrades the result with no code change — the install is the
-    switch."""
+    """Ni alphabétique ni affaire de goût : c'est l'ordre que la mesure donne.
+
+    L'ordre différé a changé le 2026-11-01. Il plaçait pyannote en tête, et
+    `nemotron` le dépasse largement sur le seul critère qui vaille en différé —
+    la qualité, puisqu'on attend. Sur un mixage dont la vérité est exacte par
+    construction, sec puis réverbéré : 0,090 et 0,252 de taux d'erreur contre
+    0,299 et 0,553 pour pyannote, avec le bon nombre de locuteurs partout et une
+    confusion nulle sur du propre.
+
+    Sur AMI, `nemotron` arrive dernier, et ce classement n'a pas été pris au mot :
+    la parole qu'il n'émet pas y est 21,8 dB sous celle qu'il émet et 5,4 dB
+    au-dessus du silence annoté, donc au plancher de bruit du micro de salle. La
+    référence d'AMI est transcrite sur les casques et décrit de la parole que le
+    signal ne porte pas. Trois autres explications ont été testées et écartées —
+    seuil d'extraction, niveau, réverbération.
+
+    Installer un extra reste l'interrupteur : l'ordre est une préférence, pas une
+    exigence, et un backend absent est sauté.
+    """
     from vocal_helper.diar import OFFLINE_PREFERENCE, ONLINE_PREFERENCE
 
-    assert OFFLINE_PREFERENCE[0] == "pyannote"
+    assert OFFLINE_PREFERENCE[0] == "nemotron"
+    assert OFFLINE_PREFERENCE[1] == "pyannote"
     assert ONLINE_PREFERENCE[0] == "nemo"
     # sherpa is last in both and yet never missing: it is the core dependency, so it
     # is the floor the probe can always fall back to.

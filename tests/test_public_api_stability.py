@@ -127,11 +127,23 @@ def test_public_contract_stable() -> None:
     #
     #    So the assertion moves from the literal to the behaviour, which is what was
     #    ever worth freezing.
+    #    Et le 2026-11-01, à nouveau : ce que cette garde protège est « un
+    #    appelant qui ne précise rien obtient la meilleure qualité disponible »,
+    #    pas « il obtient pyannote ». La mesure a changé de gagnant — sur un
+    #    mixage à vérité exacte, sec puis réverbéré, nemotron donne 0,090 et
+    #    0,252 contre 0,299 et 0,553 pour pyannote — donc l'assertion suit la
+    #    mesure. Ce qui resterait une régression, c'est de résoudre vers un
+    #    backend qui n'est PAS le premier installé de l'ordre de qualité, et
+    #    c'est cela qui est figé ici.
     sig = inspect.signature(voh.OfflineDiarStage)
     assert sig.parameters["backend"].default == "auto"
-    assert voh.OfflineDiarStage().backend == "pyannote", (
-        "pyannote is installed here, so the default must still resolve to it; "
-        "anything else is a quality regression hiding behind a probe"
+    from vocal_helper.diar import OFFLINE_PREFERENCE, _installed
+
+    expected = next(name for name in OFFLINE_PREFERENCE if _installed(name))
+    assert voh.OfflineDiarStage().backend == expected, (
+        f"le défaut doit résoudre vers {expected}, le premier installé de l'ordre "
+        "de qualité mesurée ; autre chose serait une régression cachée derrière "
+        "une sonde"
     )
     # And the floor is reachable: the torch-free backend is a core dependency, so
     # there is always something for "auto" to land on.
