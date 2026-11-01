@@ -6,6 +6,18 @@ on, **breaking behaviour and default changes land only in MAJOR releases; MINOR
 adds features compatibly; PATCH is bug-fixes and docs.** The public API is the
 names exported from `vocal_helper.__all__` plus the documented CLI flags.
 
+## [3.3.2] - 2026-11-01
+
+### Fixed
+
+- **The published metadata capped `os-helper<4`, so nobody installing from the
+  index could reach 4.0.0.** The ceiling was raised in this repository on
+  2026-10-31, but a wheel's `Requires-Dist` is frozen at upload: until this
+  release a fresh resolve still pulled os-helper 3.1.0 and the raised ceiling
+  reached no installer at all. This release is what carries the `<5` to the
+  index. This package never calls `hashfile` or `hashfolder`, the two functions whose
+  contract 4.0.0 tightened, so the ceiling was the only thing in the way.
+
 ## [3.3.1] - 2026-10-28
 
 ### Fixed
