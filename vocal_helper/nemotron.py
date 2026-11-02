@@ -115,6 +115,32 @@ DEFAULT_MODE = "low_latency"
 #: pire qu'un défaut médiocre.
 MAX_SEQUENCE_FRAMES = 625
 
+#: Budget de latence par défaut, en secondes : le calendrier publié à basse
+#: latence.
+#:
+#: J'ai d'abord pris le plus long contexte viable, 6,4 s, parce qu'il est **moins
+#: cher** à qualité égale — 0,166 de facteur temps réel contre 0,258, pour 0,092
+#: de taux d'erreur contre 0,090. Mais cette égalité n'existe qu'en salle
+#: anéchoïque, et une salle de réunion ne l'est pas. Réverbérée à 0,6 s de temps
+#: de décroissance, la mesure sépare nettement les deux :
+#:
+#: ============  ========  ============  ===============
+#: latence            DER     confusion    accord ≥300 s
+#: ============  ========  ============  ===============
+#: 6,40 s           0,350         0,190            0,372
+#: 1,04 s           0,252         0,151            0,668
+#: ============  ========  ============  ===============
+#:
+#: L'accord longue portée est presque doublé, et le taux d'erreur meilleur d'un
+#: tiers. Le contexte long dilue donc la décision quand le signal est smearé par
+#: la salle : il voit plus de matière, mais une matière plus confuse.
+#:
+#: Le défaut est donc le calendrier que la provenance publie et a validé — ce qui
+#: aurait dû être l'hypothèse de départ. Le contexte long reste accessible par
+#: ``latency_s`` pour un enregistrement propre et de près, où il ne coûte rien en
+#: qualité et économise un tiers du calcul.
+DEFAULT_LATENCY_S = 1.04
+
 #: Marge retirée de la capacité annoncée, en trames.
 #:
 #: 625 est l'arithmétique du message d'erreur, et le graphe refuse pourtant à
@@ -942,12 +968,12 @@ class NemotronOnnxDiar:
     latency_s : float, optional
         Budget de latence, en secondes. C'est le **seul** réglage à connaître :
         le calendrier s'en déduit, en prenant le morceau le plus long que ce
-        budget et le graphe permettent. Plus de contexte vaut mieux — le modèle
-        voit davantage avant de décider, et le coût par seconde d'audio baisse
-        puisqu'il y a moins d'appels — donc ``None`` (le défaut) ne demande
-        rien et prend tout ce qui tient, soit 25,7 s avec les longueurs de ce
-        point de contrôle. Passer ``1.04`` rend le calendrier publié à basse
-        latence, ``0.32`` le plus court.
+        budget et le graphe permettent. Le défaut est
+        :data:`DEFAULT_LATENCY_S`, c'est-à-dire le calendrier publié à basse
+        latence, parce qu'il est nettement meilleur dès qu'il y a de la
+        réverbération — et une salle de réunion en a. ``None`` prend le plus
+        long contexte viable, 6,4 s, qui coûte un tiers de calcul en moins et
+        n'est à égalité qu'en salle anéchoïque.
     mode : str, optional
         Un calendrier nommé de :data:`STREAMING_MODES`, qui l'emporte sur
         ``latency_s`` quand il est donné. Utile pour reproduire exactement une
@@ -973,7 +999,7 @@ class NemotronOnnxDiar:
         self,
         graph: str | Path | None = None,
         *,
-        latency_s: float | None = None,
+        latency_s: float | None = DEFAULT_LATENCY_S,
         mode: str | None = None,
         providers: list[str] | None = None,
         threads: int | None = None,

@@ -321,7 +321,32 @@ def test_coreml_stays_reachable_when_asked_for_explicitly():
     assert stage._providers == ["CoreMLExecutionProvider"]
 
 
-def test_the_default_takes_the_longest_context_the_fifo_allows():
+def test_the_default_is_the_published_low_latency_schedule():
+    """Le défaut est celui que la provenance publie, et voici pourquoi.
+
+    J'ai d'abord pris le plus long contexte viable, 6,4 s, parce qu'il est moins
+    cher à qualité égale : 0,166 de facteur temps réel contre 0,258, pour 0,092
+    de taux d'erreur contre 0,090. Mais cette égalité n'existe qu'en salle
+    **anéchoïque**, et une salle de réunion ne l'est pas. Réverbérée à 0,6 s de
+    temps de décroissance, les deux se séparent nettement : 0,350 contre 0,252 de
+    taux d'erreur, 0,190 contre 0,151 de confusion, et un accord longue portée de
+    0,372 contre 0,668 — presque doublé.
+
+    Le contexte long dilue donc la décision quand la salle smeare le signal : il
+    voit plus de matière, mais une matière plus confuse. Le défaut est donc le
+    calendrier validé par la provenance, ce qui aurait dû être l'hypothèse de
+    départ.
+    """
+    from vocal_helper.nemotron import DEFAULT_LATENCY_S
+
+    assert NemotronOnnxDiar().schedule.latency_s == pytest.approx(DEFAULT_LATENCY_S)
+    assert (DEFAULT_LATENCY_S, 0) in [
+        (NemotronSchedule(chunk_len=c, chunk_right_context=r).latency_s, 0)
+        for c, r in STREAMING_MODES.values()
+    ], "le défaut doit être un calendrier publié, pas une valeur inventée"
+
+
+def test_asking_for_no_budget_takes_the_longest_context_the_fifo_allows():
     """Le défaut prend le plus long contexte VIABLE, et la file est ce qui borne.
 
     Deux limites se superposent, et c'est la seconde qui mord. La séquence que le
@@ -340,7 +365,7 @@ def test_the_default_takes_the_longest_context_the_fifo_allows():
     """
     from vocal_helper.nemotron import fits_capacity
 
-    schedule = NemotronOnnxDiar().schedule
+    schedule = NemotronOnnxDiar(latency_s=None).schedule
     assert fits_capacity(schedule)
     assert schedule.chunk_len <= schedule.fifo_len, (
         "un morceau plus long que la file la fait grandir sans borne"
