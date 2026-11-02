@@ -130,5 +130,10 @@ jobs:
         with:
           python-version: "3.10"
           cache: pip
+      # Meme raison que dans le job de tests : os-helper 4.1.0 porte
+      # `unzip_folder` et n'est pas encore sur PyPI, donc le plancher que
+      # pyproject.toml demande ne se resout pas sans ca. A retirer des qu'elle
+      # est publiee — les deux lignes partiront ensemble.
+      - run: pip install 'os-helper @ git+https://github.com/warith-harchaoui/os-helper@main'
       - run: pip install .
       - run: python -c "import vocal_helper"
