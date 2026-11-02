@@ -47,6 +47,7 @@ from __future__ import annotations
 
 import base64
 import math
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -1057,7 +1058,7 @@ class NemotronOnnxDiar:
         options = ort.SessionOptions()
         if self._threads:
             options.intra_op_num_threads = int(self._threads)
-        providers = self._providers or _preferred_providers()
+        providers = self._providers or _requested_providers() or _preferred_providers()
         self._session = ort.InferenceSession(str(path), options, providers=providers)
         self._schedule, self._silence = schedule, silence
         return self._session, schedule, silence
@@ -1239,7 +1240,16 @@ class NemotronOnnxDiar:
                 consumed += step_frames
 
         def release(final: bool) -> list[dict]:
-            """Les segments que le modèle a maintenant dépassés."""
+            """Les segments que le modèle a maintenant dépassés.
+
+            Chaque segment part avec sa **confiance**, qui est la probabilité
+            moyenne de la colonne retenue, et un drapeau quand aucune colonne ne
+            dépasse le seuil. Sans eux, l'argmax répond toujours et le plafond du
+            modèle est invisible : mesuré sur une échelle de douze locuteurs, le
+            douzième n'est émis qu'à 0,17 de sa durée, mais chacun de ses
+            segments reçoit tout de même le nom d'une colonne. C'est ce drapeau
+            que :mod:`vocal_helper.ceiling` lit pour décider s'il faut sonder.
+            """
             ready, held = [], []
             covered = len(probabilities) * 0.01
             for item in waiting:
@@ -1249,9 +1259,17 @@ class NemotronOnnxDiar:
                     if hi > lo:
                         mean = probabilities[lo:hi].mean(axis=0)
                         speaker = f"S{int(np.argmax(mean))}"
+                        confidence = float(mean.max())
                     else:
-                        speaker = "S?"
-                    ready.append({**item, "speaker": speaker})
+                        speaker, confidence = "S?", 0.0
+                    ready.append(
+                        {
+                            **item,
+                            "speaker": speaker,
+                            "confidence": confidence,
+                            "unexplained": confidence < self.threshold,
+                        }
+                    )
                 else:
                     held.append(item)
             waiting[:] = held
@@ -1316,6 +1334,84 @@ def _graph_metadata(path: Path) -> dict[str, str]:
 
     model = onnx.load(str(path), load_external_data=False)
     return {prop.key: prop.value for prop in model.metadata_props}
+
+
+#: La variable d'environnement qui épingle un moteur d'exécution ONNX Runtime.
+#:
+#: Même échelle d'autorité que la caisse Rust jumelle : le paramètre
+#: ``providers=`` de l'appelant d'abord, puis cette variable, puis l'ordre
+#: mesuré. Elle existe pour épingler une machine sans toucher au code.
+PROVIDER_ENV = "VOCAL_HELPER_PROVIDER"
+
+#: Les noms écrits à la main, et le moteur qu'ils désignent.
+_PROVIDER_ALIASES = {
+    "cpu": "CPUExecutionProvider",
+    "coreml": "CoreMLExecutionProvider",
+    "cuda": "CUDAExecutionProvider",
+    "tensorrt": "TensorrtExecutionProvider",
+    "directml": "DmlExecutionProvider",
+    "dml": "DmlExecutionProvider",
+    "nnapi": "NnapiExecutionProvider",
+    "qnn": "QNNExecutionProvider",
+    "openvino": "OpenVINOExecutionProvider",
+}
+
+
+def provider_from_name(name: str) -> str | None:
+    """Le moteur que désigne un nom écrit à la main, ou ``None``.
+
+    Tolérant sur la forme — casse, tirets, soulignés, suffixe
+    ``ExecutionProvider`` — parce que ce nom s'écrit dans un shell ou un fichier
+    de configuration, pas dans du code.
+
+    >>> provider_from_name("coreml")
+    'CoreMLExecutionProvider'
+    >>> provider_from_name("CoreMLExecutionProvider")
+    'CoreMLExecutionProvider'
+    >>> provider_from_name("metal") is None
+    True
+    """
+    normalised = (
+        name.strip()
+        .lower()
+        .replace("-", "")
+        .replace("_", "")
+        .replace(" ", "")
+        .replace("executionprovider", "")
+    )
+    return _PROVIDER_ALIASES.get(normalised)
+
+
+def _requested_providers() -> list[str] | None:
+    """Le moteur épinglé par l'environnement, ou ``None`` si personne n'a rien dit.
+
+    Deux refus explicites plutôt qu'un repli, et c'est voulu. Un nom inconnu lève
+    une erreur : sans ça, une faute de frappe serait indétectable, on croirait
+    tourner sur CUDA en tournant sur le CPU. Un nom connu mais absent de cette
+    installation lève aussi — ONNX Runtime, lui, se rabat sur le CPU en écrivant
+    un avertissement que personne ne lit, ce qui est exactement le repli
+    silencieux que cette bibliothèque s'interdit.
+    """
+    raw = os.environ.get(PROVIDER_ENV, "").strip()
+    if not raw:
+        return None
+
+    provider = provider_from_name(raw)
+    if provider is None:
+        raise ValueError(
+            f"{PROVIDER_ENV}={raw!r} ne désigne aucun moteur d'exécution ; "
+            f"les noms acceptés sont {', '.join(sorted(_PROVIDER_ALIASES))}"
+        )
+
+    import onnxruntime as ort
+
+    available = set(ort.get_available_providers())
+    if provider not in available:
+        raise ValueError(
+            f"{PROVIDER_ENV}={raw!r} demande {provider}, absent de cette "
+            f"installation d'onnxruntime ; elle propose {', '.join(sorted(available))}"
+        )
+    return [provider]
 
 
 def _preferred_providers() -> list[str]:

@@ -544,3 +544,43 @@ def test_the_pipeline_exposes_one_latency_knob_and_it_reaches_the_engine():
     if isinstance(default._diar, NemotronOnnxDiar):
         assert default._diar.schedule.latency_s > quick._diar.schedule.latency_s
         assert quick._diar.schedule.latency_s == pytest.approx(1.04)
+
+
+def test_a_named_provider_is_read_tolerantly() -> None:
+    """Ce nom s'écrit dans un shell, pas dans du code : la graphie exacte du
+    runtime ne doit pas être exigée."""
+    from vocal_helper.nemotron import provider_from_name
+
+    for forme in ("coreml", "CoreML", "core-ml", "CoreMLExecutionProvider"):
+        assert provider_from_name(forme) == "CoreMLExecutionProvider", forme
+    assert provider_from_name("dml") == "DmlExecutionProvider"
+    assert provider_from_name("metal") is None
+
+
+def test_an_unknown_provider_name_raises_instead_of_falling_back(monkeypatch) -> None:
+    """Un repli rendrait une faute de frappe indétectable : on croirait tourner
+    sur CUDA en tournant sur le CPU, et la seule trace serait un RTF décevant."""
+    from vocal_helper import nemotron
+
+    monkeypatch.setenv(nemotron.PROVIDER_ENV, "cudaa")
+    with pytest.raises(ValueError, match="ne désigne aucun moteur"):
+        nemotron._requested_providers()
+
+
+def test_a_provider_absent_from_this_install_raises_too(monkeypatch) -> None:
+    """ONNX Runtime, lui, se rabat sur le CPU en écrivant un avertissement que
+    personne ne lit — exactement le repli silencieux qu'on s'interdit."""
+    from vocal_helper import nemotron
+
+    monkeypatch.setenv(nemotron.PROVIDER_ENV, "qnn")
+    with pytest.raises(ValueError, match="absent de cette installation"):
+        nemotron._requested_providers()
+
+
+def test_no_environment_means_no_opinion(monkeypatch) -> None:
+    from vocal_helper import nemotron
+
+    monkeypatch.delenv(nemotron.PROVIDER_ENV, raising=False)
+    assert nemotron._requested_providers() is None
+    monkeypatch.setenv(nemotron.PROVIDER_ENV, "   ")
+    assert nemotron._requested_providers() is None
