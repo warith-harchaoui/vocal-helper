@@ -468,11 +468,17 @@ def longest_schedule_within(
 
     Examples
     --------
-    Sans contrainte, on prend tout ce qui tient : 281 trames de morceau plus 40
-    de contexte, soit 25,7 s.
+    Sans contrainte, on prend tout ce que la file permet : 40 trames de morceau
+    plus 40 de contexte, soit 6,4 s.
 
     >>> longest_schedule_within(NemotronSchedule(), latency_s=None)
-    (281, 40)
+    (40, 40)
+
+    Un budget large va jusqu'au plus long viable, et non au calendrier publié :
+    le préférer par principe ignorerait la demande.
+
+    >>> longest_schedule_within(NemotronSchedule(), latency_s=3600.0)
+    (40, 40)
 
     Un budget d'une seconde ramène au calendrier publié à basse latence.
 
@@ -506,73 +512,29 @@ def longest_schedule_within(
     right = schedule.chunk_right_context
     if latency_s is None:
         return max(1, room - right), right
-    budget = int(latency_s / 0.08)
-    # Les calendriers publiés d'abord : ils sont vérifiés par la provenance.
-    published = sorted(
-        ((chunk + rc, chunk, rc) for chunk, rc in STREAMING_MODES.values() if chunk + rc <= budget),
-        reverse=True,
+
+    frames = int(latency_s / 0.08)
+    # Deux familles de candidats, et on prend le plus long des deux.
+    #
+    # Les calendriers publiés ont un contexte droit plus court — 4, 2 et 1
+    # trames — donc ils sont les seuls à tenir dans un petit budget, où le
+    # contexte droit par défaut de 40 ne passe pas. Un budget large, lui, doit
+    # aller jusqu'au plus long viable : les préférer par principe ignorerait la
+    # demande de l'appelant.
+    published = max(
+        ((chunk + rc, chunk, rc) for chunk, rc in STREAMING_MODES.values() if chunk + rc <= frames),
+        default=None,
     )
-    if published:
-        _, chunk, rc = published[0]
-        return chunk, rc
-    longest = min(budget - right, room - right)
+    computed = None
+    longest = min(frames, room) - right
     if longest >= 1:
-        return longest, right
-    shortest = min(STREAMING_MODES.values(), key=lambda pair: sum(pair))
-    return shortest
-
-
-def probe_capacity(session: Any, schedule: NemotronSchedule) -> int:
-    """La plus longue séquence que **ce** graphe accepte, mesurée par dichotomie.
-
-    L'arithmétique du message d'erreur donne 625 trames, et le graphe refuse à
-    625 : sa séquence interne n'est donc pas exactement huit positions par
-    trame, et chercher la bonne formule à tâtons serait deviner. On lui demande
-    donc directement, en lui soumettant un cache **plein** — le cas qui échoue,
-    et celui qu'un extrait court ne révèle jamais.
-
-    Le coût est de quelques appels au chargement, une fois par session, contre
-    un défaut qui plante après quelques minutes de séance. Et un export futur
-    apportera sa propre limite sans qu'une constante ait à être corrigée.
-
-    Parameters
-    ----------
-    session : onnxruntime.InferenceSession
-        La session ouverte sur le graphe.
-    schedule : NemotronSchedule
-        Pour les longueurs de cache et de file, qui mangent la capacité.
-
-    Returns
-    -------
-    int
-        Le nombre total de trames que le graphe accepte, cache et file compris.
-    """
-    fixed = schedule.spkcache_len + schedule.fifo_len
-    state = StreamingState(
-        spkcache=np.zeros((schedule.spkcache_len, schedule.emb_dim), dtype=np.float32),
-        fifo=np.zeros((schedule.fifo_len, schedule.emb_dim), dtype=np.float32),
-        fifo_preds=np.zeros((schedule.fifo_len, schedule.num_speakers), dtype=np.float32),
-    )
-
-    def accepts(chunk_frames: int) -> bool:
-        mel = chunk_frames * schedule.subsampling
-        window = np.zeros((mel, schedule.n_mels), dtype=np.float32)
-        try:
-            _run_step(session, window, mel, state)
-        except Exception:  # noqa: BLE001 - un refus est une réponse, pas une faute
-            return False
-        return True
-
-    low, high = CAPACITY_PROBE_FLOOR, MAX_SEQUENCE_FRAMES - fixed
-    if not accepts(low):
-        return fixed + low  # même le plancher passe mal : on le signalera à l'usage
-    while low < high:
-        middle = (low + high + 1) // 2
-        if accepts(middle):
-            low = middle
-        else:
-            high = middle - 1
-    return fixed + low
+        computed = (longest + right, longest, right)
+    best = max([c for c in (published, computed) if c is not None], default=None)
+    if best is not None:
+        return best[1], best[2]
+    # Budget intenable : le plus court plutôt que rien, parce que ne pas
+    # diariser est pire que dépasser le budget.
+    return min(STREAMING_MODES.values(), key=sum)
 
 
 def log_pred_scores(predictions: NDArray[np.float32], *, floor: float) -> NDArray[np.float64]:
