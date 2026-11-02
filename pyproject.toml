@@ -46,7 +46,11 @@ classifiers = [
 #   summary buffer ; everything older than ``recent_window_s`` (default 60 s)
 #   gets folded into the summary.
 dependencies = [
-    "os-helper>=2.6.0,<5",
+    # 4.1.0 is the floor because `osh.unzip_folder` arrives there, and the
+    # diarization-engine resolver uses it to open the downloaded bundle. Asking
+    # for less would install a version that cannot do it, and the failure would
+    # land at first use rather than at install.
+    "os-helper>=4.1.0,<5",
     # The CLI is the ``vocal-helper`` entry point, not an optional surface, so
     # click cannot be optional either. It used to be an opt-in extra, back when
     # a stdlib-argparse CLI shipped alongside and click was the twin.
@@ -80,6 +84,16 @@ dependencies = [
     # quality gain is worth asking for deliberately, not worth imposing half a
     # gigabyte on everyone who installs this to read one meeting.
     "sherpa-onnx>=1.13",
+    # And onnxruntime, by exactly the same argument one paragraph up. Since the
+    # measurement campaign of 2026-11 the DEFAULT free local diarizer, offline and
+    # live both, is Nemotron through its ONNX graph: diarization error 0.090 in
+    # both modes against sherpa's 0.174, with zero speaker confusion and the right
+    # speaker count. A default engine whose runtime is optional is not a default;
+    # it is a crash waiting for the first user who did not read the extras.
+    #
+    # It is also light and torch-free — the reason this engine was chosen — so it
+    # costs a bare install far less than the quality it brings.
+    "onnxruntime>=1.18",
 ]
 
 [project.optional-dependencies]

@@ -19,7 +19,9 @@
 # All suite pins are kept in lock-step with their newest release tags.
 
 # --- Suite dependencies (core) --------------------------------------------
-os-helper>=2.6.0,<5
+# 4.1.0 apporte osh.unzip_folder, dont le resolveur de moteurs de
+# diarisation se sert pour ouvrir le paquet telecharge.
+os-helper>=4.1.0,<5
 audio-helper>=2.0.0,<3
 best-engine-ai-helper>=1.0.0,<2
 # The CLI is not an optional surface, so its parser cannot be optional either.
@@ -38,3 +40,7 @@ pywhispercpp>=1.5
 # torch-free and light, so it is the one that ships by default; pyannote.audio is
 # better (0.122 against 0.174) and stays behind `[pyannote]` because it pulls torch.
 sherpa-onnx>=1.13
+# Et onnxruntime par le meme argument : Nemotron, le diariseur gratuit local
+# par defaut dans les deux modes, tourne par son graphe ONNX. Un moteur par
+# defaut dont le runtime serait optionnel n'est pas un defaut.
+onnxruntime>=1.18
