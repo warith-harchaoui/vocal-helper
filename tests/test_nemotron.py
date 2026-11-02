@@ -321,26 +321,58 @@ def test_coreml_stays_reachable_when_asked_for_explicitly():
     assert stage._providers == ["CoreMLExecutionProvider"]
 
 
-def test_the_default_schedule_is_a_streaming_one_not_the_graphs_offline_one():
-    """Le défaut du graphe plante dès que son cache se remplit.
+def test_the_default_takes_the_longest_context_the_fifo_allows():
+    """Le défaut prend le plus long contexte VIABLE, et la file est ce qui borne.
 
-    Son export affirme que le calendrier hors ligne — 340 trames de morceau plus
-    40 de contexte — est le seul vérifié de bout en bout. Mesuré, il lève
-    ``Reshape '/pos_enc/Reshape_3' : Input shape {5000,64}, requested shape
-    {1,1,5144,64}`` : l'encodage positionnel est tracé pour une longueur finie
-    que la séquence dépasse au régime établi. Le piège est qu'un extrait court
-    passe, le cache n'étant pas encore plein, donc le défaut échouait
-    précisément sur les durées pour lesquelles un mode hors ligne existe.
+    Deux limites se superposent, et c'est la seconde qui mord. La séquence que le
+    graphe accepte en est une : 625 trames, cache et file comprises. Mais la mise
+    à jour ajoute ``chunk_len`` trames à la file et n'en retire que ``fifo_len``,
+    donc un morceau plus long que la file la fait grandir sans borne — avec 281
+    de morceau elle monte à 241 au lieu de rester à 40, et la séquence atteint
+    826 trames. C'est le portage fidèle de la référence, dont la règle n'est
+    cohérente que si le morceau n'excède pas la file : ses trois calendriers de
+    flux publiés le respectent et son calendrier hors ligne, à 340 trames, le
+    viole — ce qui est exactement pourquoi ce dernier ne fonctionne pas.
+
+    Le défaut est donc un morceau de ``fifo_len`` trames, soit 6,4 s de latence :
+    six fois le calendrier à basse latence, et non les vingt-cinq que la seule
+    capacité de séquence laissait espérer.
     """
-    from vocal_helper.nemotron import DEFAULT_MODE, STREAMING_MODES
+    from vocal_helper.nemotron import fits_capacity
 
-    assert DEFAULT_MODE in STREAMING_MODES
-    assert NemotronOnnxDiar()._mode == DEFAULT_MODE
+    schedule = NemotronOnnxDiar().schedule
+    assert fits_capacity(schedule)
+    assert schedule.chunk_len <= schedule.fifo_len, (
+        "un morceau plus long que la file la fait grandir sans borne"
+    )
+    assert schedule.latency_s > 5.0, "sans contrainte, le contexte doit être long"
 
 
-def test_the_graphs_own_schedule_stays_reachable_for_a_short_clip():
-    """Un extrait court y tient, et quelqu'un peut vouloir le contexte long."""
-    assert NemotronOnnxDiar(mode=None)._mode is None
+def test_a_chunk_longer_than_the_fifo_is_never_chosen():
+    """La contrainte qui a réellement fait échouer le défaut précédent."""
+    from vocal_helper.nemotron import NemotronSchedule, longest_schedule_within
+
+    schedule = NemotronSchedule()
+    for budget in (None, 60.0, 25.0, 6.4, 1.04, 0.32):
+        chunk, _ = longest_schedule_within(schedule, latency_s=budget)
+        assert chunk <= schedule.fifo_len, f"budget {budget} choisit un morceau de {chunk}"
+
+
+def test_a_latency_budget_is_the_only_knob_needed():
+    """Un budget en secondes, pas un nom de calendrier à connaître."""
+    assert NemotronOnnxDiar(latency_s=1.04).schedule.latency_s == pytest.approx(1.04)
+    assert NemotronOnnxDiar(latency_s=0.32).schedule.latency_s == pytest.approx(0.32)
+
+
+def test_a_named_schedule_still_wins_for_reproducing_a_published_setup():
+    assert NemotronOnnxDiar(mode="ultra_low_latency").schedule.latency_s == pytest.approx(0.32)
+
+
+def test_the_offline_schedule_is_refused_with_its_arithmetic_spelled_out():
+    """Mieux vaut refuser en expliquant que planter sur un nœud Reshape."""
+    from vocal_helper.nemotron import NemotronSchedule, fits_capacity
+
+    assert not fits_capacity(NemotronSchedule(chunk_len=340, chunk_right_context=40))
 
 
 # ----- la surface de flux, réellement exercée ------------------------

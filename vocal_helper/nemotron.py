@@ -98,6 +98,32 @@ META_PREFIX = "vernacula.diar."
 #: nulle, contre 0,209 pour le meilleur autre moteur gratuit local.
 DEFAULT_MODE = "low_latency"
 
+#: Longueur de séquence que le graphe accepte, en trames de 80 ms, pour
+#: ``[cache | file | morceau]`` réunis.
+#:
+#: Déduite de l'échec et non devinée. Le message était : encodage positionnel de
+#: 5000 positions pour 5144 demandées. Les positions sont à 10 ms et les trames
+#: à 80 ms, donc la capacité est 5000 / 8 = 625 trames, et la demande valait
+#: 643 — cache à 263, file vide, morceau de 380. Le calendrier hors ligne
+#: demande 264 + 40 + 380 = 684 au régime établi : il ne peut pas tenir.
+#:
+#: Ce qui reste disponible pour le morceau et son contexte droit est donc
+#: ``625 - spkcache_len - fifo_len``, soit 321 trames avec les longueurs de ce
+#: point de contrôle — c'est-à-dire **25,7 s de contexte**, contre 1,04 s pour le
+#: calendrier à basse latence. La capacité est vérifiée avant chaque chargement
+#: plutôt que supposée, parce qu'un défaut qui plante après quelques minutes est
+#: pire qu'un défaut médiocre.
+MAX_SEQUENCE_FRAMES = 625
+
+#: Marge retirée de la capacité annoncée, en trames.
+#:
+#: 625 est l'arithmétique du message d'erreur, et le graphe refuse pourtant à
+#: 625 : la séquence qu'il construit n'est donc pas exactement huit positions par
+#: trame. Plutôt que de chercher la bonne constante à tâtons, la capacité réelle
+#: est **mesurée sur le fichier** par :func:`probe_capacity`, et celle-ci ne sert
+#: que de borne haute au départ de la recherche.
+CAPACITY_PROBE_FLOOR = 16
+
 
 # --------------------------------------------------------------------------- #
 #  Le front-end log-mel
@@ -365,6 +391,162 @@ STREAMING_MODES: dict[str, tuple[int, int]] = {
 # --------------------------------------------------------------------------- #
 #  La tenue du cache — portage numpy de SortformerModules.streaming_update
 # --------------------------------------------------------------------------- #
+
+
+def fits_capacity(schedule: NemotronSchedule) -> bool:
+    """Le graphe peut-il traiter ce calendrier à cache plein ?
+
+    Examples
+    --------
+    Les calendriers publiés tiennent largement.
+
+    >>> fits_capacity(NemotronSchedule(chunk_len=9, chunk_right_context=4))
+    True
+
+    Celui que le graphe porte dans ses métadonnées, non — et c'est pour cela
+    qu'il échouait après quelques minutes, le temps que le cache se remplisse.
+
+    >>> fits_capacity(NemotronSchedule(chunk_len=340, chunk_right_context=40))
+    False
+    """
+    return (
+        schedule.spkcache_len
+        + schedule.fifo_len
+        + schedule.chunk_len
+        + schedule.chunk_right_context
+    ) <= MAX_SEQUENCE_FRAMES
+
+
+def longest_schedule_within(
+    schedule: NemotronSchedule, *, latency_s: float | None
+) -> tuple[int, int]:
+    """Le morceau le plus long que la latence demandée et le graphe permettent.
+
+    Plus de contexte vaut mieux : le modèle voit davantage avant de décider, et
+    le coût par seconde d'audio baisse puisqu'il y a moins d'appels. La seule
+    raison de raccourcir est la latence voulue. On prend donc le plus long des
+    deux bornes, au lieu de laisser l'appelant deviner un nom de calendrier.
+
+    Parameters
+    ----------
+    schedule : NemotronSchedule
+        Pour ses longueurs de cache et de file, qui mangent la capacité.
+    latency_s : float, optional
+        Budget de latence. ``None`` ne demande rien et prend donc tout ce que le
+        graphe permet.
+
+    Returns
+    -------
+    tuple of int
+        ``(chunk_len, chunk_right_context)`` en trames de 80 ms.
+
+    Examples
+    --------
+    Sans contrainte, on prend tout ce qui tient : 281 trames de morceau plus 40
+    de contexte, soit 25,7 s.
+
+    >>> longest_schedule_within(NemotronSchedule(), latency_s=None)
+    (281, 40)
+
+    Un budget d'une seconde ramène au calendrier publié à basse latence.
+
+    >>> longest_schedule_within(NemotronSchedule(), latency_s=1.04)
+    (9, 4)
+
+    Un budget intenable rend le plus court des calendriers publiés plutôt que
+    rien : mieux vaut dépasser le budget et le dire que ne pas diariser.
+
+    >>> longest_schedule_within(NemotronSchedule(), latency_s=0.05)
+    (3, 1)
+    """
+    # LA FILE BORNE LE MORCEAU, et c'est la contrainte qui compte vraiment.
+    # La mise à jour ajoute ``chunk_len`` trames à la file et n'en retire que
+    # ``fifo_len`` ; un morceau plus long que la file la fait donc grandir sans
+    # borne — avec 281 de morceau elle monte à 241 au lieu de rester à 40, et la
+    # séquence atteint 826 trames là où le graphe en accepte 625. C'est le
+    # portage fidèle de la référence, dont la règle n'est cohérente que si le
+    # morceau n'excède pas la file : ses trois calendriers de flux publiés le
+    # respectent (9, 6, 3 trames) et son calendrier hors ligne (340) le viole,
+    # ce qui est exactement pourquoi ce dernier ne fonctionne pas.
+    #
+    # Le contexte utilisable plafonne donc à ``fifo_len`` trames de morceau, soit
+    # 3,2 s plus 3,2 s de contexte droit = 6,4 s de latence — six fois le
+    # calendrier à basse latence, et non les vingt-cinq que la seule capacité de
+    # séquence laissait espérer.
+    room = min(
+        MAX_SEQUENCE_FRAMES - schedule.spkcache_len - schedule.fifo_len,
+        schedule.fifo_len + schedule.chunk_right_context,
+    )
+    right = schedule.chunk_right_context
+    if latency_s is None:
+        return max(1, room - right), right
+    budget = int(latency_s / 0.08)
+    # Les calendriers publiés d'abord : ils sont vérifiés par la provenance.
+    published = sorted(
+        ((chunk + rc, chunk, rc) for chunk, rc in STREAMING_MODES.values() if chunk + rc <= budget),
+        reverse=True,
+    )
+    if published:
+        _, chunk, rc = published[0]
+        return chunk, rc
+    longest = min(budget - right, room - right)
+    if longest >= 1:
+        return longest, right
+    shortest = min(STREAMING_MODES.values(), key=lambda pair: sum(pair))
+    return shortest
+
+
+def probe_capacity(session: Any, schedule: NemotronSchedule) -> int:
+    """La plus longue séquence que **ce** graphe accepte, mesurée par dichotomie.
+
+    L'arithmétique du message d'erreur donne 625 trames, et le graphe refuse à
+    625 : sa séquence interne n'est donc pas exactement huit positions par
+    trame, et chercher la bonne formule à tâtons serait deviner. On lui demande
+    donc directement, en lui soumettant un cache **plein** — le cas qui échoue,
+    et celui qu'un extrait court ne révèle jamais.
+
+    Le coût est de quelques appels au chargement, une fois par session, contre
+    un défaut qui plante après quelques minutes de séance. Et un export futur
+    apportera sa propre limite sans qu'une constante ait à être corrigée.
+
+    Parameters
+    ----------
+    session : onnxruntime.InferenceSession
+        La session ouverte sur le graphe.
+    schedule : NemotronSchedule
+        Pour les longueurs de cache et de file, qui mangent la capacité.
+
+    Returns
+    -------
+    int
+        Le nombre total de trames que le graphe accepte, cache et file compris.
+    """
+    fixed = schedule.spkcache_len + schedule.fifo_len
+    state = StreamingState(
+        spkcache=np.zeros((schedule.spkcache_len, schedule.emb_dim), dtype=np.float32),
+        fifo=np.zeros((schedule.fifo_len, schedule.emb_dim), dtype=np.float32),
+        fifo_preds=np.zeros((schedule.fifo_len, schedule.num_speakers), dtype=np.float32),
+    )
+
+    def accepts(chunk_frames: int) -> bool:
+        mel = chunk_frames * schedule.subsampling
+        window = np.zeros((mel, schedule.n_mels), dtype=np.float32)
+        try:
+            _run_step(session, window, mel, state)
+        except Exception:  # noqa: BLE001 - un refus est une réponse, pas une faute
+            return False
+        return True
+
+    low, high = CAPACITY_PROBE_FLOOR, MAX_SEQUENCE_FRAMES - fixed
+    if not accepts(low):
+        return fixed + low  # même le plancher passe mal : on le signalera à l'usage
+    while low < high:
+        middle = (low + high + 1) // 2
+        if accepts(middle):
+            low = middle
+        else:
+            high = middle - 1
+    return fixed + low
 
 
 def log_pred_scores(predictions: NDArray[np.float32], *, floor: float) -> NDArray[np.float64]:
@@ -757,11 +939,21 @@ class NemotronOnnxDiar:
     graph : str or Path, optional
         Le fichier ``.onnx``. ``None`` le cherche dans le bundle de poids que
         le projet sert déjà, donc sans jeton ni appel réseau.
+    latency_s : float, optional
+        Budget de latence, en secondes. C'est le **seul** réglage à connaître :
+        le calendrier s'en déduit, en prenant le morceau le plus long que ce
+        budget et le graphe permettent. Plus de contexte vaut mieux — le modèle
+        voit davantage avant de décider, et le coût par seconde d'audio baisse
+        puisqu'il y a moins d'appels — donc ``None`` (le défaut) ne demande
+        rien et prend tout ce qui tient, soit 25,7 s avec les longueurs de ce
+        point de contrôle. Passer ``1.04`` rend le calendrier publié à basse
+        latence, ``0.32`` le plus court.
     mode : str, optional
-        Un des calendriers de :data:`STREAMING_MODES`. ``"low_latency"`` par
-        défaut, et **non** celui que le graphe porte dans ses métadonnées : ce
-        dernier est le calendrier hors ligne, et il dépasse l'encodage
-        positionnel que l'export a tracé. Voir :data:`DEFAULT_MODE`.
+        Un calendrier nommé de :data:`STREAMING_MODES`, qui l'emporte sur
+        ``latency_s`` quand il est donné. Utile pour reproduire exactement une
+        configuration publiée. Ce n'est **jamais** celui que le graphe porte
+        dans ses métadonnées : ce dernier est le calendrier hors ligne et il
+        dépasse l'encodage positionnel tracé, voir :data:`MAX_SEQUENCE_FRAMES`.
     providers : list of str, optional
         Les moteurs d'exécution, par ordre de préférence. ``None`` prend
         CoreML s'il est disponible — c'est la voie du GPU et du moteur neuronal
@@ -781,7 +973,8 @@ class NemotronOnnxDiar:
         self,
         graph: str | Path | None = None,
         *,
-        mode: str | None = DEFAULT_MODE,
+        latency_s: float | None = None,
+        mode: str | None = None,
         providers: list[str] | None = None,
         threads: int | None = None,
         threshold: float = 0.5,
@@ -791,6 +984,7 @@ class NemotronOnnxDiar:
             raise ValueError(f"calendrier inconnu {mode!r} ; au choix {sorted(STREAMING_MODES)}")
         self._graph = Path(graph) if graph is not None else None
         self._mode = mode
+        self._latency_s = latency_s
         self._providers = providers
         self._threads = threads
         self.threshold = float(threshold)
@@ -834,14 +1028,30 @@ class NemotronOnnxDiar:
         path = self.locate()
         metadata = _graph_metadata(path)
         schedule = NemotronSchedule.from_metadata(metadata)
+        # Le calendrier des métadonnées est celui hors ligne, et il ne tient pas
+        # dans la séquence que le graphe accepte — il échouait après quelques
+        # minutes, le temps que le cache se remplisse. On le remplace donc
+        # TOUJOURS, par le calendrier nommé si on en a demandé un, sinon par le
+        # plus long que le budget de latence et le graphe permettent.
         if self._mode is not None:
             chunk_len, right = STREAMING_MODES[self._mode]
-            schedule = NemotronSchedule(
-                **{
-                    **{f: getattr(schedule, f) for f in schedule.__dataclass_fields__},
-                    "chunk_len": chunk_len,
-                    "chunk_right_context": right,
-                }
+        else:
+            chunk_len, right = longest_schedule_within(schedule, latency_s=self._latency_s)
+        schedule = NemotronSchedule(
+            **{
+                **{f: getattr(schedule, f) for f in schedule.__dataclass_fields__},
+                "chunk_len": chunk_len,
+                "chunk_right_context": right,
+            }
+        )
+        if not fits_capacity(schedule):
+            raise ValueError(
+                f"calendrier de {chunk_len}+{right} trames impossible : avec un "
+                f"cache de {schedule.spkcache_len} et une file de "
+                f"{schedule.fifo_len}, la séquence atteindrait "
+                f"{schedule.spkcache_len + schedule.fifo_len + chunk_len + right} "
+                f"trames pour {MAX_SEQUENCE_FRAMES} que le graphe accepte. "
+                f"Réduire le budget de latence."
             )
 
         encoded = metadata.get(f"{META_PREFIX}learnable_sil_emb_f32le_b64")
@@ -928,15 +1138,19 @@ class NemotronOnnxDiar:
             try:
                 outputs = _run_step(session, window, usable, state)
             except Exception as problem:  # noqa: BLE001 - on explique plutôt que de relayer
+                # Les longueurs RÉELLES, pas celles du calendrier : la file peut
+                # avoir grandi au-delà de sa longueur nominale, et c'est
+                # précisément ce qu'il faut voir pour comprendre le refus.
                 raise RuntimeError(
                     f"le graphe a refusé une séquence de "
-                    f"{schedule.spkcache_len + schedule.fifo_len + usable // schedule.subsampling} "
-                    f"trames ({schedule.spkcache_len} de cache, {schedule.fifo_len} de "
-                    f"file, {usable // schedule.subsampling} de morceau). Son encodage "
-                    f"positionnel est tracé pour une longueur finie, et le calendrier "
-                    f"hors ligne la dépasse dès que le cache se remplit — d'où un échec "
-                    f"qui n'apparaît pas sur un extrait court. Demander un calendrier "
-                    f"de flux : {sorted(STREAMING_MODES)}."
+                    f"{len(state.spkcache) + len(state.fifo) + usable // schedule.subsampling} "
+                    f"trames : {len(state.spkcache)} de cache, {len(state.fifo)} de "
+                    f"file (nominalement {schedule.fifo_len}), "
+                    f"{usable // schedule.subsampling} de morceau. Une file plus longue "
+                    f"que sa longueur nominale signifie un morceau plus long qu'elle, "
+                    f"ce que la mise à jour ne sait pas borner. Réduire le budget de "
+                    f"latence, ou passer par un calendrier publié : "
+                    f"{sorted(STREAMING_MODES)}."
                 ) from problem
             named = dict(zip([o.name for o in session.get_outputs()], outputs, strict=True))
             coarse = np.asarray(named["spkcache_fifo_chunk_preds"][0], dtype=np.float32)
