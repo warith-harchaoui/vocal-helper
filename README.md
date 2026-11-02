@@ -138,7 +138,20 @@ Two replacements now ship, and the pipeline picks between them:
 
 Two honest caveats. On AMI it looks far worse (0.363–0.487) because it emits only 616 s of the 815 s annotated — but AMI's reference is transcribed from the **headset** microphones while the model is given the room mix, so the reference marks words the signal does not carry, and pyannote has AMI in its training data. Three candidate explanations for that missed speech were tested and rejected: the extraction threshold (0.05 recovers almost nothing), the signal level (a 2.8× gain makes it slightly *worse*), and reverberation (Nemotron's missed detection stays flat at 0.090/0.093/0.101 across rooms). Only the annotation is left. And the evidence favouring Nemotron is all synthetic: the one real corpus available is the one whose annotation is the problem.
 
-`growing=None` restores the old behaviour for a caller that can never revise a label — `discussion-helper` is the real case.
+**Latency is one knob, not a choice of engine.** `PipelineConfig(diar_latency_s=…)` takes seconds; the schedule follows. The default asks for nothing and takes the longest viable context — 6.4 s — because more context is both better and *cheaper*: a real-time factor of 0.166 against 0.258, for 0.092 error against 0.090, which is identical within noise. Fewer, longer steps mean fewer graph calls.
+
+Six seconds before a turn gets its speaker is invisible in a meeting write-up, so that is the default. A conversational agent has the opposite priority: `discussion-helper` answers in the moment and can never un-say a label, so it sets `diar_latency_s=1.04` (the published low-latency schedule) or `0.32` for the shortest. It can afford to — what matters live is the **total** real-time factor across stages, not one stage's latency, and the budget holds either way:
+
+| diarization | ASR | total RTF | headroom |
+|---|---|---:|---:|
+| 6.4 s context *(default)* | Metal | 0.176 | 5.7× |
+| 6.4 s context | CPU only | 0.340 | 2.9× |
+| 1.04 s *(conversational)* | Metal | 0.268 | 3.7× |
+| 1.04 s | CPU only | 0.432 | 2.3× |
+
+The ceiling on context is not the one you would guess. The graph accepts 625 frames for `[cache | fifo | chunk]`, which would allow 25.7 s — but the cache update adds `chunk_len` frames to the fifo and removes only `fifo_len`, so a chunk longer than the fifo makes it grow without bound: at 281 frames of chunk the fifo reaches 241 instead of 40 and the sequence hits 826. That is a faithful port of the reference, whose rule only holds when the chunk does not exceed the fifo — its three published streaming schedules respect that (9, 6, 3 frames) and its *offline* schedule, at 340, violates it. Which is exactly why that offline schedule does not work in this export.
+
+`growing=None` restores the pre-2026-11-01 behaviour for a caller that can never revise a label.
 
 `vocal_helper.router` (`voh.select_diarization`) plays the role of an *aiguilleur*, French for the railway signalman who switches each train onto the right track before it arrives. It reads three things about the job:
 

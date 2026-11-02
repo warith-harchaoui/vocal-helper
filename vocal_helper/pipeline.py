@@ -238,6 +238,24 @@ class PipelineConfig:
     # configured" — a default must not collide with an explicit choice. A dict is
     # an explicit request, and then asking for ``rediar`` too is refused rather
     # than silently resolved. ``None`` disables it.
+    # LE SEUL RÉGLAGE DE LATENCE À CONNAÎTRE pour la diarisation en direct, en
+    # secondes. ``None`` (le défaut) ne demande rien et prend le plus long
+    # contexte viable, 6,4 s : le modèle voit davantage avant de décider et il y
+    # a moins d'appels, donc un facteur temps réel de 0,166 au lieu de 0,258
+    # pour une qualité identique au bruit près — 0,092 contre 0,090 de taux
+    # d'erreur. C'est le bon compromis pour une séance qu'on enregistre et qu'on
+    # lit au fil de l'eau : six secondes avant qu'un tour reçoive son locuteur
+    # ne se voient pas dans un compte rendu.
+    #
+    # Un agent conversationnel a la priorité inverse. ``discussion-helper``
+    # répond dans l'instant et ne peut rien démentir, donc il veut
+    # ``diar_latency_s=1.04`` — le calendrier publié à basse latence — ou
+    # ``0.32`` pour le plus court. Le coût est le facteur temps réel, et c'est
+    # lui qu'il faut regarder : la contrainte en direct est le RTF TOTAL du
+    # système, les étages travaillant à des cadences différentes.
+    #
+    # Sans effet sur les étages qui ne sont pas Nemotron.
+    diar_latency_s: float | None = None
     growing: dict | str | None = "auto"
     # The EARLIER approach to the same problem, kept because it bounds memory:
     # re-diarize a trailing WINDOW with a synthetic primer carrying one reference
@@ -387,7 +405,7 @@ class Pipeline:
                 try:
                     from vocal_helper.nemotron import NemotronOnnxDiar
 
-                    candidate = NemotronOnnxDiar(mode="low_latency")
+                    candidate = NemotronOnnxDiar(latency_s=self.config.diar_latency_s)
                     candidate.locate()
                 except Exception:  # noqa: BLE001 - absence du moteur, pas une faute
                     candidate = None

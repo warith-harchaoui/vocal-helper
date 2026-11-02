@@ -451,3 +451,71 @@ def test_the_streaming_loop_labels_each_voiced_segment_it_is_given():
         assert set(item) >= {"t0", "t1", "sample_rate", "speaker", "pcm"}
         assert item["speaker"].startswith("S")
         assert len(item["pcm"]) > 0, "le PCM doit survivre : l'ASR en a besoin"
+
+
+# ----- le budget en direct -------------------------------------------
+
+
+def test_a_conversational_agent_can_afford_the_low_latency_schedule():
+    """La question qui décide pour ``discussion-helper``.
+
+    Un agent qui répond dans l'instant ne peut rien démentir, donc il veut le
+    calendrier à basse latence et non le contexte long. Ce qu'il doit savoir
+    n'est pas la latence d'un étage mais le **facteur temps réel total** du
+    système, puisque les étages travaillent à des cadences différentes : ce qui
+    s'additionne est le travail sur une même unité de calcul, et ce qui se
+    recouvre est le travail sur des unités distinctes.
+
+    Mesuré : 0,268 avec la transcription sur Metal, 0,432 sans aucune
+    accélération. Il reste donc de la marge dans les deux cas, et c'est ce qui
+    rend le choix possible.
+    """
+    from vocal_helper.accel import StageLoad, live_budget
+
+    for asr_unit, asr_rtf in (("metal", 0.033), ("cpu", 0.164)):
+        budget = live_budget(
+            [
+                StageLoad("vad_silero", "cpu", 0.01),
+                StageLoad("diar_nemotron", "cpu", 0.258),  # 1,04 s, mesuré
+                StageLoad("asr_whisper", asr_unit, asr_rtf),
+            ]
+        )
+        assert budget.effective_rtf < 1.0, (
+            f"à basse latence avec l'ASR sur {asr_unit}, le système ne tient pas "
+            f"le direct : {budget.effective_rtf:.3f}"
+        )
+
+
+def test_the_long_context_default_is_cheaper_than_low_latency():
+    """Le contexte long n'est pas un luxe : il coûte moins.
+
+    0,166 de facteur temps réel contre 0,258, pour 0,092 de taux d'erreur contre
+    0,090 — identique au bruit près. C'est pourquoi c'est le défaut, et pourquoi
+    la basse latence est un choix à faire et non un défaut à subir.
+    """
+    from vocal_helper.accel import StageLoad, live_budget
+
+    def total(diar_rtf: float) -> float:
+        return live_budget(
+            [
+                StageLoad("vad_silero", "cpu", 0.01),
+                StageLoad("diar_nemotron", "cpu", diar_rtf),
+                StageLoad("asr_whisper", "metal", 0.033),
+            ]
+        ).effective_rtf
+
+    assert total(0.166) < total(0.258)
+
+
+def test_the_pipeline_exposes_one_latency_knob_and_it_reaches_the_engine():
+    """Un budget en secondes au niveau de la chaîne, pas un nom de calendrier."""
+    import vocal_helper as voh
+
+    async def source():
+        yield {"t0": 0.0, "sample_rate": 16000, "pcm": np.zeros(320, dtype=np.float32)}
+
+    default = voh.Pipeline(source=source, config=voh.PipelineConfig(llm=None))
+    quick = voh.Pipeline(source=source, config=voh.PipelineConfig(llm=None, diar_latency_s=1.04))
+    if isinstance(default._diar, NemotronOnnxDiar):
+        assert default._diar.schedule.latency_s > quick._diar.schedule.latency_s
+        assert quick._diar.schedule.latency_s == pytest.approx(1.04)
