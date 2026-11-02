@@ -341,3 +341,81 @@ def test_the_default_schedule_is_a_streaming_one_not_the_graphs_offline_one():
 def test_the_graphs_own_schedule_stays_reachable_for_a_short_clip():
     """Un extrait court y tient, et quelqu'un peut vouloir le contexte long."""
     assert NemotronOnnxDiar(mode=None)._mode is None
+
+
+# ----- la surface de flux, réellement exercée ------------------------
+#
+# Le défaut de la chaîne a été basculé sur cet étage alors qu'il n'avait PAS de
+# méthode ``run``, et les tests ne l'ont pas vu : ils vérifiaient le câblage par
+# ``isinstance`` sans jamais faire tourner la chaîne. Une garde qui affirme le
+# bon branchement sans vérifier qu'il fonctionne ne garde rien.
+
+
+def test_the_stage_exposes_the_streaming_surface_the_pipeline_drives():
+    import inspect
+
+    assert inspect.iscoroutinefunction(NemotronOnnxDiar.run)
+
+
+def test_every_diarizer_the_pipeline_can_default_to_is_actually_drivable():
+    """Tout étage que la chaîne peut choisir doit pouvoir être piloté.
+
+    C'est la garde qui manquait. Elle ne regarde pas un nom mais une capacité,
+    donc elle tiendra pour le prochain moteur qu'on branchera.
+    """
+    import inspect
+
+    from vocal_helper.diar import OnlineDiarStage
+    from vocal_helper.growing import GrowingBufferDiarStage
+    from vocal_helper.rediar import PeriodicOfflineDiarStage
+
+    for stage in (
+        NemotronOnnxDiar,
+        GrowingBufferDiarStage,
+        OnlineDiarStage,
+        PeriodicOfflineDiarStage,
+    ):
+        assert hasattr(stage, "run"), f"{stage.__name__} n'a pas de surface de flux"
+        assert inspect.iscoroutinefunction(stage.run), (
+            f"{stage.__name__}.run doit être une coroutine, comme la chaîne l'attend"
+        )
+
+
+@pytest.mark.integration
+def test_the_streaming_loop_labels_each_voiced_segment_it_is_given():
+    """Un segment voisé entre, le même ressort avec son locuteur et son PCM.
+
+    Marqué intégration parce qu'il charge le graphe de 400 Mo.
+    """
+    import asyncio
+
+    rng = np.random.default_rng(0)
+
+    async def drive() -> list:
+        inbox: asyncio.Queue = asyncio.Queue()
+        outbox: asyncio.Queue = asyncio.Queue()
+        for index in range(12):
+            t0 = index * 2.0
+            inbox.put_nowait(
+                {
+                    "t0": t0,
+                    "t1": t0 + 1.2,
+                    "sample_rate": 16000,
+                    "pcm": (0.05 * rng.standard_normal(int(1.2 * 16000))).astype(np.float32),
+                }
+            )
+        inbox.put_nowait(None)
+        await NemotronOnnxDiar().run(inbox, outbox)
+        out = []
+        while not outbox.empty():
+            item = outbox.get_nowait()
+            if item is not None:
+                out.append(item)
+        return out
+
+    emitted = asyncio.run(drive())
+    assert len(emitted) == 12, "chaque segment voisé doit ressortir, étiqueté"
+    for item in emitted:
+        assert set(item) >= {"t0", "t1", "sample_rate", "speaker", "pcm"}
+        assert item["speaker"].startswith("S")
+        assert len(item["pcm"]) > 0, "le PCM doit survivre : l'ASR en a besoin"

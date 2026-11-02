@@ -961,6 +961,132 @@ class NemotronOnnxDiar:
             np.concatenate(collected, axis=0), threshold=self.threshold
         )
 
+    # ----- la surface de flux -----------------------------------------
+
+    async def run(self, inbox, outbox) -> None:  # noqa: ANN001 - file d'attente, typée par usage
+        """Consommer des segments voisés, les étiqueter, les republier.
+
+        Même contrat que les autres étages : un segment voisé entre, le même
+        segment ressort avec son locuteur et son PCM, parce que la
+        transcription en aval a besoin de l'audio. Le modèle n'est donc pas
+        utilisé pour **découper** la parole — le détecteur d'activité l'a déjà
+        fait — mais pour dire qui parle.
+
+        Le modèle est un modèle de **flux** : il veut de l'audio continu avec
+        une horloge juste. Or la file ne porte que les segments voisés, donc
+        les creux sont absents. L'étage reconstitue donc la ligne de temps en
+        comblant les silences, sans quoi le cache de locuteurs verrait un
+        montage et non une séance.
+
+        Un segment n'est publié que lorsque le modèle a dépassé sa fin : c'est
+        la latence du calendrier choisi — 1,04 s par défaut — et elle est le
+        prix de l'identité, pas un défaut d'implémentation.
+
+        Parameters
+        ----------
+        inbox, outbox
+            Files de segments voisés puis diarisés.
+        """
+        session, schedule, silence = self._load()
+        settings = MelSettings(n_mels=schedule.n_mels)
+        step_frames = schedule.chunk_len * schedule.subsampling
+        span_frames = step_frames + schedule.chunk_right_context * schedule.subsampling
+
+        pcm = np.zeros(0, dtype=np.float32)
+        sample_rate = settings.sample_rate
+        state = StreamingState.empty(schedule)
+        probabilities = np.zeros((0, schedule.num_speakers), dtype=np.float32)
+        consumed = 0  # trames mel déjà données au graphe
+        waiting: list[dict] = []
+
+        def grow_to(end_s: float) -> None:
+            """Étendre le tampon jusqu'à cet instant, silence compris."""
+            nonlocal pcm
+            needed = int(round(end_s * sample_rate))
+            if needed > len(pcm):
+                pcm = np.concatenate([pcm, np.zeros(needed - len(pcm), dtype=np.float32)])
+
+        def advance() -> None:
+            """Faire tourner le graphe sur ce que le tampon permet."""
+            nonlocal probabilities, state, consumed
+            while True:
+                available = max(0, len(pcm) // settings.hop_length - consumed)
+                if available < span_frames:
+                    return
+                context = MEL_CONTEXT_HOPS * settings.hop_length
+                begin = consumed * settings.hop_length
+                slice_start = max(0, begin - context)
+                dropped = (begin - slice_start) // settings.hop_length
+                window = log_mel(
+                    pcm[slice_start : begin + span_frames * settings.hop_length],
+                    sample_rate,
+                    settings,
+                )[dropped : dropped + span_frames]
+                if len(window) < span_frames:
+                    return
+                outputs = _run_step(session, window, len(window), state)
+                named = dict(zip([o.name for o in session.get_outputs()], outputs, strict=True))
+                coarse = np.asarray(named["spkcache_fifo_chunk_preds"][0], dtype=np.float32)
+                fine = np.asarray(named["spkcache_fifo_chunk_preds_hr"][0], dtype=np.float32)
+                embeddings = np.asarray(named["chunk_pre_encode_embs"][0], dtype=np.float32)
+                kept = schedule.chunk_len
+                state, _ = streaming_update(state, embeddings[:kept], coarse, schedule, silence)
+                head = (len(coarse) - embeddings.shape[0]) * schedule.upsample_factor
+                piece = fine[head : head + kept * schedule.upsample_factor]
+                probabilities = np.concatenate([probabilities, piece], axis=0)
+                consumed += step_frames
+
+        def release(final: bool) -> list[dict]:
+            """Les segments que le modèle a maintenant dépassés."""
+            ready, held = [], []
+            covered = len(probabilities) * 0.01
+            for item in waiting:
+                if final or item["t1"] <= covered:
+                    lo = max(0, int(round(item["t0"] / 0.01)))
+                    hi = min(len(probabilities), int(round(item["t1"] / 0.01)))
+                    if hi > lo:
+                        mean = probabilities[lo:hi].mean(axis=0)
+                        speaker = f"S{int(np.argmax(mean))}"
+                    else:
+                        speaker = "S?"
+                    ready.append({**item, "speaker": speaker})
+                else:
+                    held.append(item)
+            waiting[:] = held
+            return ready
+
+        while True:
+            item = await inbox.get()
+            if item is None:
+                advance()
+                for ready in release(final=True):
+                    await outbox.put(ready)
+                await outbox.put(None)
+                return
+            sample_rate = int(item["sample_rate"])
+            grow_to(item["t0"])
+            chunk = np.asarray(item["pcm"], dtype=np.float32).ravel()
+            pcm = np.concatenate([pcm, chunk])
+            waiting.append(
+                {
+                    "t0": float(item["t0"]),
+                    "t1": float(item["t1"]),
+                    "sample_rate": sample_rate,
+                    "pcm": chunk,
+                }
+            )
+            advance()
+            for ready in release(final=False):
+                await outbox.put(ready)
+
+
+#: Contexte de gauche, en sauts de trame, ajouté avant chaque calcul de mel
+#: incrémental puis retiré. Un multiple du saut, pour que la trame centrée sur le
+#: début de la tranche tombe sur un indice entier ; sans ce contexte, le
+#: remplissage par réflexion au bord de la tranche fabriquerait un artefact à
+#: chaque pas de flux.
+MEL_CONTEXT_HOPS = 4
+
 
 def _run_step(
     session: Any,
