@@ -12,36 +12,15 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# Deliberement legere, et c'est une position : les memes portes tournent dans
+# .githooks/pre-push avant qu'un push puisse quitter la machine, donc tout ce
+# qui suit a deja passe une fois. La CI confirme, elle ne decouvre pas. Deux
+# jobs seulement -- la suite, et la promesse d'installation sur le plancher de
+# version -- la ou il y en avait quatre dont deux refaisaient le travail des
+# autres.
 jobs:
-  lint:
-    name: Lint (ruff)
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v7
-
-      - uses: actions/setup-python@v7
-        with:
-          python-version: "3.12"
-          cache: pip
-          cache-dependency-path: pyproject.toml
-
-      - name: Install ruff
-        # Pinned: an unpinned install let ruff 0.16 make Markdown code-fence
-        # formatting the default, silently breaking format-check on doc examples.
-        # Bump this deliberately, not by surprise.
-        run: pip install "ruff==0.15.21"
-
-      # ``ruff.toml`` exclusions are defined in pyproject.toml — keep the
-      # CI invocation aligned with the local ``ruff check .`` developers run.
-      - name: ruff check
-        run: ruff check .
-
-      - name: ruff format --check
-        run: ruff format --check .
-
   test:
-    name: Tests (py${{ matrix.python-version }})
+    name: Lint + tests (py${{ matrix.python-version }})
     runs-on: ubuntu-latest
     timeout-minutes: 20
     strategy:
@@ -90,6 +69,11 @@ jobs:
           "$HOME/ffmpeg/bin/ffmpeg" -version | head -1
           "$HOME/ffmpeg/bin/ffprobe" -version | head -1
 
+      - name: Install ruff (pinned)
+        # Epingle : une installation libre a laisse ruff 0.16 changer le format
+        # des blocs de code Markdown et casser le format-check en silence.
+        run: pip install "ruff==0.15.21"
+
       - name: Install package + dev extras
         run: |
           python -m pip install --upgrade pip
@@ -105,50 +89,24 @@ jobs:
           # or model downloads and are exercised manually.
           pip install -e '.[dev]'
 
-      - name: pytest
-        run: pytest -v --color=yes
+      # Les gardes de format vivent ici plutot que dans un job a part : un
+      # second coureur, son installation et son cache coutaient une minute
+      # pour relancer deux commandes qui durent trois secondes.
+      - name: ruff check
+        run: ruff check .
 
-      - name: pytest with coverage
-        if: matrix.python-version == '3.12'
+      - name: ruff format --check
+        run: ruff format --check .
+
+      # UN SEUL passage de la suite. Il y en avait deux -- `pytest` puis
+      # `pytest --cov` -- donc six minutes payees deux fois pour la meme
+      # verite, la couverture etant le seul ajout du second. Les
+      # [tool.coverage.*] de pyproject.toml portent la source, les exclusions
+      # et le plancher, donc le seuil reste un garde.
+      - name: pytest (avec couverture)
         run: |
           pip install pytest-cov
-          # [tool.coverage.*] in pyproject.toml sets the source, omit
-          # list and fail-under threshold. Bump the floor in a
-          # standalone PR, never in the same one that adds coverage.
-          pytest --cov --cov-report=term-missing --cov-report=xml
-
-      - name: Upload coverage to artifacts
-        if: matrix.python-version == '3.12'
-        uses: actions/upload-artifact@v7
-        with:
-          name: coverage-xml
-          path: coverage.xml
-          if-no-files-found: ignore
-
-  pre-commit:
-    name: pre-commit (mirror of local hooks)
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
-        with:
-          python-version: "3.12"
-          cache: pip
-          cache-dependency-path: |
-            pyproject.toml
-            .pre-commit-config.yaml
-      - name: Install pre-commit
-        run: pip install pre-commit
-      - name: Cache pre-commit hooks
-        uses: actions/cache@v6
-        with:
-          path: ~/.cache/pre-commit
-          key: pre-commit-${{ hashFiles('.pre-commit-config.yaml') }}
-      - name: Run pre-commit (commit-time hooks only)
-        # Push-stage hooks (pytest + attribution audit) are already
-        # covered by the ``test`` and ``attribution-audit`` jobs.
-        run: pre-commit run --all-files --show-diff-on-failure
+          pytest -q --color=yes --cov --cov-report=term-missing
 
   floor:
     name: Floor (py3.10 installs and imports)
