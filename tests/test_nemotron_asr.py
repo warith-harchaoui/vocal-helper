@@ -209,3 +209,64 @@ def test_streaming_window_is_bounded_by_the_trained_length(asr_graph: Path) -> N
         NemotronOnnxAsr(asr_graph).streaming_frames(
             np.zeros(16000, np.float32), 16000, hop_s=4.0, left_s=28.0
         )
+
+
+def _segment(t0: float, seconds: float, speaker: str) -> dict:
+    return {
+        "t0": t0,
+        "t1": t0 + seconds,
+        "sample_rate": 16000,
+        "speaker": speaker,
+        "pcm": np.zeros(int(seconds * 16000), np.float32),
+    }
+
+
+def test_stage_gives_each_word_back_to_its_segment(asr_graph: Path) -> None:
+    from vocal_helper.nemotron_asr import NemotronAsrStage, Transcript, Word
+
+    stage = NemotronAsrStage(asr_graph, batch=True)
+    # Deux segments de 1 s séparés de 0,1 s : le second commence à 1,1 s local.
+    stage._asr.transcribe = lambda audio, sr: Transcript(
+        words=[Word("salut", 0.2, 0.5, 0.9), Word("bonjour", 1.3, 1.8, 0.8)]
+    )
+    utts = stage.transcribe_chunk([_segment(10.0, 1.0, "S0"), _segment(42.0, 1.0, "S1")])
+    assert [u["text"] for u in utts] == ["salut", "bonjour"]
+    assert [u["speaker"] for u in utts] == ["S0", "S1"]
+    assert utts[1]["words"][0][0] == pytest.approx(42.2)
+    assert utts[0]["language"] is None
+
+
+@pytest.mark.parametrize("batch", [True, False])
+def test_stage_run_keeps_one_utterance_per_segment(asr_graph: Path, batch: bool) -> None:
+    import asyncio
+
+    from vocal_helper.nemotron_asr import NemotronAsrStage, Transcript
+
+    stage = NemotronAsrStage(asr_graph, batch=batch)
+    calls: list[int] = []
+    stage._asr.transcribe = lambda audio, sr: calls.append(len(audio)) or Transcript()
+
+    async def drive() -> list:
+        inbox, outbox = asyncio.Queue(), asyncio.Queue()
+        for i in range(3):
+            await inbox.put(_segment(float(i), 1.0, f"S{i}"))
+        await inbox.put(None)
+        await stage.run(inbox, outbox)
+        out = []
+        while (item := await outbox.get()) is not None:
+            out.append(item)
+        return out
+
+    utts = asyncio.run(drive())
+    assert [u["speaker"] for u in utts] == ["S0", "S1", "S2"]
+    assert len(calls) == (1 if batch else 3)
+
+
+def test_pipeline_picks_the_engine_by_name(asr_graph: Path) -> None:
+    from vocal_helper.nemotron_asr import NemotronAsrStage
+    from vocal_helper.pipeline import _asr_stage
+
+    stage = _asr_stage({"engine": "nemotron", "graph": asr_graph, "warmup": True, "batch": True})
+    assert isinstance(stage, NemotronAsrStage) and stage.batch
+    with pytest.raises(ValueError, match="inconnu"):
+        _asr_stage({"engine": "gladia"})

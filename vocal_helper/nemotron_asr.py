@@ -52,6 +52,7 @@ __all__ = [
     "greedy_ctc",
     "tokens_to_words",
     "NemotronOnnxAsr",
+    "NemotronAsrStage",
 ]
 
 #: Préfixe des métadonnées du graphe ASR.
@@ -525,3 +526,109 @@ class NemotronOnnxAsr:
         words, tags = tokens_to_words(greedy_ctc(ids, best, s.blank_id), s.vocab, s.frame_s)
         speech = (1.0 - np.exp(blank)).astype(np.float32)
         return Transcript(words=words, tags=tags, speech=speech)
+
+
+class NemotronAsrStage:
+    """L'étage de transcription de la pipeline, par le graphe Nemotron.
+
+    Même contrat que :class:`vocal_helper.asr.WhisperStage` : il consomme des
+    :class:`~vocal_helper.types.DiarizedSegment` et rend une
+    :class:`~vocal_helper.types.Utterance` par segment, dans l'ordre, avec le
+    locuteur du diariseur. On le choisit par ``asr={"engine": "nemotron"}``.
+
+    Les segments consécutifs sont mis bout à bout dans des fenêtres d'au plus
+    ``max_chunk_s`` secondes, un appel au graphe par fenêtre ; chaque mot
+    revient au segment qui contient son milieu. Hors ligne c'est le chemin à
+    plein régime ; en direct (``batch=False``) chaque segment part seul, dès
+    qu'il arrive.
+
+    Le modèle ne dit pas la langue qu'il entend : ``language`` reste ``None``.
+
+    Parameters
+    ----------
+    graph : str or Path, optional
+        Le graphe ; par défaut ``$VH_NEMOTRON_ASR_GRAPH``.
+    batch : bool
+        Regrouper les segments (hors ligne) ou les traiter un par un (direct).
+    max_chunk_s : float
+        Longueur maximale d'une fenêtre ; 30 s, celle que l'encodeur a apprise.
+    providers, threads
+        Comme :class:`NemotronOnnxAsr`.
+    """
+
+    def __init__(
+        self,
+        graph: str | Path | None = None,
+        *,
+        batch: bool = False,
+        max_chunk_s: float = 30.0,
+        providers: list[str] | None = None,
+        threads: int | None = None,
+        **_ignored: Any,
+    ) -> None:
+        """Préparer l'étage ; les options propres à whisper sont ignorées."""
+        self.batch = batch
+        self.max_chunk_s = float(max_chunk_s)
+        self._asr = NemotronOnnxAsr(graph, providers=providers, threads=threads)
+
+    def transcribe_chunk(self, chunk: list[dict]) -> list[dict]:
+        """Transcrire des segments mis bout à bout ; une énonciation par segment."""
+        from vocal_helper.asr import _BATCH_PAD_S, _assign_window
+
+        sr = chunk[0]["sample_rate"]
+        pad = np.zeros(int(_BATCH_PAD_S * sr), dtype=np.float32)
+        pieces: list[NDArray[np.float32]] = []
+        windows: list[tuple[float, float]] = []
+        cursor = 0.0
+        for i, seg in enumerate(chunk):
+            if i:
+                pieces.append(pad)
+                cursor += pad.shape[0] / sr
+            duration = seg["pcm"].shape[0] / sr
+            windows.append((cursor, cursor + duration))
+            pieces.append(np.asarray(seg["pcm"], dtype=np.float32))
+            cursor += duration
+        transcript = self._asr.transcribe(np.concatenate(pieces), sr)
+
+        words: list[list[tuple[float, float, str]]] = [[] for _ in chunk]
+        for word in transcript.words:
+            index = _assign_window(windows, (word.start_s + word.end_s) / 2.0)
+            local, seg = windows[index][0], chunk[index]
+            words[index].append(
+                (
+                    seg["t0"] + max(0.0, word.start_s - local),
+                    seg["t0"] + max(0.0, word.end_s - local),
+                    word.text,
+                )
+            )
+        return [
+            {
+                "t0": seg["t0"],
+                "t1": seg["t1"],
+                "speaker": seg["speaker"],
+                "text": " ".join(w[2] for w in ws),
+                "words": ws,
+                "language": None,
+            }
+            for seg, ws in zip(chunk, words, strict=True)
+        ]
+
+    async def run(self, inbox: Any, outbox: Any) -> None:
+        """Consommer les segments de ``inbox``, pousser les énonciations dans ``outbox``."""
+        import asyncio
+
+        from vocal_helper.asr import _pack_segments
+
+        if not self.batch:
+            while (item := await inbox.get()) is not None:
+                for utterance in await asyncio.to_thread(self.transcribe_chunk, [item]):
+                    await outbox.put(utterance)
+            await outbox.put(None)
+            return
+        buffered = []
+        while (item := await inbox.get()) is not None:
+            buffered.append(item)
+        for chunk in _pack_segments(buffered, self.max_chunk_s):
+            for utterance in await asyncio.to_thread(self.transcribe_chunk, chunk):
+                await outbox.put(utterance)
+        await outbox.put(None)
