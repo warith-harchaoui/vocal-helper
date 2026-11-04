@@ -104,9 +104,10 @@ def corpus(name: str, limit: int) -> list[tuple[str, pathlib.Path, str]]:
         for transcript in sorted(root.glob("*/transcript.json")):
             # ``-free`` : la sortie du chemin gratuit, pas une référence. Un
             # dossier peut aussi disparaître en cours d'étude (renommé ailleurs).
-            if transcript.parent.name.endswith("-free") or not (
-                transcript.parent / "audio.mp3"
-            ).exists():
+            if (
+                transcript.parent.name.endswith("-free")
+                or not (transcript.parent / "audio.mp3").exists()
+            ):
                 continue
             utterances = json.loads(transcript.read_text())["utterances"]
             kept = [u for u in utterances if u["t1"] <= TV_CROP_S]

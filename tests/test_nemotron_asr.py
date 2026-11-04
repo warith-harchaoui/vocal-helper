@@ -320,7 +320,11 @@ def test_pipeline_picks_the_engine_by_name(asr_graph: Path) -> None:
     ("config", "offline", "expected"),
     [
         ({}, True, "nemotron"),
-        ({"language": "auto", "model": "large-v3-turbo-q5_0", "initial_prompt": ""}, True, "nemotron"),
+        (
+            {"language": "auto", "model": "large-v3-turbo-q5_0", "initial_prompt": ""},
+            True,
+            "nemotron",
+        ),
         ({}, False, "whisper"),
         ({"language": "fr"}, True, "whisper"),
         ({"initial_prompt": "réunion budgétaire"}, True, "whisper"),
