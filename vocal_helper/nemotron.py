@@ -1114,10 +1114,34 @@ class NemotronOnnxDiar:
             ``[(t0, t1, locuteur), …]`` trié par début, la même forme que les
             autres étages de diarisation.
         """
+        probabilities = self.probabilities(pcm, sr)
+        if not len(probabilities):
+            return []
+        return probabilities_to_segments(probabilities, threshold=self.threshold)
+
+    def probabilities(self, pcm: NDArray[np.float32], sr: int) -> NDArray[np.float32]:
+        """Les probabilités d'activité par locuteur, ``(T, 8)`` à 10 ms.
+
+        Ce que :meth:`diarize` seuille. Leur maximum par trame est une
+        détection de parole, mesurée contre Silero dans
+        ``studies/vad_nemotron_vs_silero.py``.
+
+        Parameters
+        ----------
+        pcm : NDArray[np.float32]
+            Tampon mono.
+        sr : int
+            Sa fréquence, qui doit être 16 kHz.
+
+        Returns
+        -------
+        NDArray[np.float32]
+            Une ligne par trame de 10 ms, une colonne par voie de locuteur.
+        """
         session, schedule, silence = self._load()
         frames = log_mel(pcm, sr, MelSettings(n_mels=schedule.n_mels))
         if not len(frames):
-            return []
+            return np.zeros((0, 0), dtype=np.float32)
 
         step = schedule.chunk_len * schedule.subsampling
         right = schedule.chunk_right_context * schedule.subsampling
@@ -1170,10 +1194,8 @@ class NemotronOnnxDiar:
             collected.append(fine[head : head + kept * schedule.upsample_factor])
 
         if not collected:
-            return []
-        return probabilities_to_segments(
-            np.concatenate(collected, axis=0), threshold=self.threshold
-        )
+            return np.zeros((0, 0), dtype=np.float32)
+        return np.concatenate(collected, axis=0)
 
     # ----- la surface de flux -----------------------------------------
 
