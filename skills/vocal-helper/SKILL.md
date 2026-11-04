@@ -1,20 +1,19 @@
 ---
 name: vocal-helper
 description: >-
-  Turn speech — an audio file, the audio track of a video, a live microphone,
-  or any yt-dlp-reachable URL — into a diarized, speaker-labelled transcript,
-  plus an optional rolling local-LLM summary. Silero VAD → speaker diarization
-  (pyannote / NeMo Sortformer / torch-free sherpa-onnx, auto-routed) →
-  whisper.cpp speech-to-text → language ID → optional Gemma-via-Ollama
-  summary; offline batch or live streaming. Use
-  when the user says "transcribe this recording / meeting /
+  Turn speech — an audio file, a video's audio, a live microphone,
+  or any yt-dlp-reachable URL — into a diarized, speaker-labelled transcript.
+  Silero VAD → speaker diarization (torch-free Nemotron 3 ONNX by default;
+  pyannote / NeMo / sherpa-onnx, auto-routed) → whisper.cpp / Nemotron STT → language
+  ID → optional rolling local-LLM (Gemma) summary;
+  offline or live. Use when the user says "transcribe this recording / meeting /
   interview / podcast", "give me the transcript", "make subtitles / captions /
   an SRT", "speech to text", "who spoke when", "diarize this", "label
   or separate the speakers", "how many speakers", "summarise this meeting
-  audio", "what language is this", "live transcription from the mic", or
-  names `vocal-helper`, `vocal-helper-mcp`, `import
-  vocal_helper as voh`. Do NOT use for audio-file transforms (audio-helper),
-  text-to-speech, or downloading media for its own sake (youtube-helper). The
+  audio", "what language is this", "live transcription from the mic", "diarize
+  or transcribe with Nemotron / on GPU", or names `vocal-helper`, `vocal-helper-mcp`,
+  `import vocal_helper as voh`. Do NOT use for audio-file transforms
+  (audio-helper), text-to-speech, or downloading media for its own sake (youtube-helper). The
   exhaustive trigger catalogue is in `references/triggers.md`.
 license: BSD-3-Clause
 metadata:

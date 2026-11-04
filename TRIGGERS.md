@@ -27,6 +27,23 @@ Every subcommand is also reachable through the MCP tools (`vocal-helper-mcp`)
 and the browser **transcript viewer** at `GET /gui` (drop a file or paste a URL
 → colour-coded, speaker-labelled transcript + summary).
 
+**MCP** (`vocal-helper-mcp`, extra `[api,mcp]`): streamable-HTTP endpoint at
+`http://127.0.0.1:8000/mcp` (`VOCAL_HELPER_HOST` / `VOCAL_HELPER_PORT`). The
+tools are the API routes, under fastapi-mcp's operation ids:
+`transcribe_transcribe_post`, `pipeline_pipeline_post`, `health_health_get`,
+`gui_gui_get`. Same arguments as the HTTP routes.
+
+## Engines and knobs (what to say to steer them)
+
+| Ask | What it means here |
+|-----|--------------------|
+| "Nemotron", "Nemotron 3 Diarization", "Sortformer ONNX", "torch-free diarization", "diarize without HuggingFace" | the default offline diarizer: `NemotronOnnxDiar`, an ONNX graph from the diarization-engines bundle (no torch, no HF token) |
+| "Nemotron 3.5 Transcribe", "transcribe with Nemotron", "torch-free / ONNX speech-to-text", "CTC timestamps", "transcribe without whisper" | `--asr-engine nemotron` (CLI), `asr={"engine": "nemotron"}` (library), `NemotronOnnxAsr`: the Nemotron 3.5 encoder + CTC head as one ONNX graph (no torch, no LLM, words timed at 40 ms, language discovered, speaker / event tags apart); the int8 graph is fetched once from `deraison.ai/nemotron-onnx` (`precision="fp32"` for the exact one), or read from `VH_NEMOTRON_ASR_GRAPH`; mirror with `VH_NEMOTRON_ASR_URL` |
+| "use pyannote / NeMo / sherpa instead" | `--diar-backend pyannote\|nemo\|sherpa` (CLI), `diar_backend` (API / MCP form field), `diar={"backend": …}` (library); `auto` lets the router pick |
+| "run on GPU / CUDA / CoreML / DirectML / TensorRT / OpenVINO", "force CPU", "which ONNX Runtime provider" | `providers=` on `NemotronOnnxDiar`, or `VOCAL_HELPER_PROVIDER=cuda` (`cpu`, `coreml`, `directml`, `tensorrt`, `openvino`, `qnn`, `nnapi`) in the shell |
+| "offline install", "air-gapped", "use my own engines bundle / mirror" | `VH_DIARIZATION_ENGINES` (URL or path of the bundle), `VH_DIARIZATION_ENGINES_SHA`, `VH_NEMOTRON_ASR_GRAPH` / `VH_NEMOTRON_ASR_URL` (ASR graph), `VH_CACHE_DIR` |
+| "low-latency live diarization", "label speakers faster" | `diar_latency_s=` (1.04 s or 0.32 s published schedules) |
+
 ## Natural-language phrasings that should fire
 
 - **Transcribe / caption**: "transcribe this recording / meeting / interview /
@@ -43,7 +60,12 @@ and the browser **transcript viewer** at `GET /gui` (drop a file or paste a URL
 - **Live**: "transcribe my microphone", "live captions", "transcribe this stream
   as it plays".
 - **Surfaces**: "run the vocal-helper API / MCP server", "open the transcript
-  viewer / GUI", "install vocal-helper".
+  viewer / GUI", "install vocal-helper",
+  "connect vocal-helper to my MCP client / Claude / IDE".
+- **Engines**: "diarize with Nemotron", "torch-free / ONNX diarization",
+  "run the diarizer on GPU / CUDA / CoreML", "pin the ONNX Runtime provider",
+  "diarize offline / air-gapped", "transcribe with Nemotron",
+  "ONNX speech-to-text without whisper or torch".
 
 ## Sources it accepts
 

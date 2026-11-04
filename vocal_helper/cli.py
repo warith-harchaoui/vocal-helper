@@ -70,6 +70,7 @@ from vocal_helper.types import PcmFrame
 def _pipeline_config(
     *,
     whisper_model: str,
+    asr_engine: str,
     language: str,
     threads: int,
     initial_prompt: str,
@@ -90,6 +91,10 @@ def _pipeline_config(
         # Coerce a possible ``None`` bias prompt to "" — whisper rejects None.
         "initial_prompt": initial_prompt or "",
     }
+    if asr_engine == "nemotron":
+        # The Nemotron graph discovers the language itself and takes no prompt;
+        # it is fetched once into the cache. Only the thread budget carries over.
+        asr_cfg = {"engine": "nemotron", "threads": threads}
     # Model weights load from the self-hosted diarization-engines bundle
     # (settings.yaml ``engines.diarization_url``) — no HuggingFace token.
     diar_cfg: dict = {"backend": diar_backend}
@@ -438,7 +443,22 @@ def _common_options(func: Callable[..., object]) -> Callable[..., object]:
         show_default=True,
         help="pywhispercpp model tag.",
     )(func)
+    func = _asr_engine_option(func)
     return func
+
+
+def _asr_engine_option(func: Callable[..., object]) -> Callable[..., object]:
+    """``--asr-engine``: whisper.cpp (default) or the Nemotron 3.5 ONNX encoder."""
+    return click.option(
+        "--asr-engine",
+        type=click.Choice(["whisper", "nemotron"]),
+        default="whisper",
+        show_default=True,
+        help="'nemotron' runs the Nemotron 3.5 Transcribe encoder + CTC head as "
+        "ONNX (no torch, word timestamps at 40 ms, language discovered); the "
+        "int8 graph (669 MB) is fetched once from deraison.ai/nemotron-onnx, or "
+        "read from $VH_NEMOTRON_ASR_GRAPH.",
+    )(func)
 
 
 # ---------------------------------------------------------------------------
@@ -474,6 +494,7 @@ def cli() -> None:
 @click.option("--device", default=None, help="Substring of the microphone name.")
 def mic(
     whisper_model: str,
+    asr_engine: str,
     language: str,
     threads: int,
     initial_prompt: str,
@@ -491,6 +512,7 @@ def mic(
 
     cfg = _pipeline_config(
         whisper_model=whisper_model,
+        asr_engine=asr_engine,
         language=language,
         threads=threads,
         initial_prompt=initial_prompt,
@@ -551,6 +573,7 @@ def mic(
 )
 def file(
     whisper_model: str,
+    asr_engine: str,
     language: str,
     threads: int,
     initial_prompt: str,
@@ -571,6 +594,7 @@ def file(
 
     cfg = _pipeline_config(
         whisper_model=whisper_model,
+        asr_engine=asr_engine,
         language=language,
         threads=threads,
         initial_prompt=initial_prompt,
@@ -626,6 +650,7 @@ def file(
 @click.argument("url")
 def url(
     whisper_model: str,
+    asr_engine: str,
     language: str,
     threads: int,
     initial_prompt: str,
@@ -643,6 +668,7 @@ def url(
 
     cfg = _pipeline_config(
         whisper_model=whisper_model,
+        asr_engine=asr_engine,
         language=language,
         threads=threads,
         initial_prompt=initial_prompt,
@@ -683,9 +709,11 @@ def url(
 @click.option(
     "--jsonl", is_flag=True, default=False, help='Emit {"path": ..., "text": ...} JSON on stdout.'
 )
+@_asr_engine_option
 def transcribe(
     path: str,
     whisper_model: str,
+    asr_engine: str,
     language: str,
     threads: int,
     initial_prompt: str,
@@ -703,6 +731,16 @@ def transcribe(
     pcm, sr = load_audio(path, to_mono=True, to_numpy=True)
     # whisper.cpp wants a contiguous float32 buffer — coerce whatever dtype we got.
     pcm = np.asarray(pcm, dtype=np.float32)
+    if asr_engine == "nemotron":
+        from vocal_helper.nemotron_asr import NemotronOnnxAsr
+
+        if int(sr) != 16000:
+            from scipy.signal import resample_poly
+
+            pcm, sr = resample_poly(pcm, 16000, int(sr)).astype(np.float32), 16000
+        text = NemotronOnnxAsr(threads=threads).transcribe(pcm, 16000).text
+        click.echo(json.dumps({"path": path, "text": text}) if jsonl else text)
+        return
     text = transcribe_pcm(
         pcm=pcm,
         sr=int(sr),

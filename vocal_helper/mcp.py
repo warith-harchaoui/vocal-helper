@@ -20,8 +20,10 @@ Then run the MCP server::
 
 Usage Example
 -------------
->>> # Register the MCP endpoint in your client. It publishes:
->>> #   transcribe / pipeline
+>>> # Register http://127.0.0.1:8000/mcp in your client. It publishes the
+>>> # routes under fastapi-mcp's operation ids:
+>>> #   transcribe_transcribe_post / pipeline_pipeline_post
+>>> #   health_health_get / gui_gui_get
 >>> # …with the same argument names as the FastAPI routes.
 
 Author

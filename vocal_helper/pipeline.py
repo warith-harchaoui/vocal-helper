@@ -454,7 +454,7 @@ class Pipeline:
         # caption doesn't stall on the model's cold first inference. Any
         # explicit ``warmup`` in ``config.asr`` wins ; the offline
         # pipeline leaves it off (batch throughput doesn't care).
-        self._asr = WhisperStage(**{"warmup": True, **self.config.asr})
+        self._asr = _asr_stage({"warmup": True, **self.config.asr})
         self._llm: GemmaAnalystStage | None = (
             GemmaAnalystStage(**self.config.llm) if self.config.llm is not None else None
         )
@@ -759,6 +759,24 @@ class Pipeline:
 # ===========================================================================
 
 
+def _asr_stage(config: dict) -> Any:
+    """L'étage ASR que ``config["engine"]`` désigne : ``"whisper"`` (défaut) ou ``"nemotron"``.
+
+    ``"nemotron"`` est l'encodeur de Nemotron 3.5 Transcribe en ONNX
+    (:class:`vocal_helper.nemotron_asr.NemotronAsrStage`), sans torch ; le
+    graphe vient de ``config["graph"]`` ou de ``$VH_NEMOTRON_ASR_GRAPH``.
+    """
+    options = dict(config)
+    engine = str(options.pop("engine", "whisper")).lower()
+    if engine == "whisper":
+        return WhisperStage(**options)
+    if engine == "nemotron":
+        from vocal_helper.nemotron_asr import NemotronAsrStage
+
+        return NemotronAsrStage(**options)
+    raise ValueError(f"moteur ASR inconnu {engine!r} : 'whisper' ou 'nemotron'")
+
+
 @dataclass
 class OfflinePipelineConfig:
     """Configuration object for :class:`OfflinePipeline`.
@@ -847,7 +865,7 @@ class OfflinePipeline:
         # with ``OfflinePipelineConfig(asr={"batch": False})`` ; any
         # explicit ``batch`` in ``config.asr`` wins.
         asr_cfg = {"batch": True, **self.config.asr}
-        self._asr = WhisperStage(**asr_cfg)
+        self._asr = _asr_stage(asr_cfg)
         self._llm: GemmaAnalystStage | None = (
             GemmaAnalystStage(**self.config.llm) if self.config.llm is not None else None
         )

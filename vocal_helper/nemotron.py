@@ -46,11 +46,12 @@ pur, donc il se vérifie sans modèle et sans audio.
 from __future__ import annotations
 
 import base64
+import io
 import math
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, BinaryIO
 
 import numpy as np
 from numpy.typing import NDArray
@@ -1006,13 +1007,15 @@ class NemotronOnnxDiar:
             )
         return candidate
 
-    def _load(self) -> tuple[Any, NemotronSchedule, NDArray[np.float32]]:
-        """Ouvrir la session, lire le calendrier et l'empreinte de silence."""
-        if self._session is not None and self._schedule is not None:
-            assert self._silence is not None
-            return self._session, self._schedule, self._silence
+    def _prepare(self) -> tuple[NemotronSchedule, NDArray[np.float32]]:
+        """Lire le calendrier et l'empreinte de silence, sans ouvrir de session.
 
-        import onnxruntime as ort
+        Tout vient des métadonnées du graphe, lues sans charger ses poids : on
+        connaît donc le calendrier effectif sans payer les secondes que coûte
+        une session onnxruntime sur 400 Mo.
+        """
+        if self._schedule is not None and self._silence is not None:
+            return self._schedule, self._silence
 
         path = self.locate()
         metadata = _graph_metadata(path)
@@ -1055,18 +1058,26 @@ class NemotronOnnxDiar:
                 f"empreinte de silence de {silence.size} valeurs pour {schedule.emb_dim} attendues"
             )
 
-        options = ort.SessionOptions()
-        if self._threads:
-            options.intra_op_num_threads = int(self._threads)
-        providers = self._providers or _requested_providers() or _preferred_providers()
-        self._session = ort.InferenceSession(str(path), options, providers=providers)
         self._schedule, self._silence = schedule, silence
+        return schedule, silence
+
+    def _load(self) -> tuple[Any, NemotronSchedule, NDArray[np.float32]]:
+        """Ouvrir la session — à l'inférence seulement — avec le calendrier."""
+        schedule, silence = self._prepare()
+        if self._session is None:
+            import onnxruntime as ort
+
+            options = ort.SessionOptions()
+            if self._threads:
+                options.intra_op_num_threads = int(self._threads)
+            providers = self._providers or _requested_providers() or _preferred_providers()
+            self._session = ort.InferenceSession(str(self.locate()), options, providers=providers)
         return self._session, schedule, silence
 
     @property
     def schedule(self) -> NemotronSchedule:
         """Le calendrier effectif, celui du graphe ou celui demandé."""
-        return self._load()[1]
+        return self._prepare()[0]
 
     @property
     def providers(self) -> list[str]:
@@ -1103,10 +1114,34 @@ class NemotronOnnxDiar:
             ``[(t0, t1, locuteur), …]`` trié par début, la même forme que les
             autres étages de diarisation.
         """
+        probabilities = self.probabilities(pcm, sr)
+        if not len(probabilities):
+            return []
+        return probabilities_to_segments(probabilities, threshold=self.threshold)
+
+    def probabilities(self, pcm: NDArray[np.float32], sr: int) -> NDArray[np.float32]:
+        """Les probabilités d'activité par locuteur, ``(T, 8)`` à 10 ms.
+
+        Ce que :meth:`diarize` seuille. Leur maximum par trame est une
+        détection de parole, mesurée contre Silero dans
+        ``studies/vad_nemotron_vs_silero.py``.
+
+        Parameters
+        ----------
+        pcm : NDArray[np.float32]
+            Tampon mono.
+        sr : int
+            Sa fréquence, qui doit être 16 kHz.
+
+        Returns
+        -------
+        NDArray[np.float32]
+            Une ligne par trame de 10 ms, une colonne par voie de locuteur.
+        """
         session, schedule, silence = self._load()
         frames = log_mel(pcm, sr, MelSettings(n_mels=schedule.n_mels))
         if not len(frames):
-            return []
+            return np.zeros((0, 0), dtype=np.float32)
 
         step = schedule.chunk_len * schedule.subsampling
         right = schedule.chunk_right_context * schedule.subsampling
@@ -1159,10 +1194,8 @@ class NemotronOnnxDiar:
             collected.append(fine[head : head + kept * schedule.upsample_factor])
 
         if not collected:
-            return []
-        return probabilities_to_segments(
-            np.concatenate(collected, axis=0), threshold=self.threshold
-        )
+            return np.zeros((0, 0), dtype=np.float32)
+        return np.concatenate(collected, axis=0)
 
     # ----- la surface de flux -----------------------------------------
 
@@ -1328,12 +1361,63 @@ def _run_step(
     )
 
 
-def _graph_metadata(path: Path) -> dict[str, str]:
-    """Les métadonnées du graphe, sans charger ses poids."""
-    import onnx
+#: Le numéro de champ de ``metadata_props`` dans ``ModelProto`` (onnx.proto).
+_METADATA_FIELD = 14
 
-    model = onnx.load(str(path), load_external_data=False)
-    return {prop.key: prop.value for prop in model.metadata_props}
+
+def _varint(stream: BinaryIO) -> int | None:
+    """Un entier protobuf à longueur variable ; ``None`` en fin de flux."""
+    value = shift = 0
+    while True:
+        byte = stream.read(1)
+        if not byte:
+            return None
+        value |= (byte[0] & 0x7F) << shift
+        shift += 7
+        if not byte[0] & 0x80:
+            return value
+
+
+def _graph_metadata(path: Path) -> dict[str, str]:
+    """Les métadonnées du graphe, sans charger ses poids ni dépendre d'``onnx``.
+
+    Le paquet ``onnx`` n'est pas une dépendance déclarée, et l'importer ici
+    cassait le diariseur par défaut sur une installation propre. Le format est
+    du protobuf simple : on parcourt les champs de ``ModelProto`` en sautant
+    tout ce qui n'est pas ``metadata_props`` (champ 14, des paires
+    ``StringStringEntryProto`` clé 1 / valeur 2), donc les 400 Mo de poids
+    sont enjambés par ``seek`` et jamais lus.
+
+    Raises
+    ------
+    ValueError
+        Si le fichier n'est pas un protobuf lisible.
+    """
+    metadata: dict[str, str] = {}
+    with open(path, "rb") as stream:
+        while (tag := _varint(stream)) is not None:
+            field_number, wire_type = tag >> 3, tag & 7
+            if wire_type == 0:
+                _varint(stream)
+            elif wire_type == 1:
+                stream.seek(8, os.SEEK_CUR)
+            elif wire_type == 5:
+                stream.seek(4, os.SEEK_CUR)
+            elif wire_type == 2:
+                size = _varint(stream)
+                if size is None:
+                    raise ValueError(f"{path.name} : champ {field_number} tronqué")
+                if field_number != _METADATA_FIELD:
+                    stream.seek(size, os.SEEK_CUR)
+                    continue
+                entry, pair = io.BytesIO(stream.read(size)), {}
+                while (inner := _varint(entry)) is not None:
+                    length = _varint(entry) or 0
+                    pair[inner >> 3] = entry.read(length).decode("utf-8")
+                metadata[pair.get(1, "")] = pair.get(2, "")
+            else:
+                raise ValueError(f"{path.name} n'est pas un graphe ONNX (type filaire {wire_type})")
+    return metadata
 
 
 #: La variable d'environnement qui épingle un moteur d'exécution ONNX Runtime.
