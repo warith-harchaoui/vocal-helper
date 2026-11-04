@@ -98,12 +98,6 @@ jobs:
       - name: Install package + dev extras
         run: |
           python -m pip install --upgrade pip
-          # os-helper 4.1.0 carries `unzip_folder`, which the diarization-engine
-          # resolver calls; it is not on PyPI yet, so until it is, CI takes the
-          # dependency from its repository rather than skipping the tests that
-          # need it. Remove this line once 4.1.0 is published — the floor in
-          # pyproject.toml already asks for it.
-          pip install 'os-helper @ git+https://github.com/warith-harchaoui/os-helper@main'
           # The ``integration`` marker is filtered out by pyproject.toml's
           # ``addopts`` — we only install the lightweight deps. Heavy
           # extras (pyannote, nemo, ollama, capture-helper) require auth
@@ -151,10 +145,5 @@ jobs:
         with:
           python-version: "3.10"
           cache: pip
-      # Meme raison que dans le job de tests : os-helper 4.1.0 porte
-      # `unzip_folder` et n'est pas encore sur PyPI, donc le plancher que
-      # pyproject.toml demande ne se resout pas sans ca. A retirer des qu'elle
-      # est publiee — les deux lignes partiront ensemble.
-      - run: pip install 'os-helper @ git+https://github.com/warith-harchaoui/os-helper@main'
       - run: pip install .
       - run: python -c "import vocal_helper"

@@ -31,8 +31,6 @@ help: ## Show this help
 
 .PHONY: sync
 sync: ## Install the package + dev extra exactly as the server does
-	# Same line as ci.yml until os-helper 4.1.0 is on PyPI; they leave together.
-	$(PYTHON) -m pip install 'os-helper @ git+https://github.com/warith-harchaoui/os-helper@main'
 	$(PYTHON) -m pip install -e '.[dev]'
 
 .PHONY: env-check
