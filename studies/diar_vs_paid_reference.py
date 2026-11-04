@@ -36,7 +36,7 @@ appariées à leur audio par durée.
 
 Usage
 -----
-    python studies/diar_vs_paid_reference.py --output-root ~/parole-publique/output
+    python studies/diar_vs_paid_reference.py --output-root /Volumes/orange-dev/francetv-corpus/output
 """
 
 from __future__ import annotations

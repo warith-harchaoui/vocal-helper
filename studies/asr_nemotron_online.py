@@ -75,7 +75,13 @@ def main(graph: pathlib.Path, corpora: str, limit: int, crop_s: float) -> None:
     done = {(r["corpus"], r["id"], r["config"]) for r in results["rows"]}
     for name in corpora.split(","):
         for ident, path, reference, *crop in corpus(name, limit):
-            audio = _load(path)[: int(min(crop[0] if crop else crop_s, crop_s) * 16000)]
+            try:
+                audio = _load(path)
+            except (OSError, RuntimeError):
+                # Corpus TV vivant : un fichier peut disparaître pendant l'étude.
+                print(name, ident, "illisible, sauté", flush=True)
+                continue
+            audio = audio[: int(min(crop[0] if crop else crop_s, crop_s) * 16000)]
             if name in ("ami", "tv-fr"):
                 # La vérité tronquée doit suivre l'audio tronqué : on la refait.
                 reference = _cropped_reference(name, path, len(audio) / 16000)

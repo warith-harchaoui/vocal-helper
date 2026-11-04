@@ -101,10 +101,21 @@ def test_pipeline_wiring_defaults() -> None:
 
     src = lambda: iter(())  # noqa: E731 — never run, just to construct.
     online = voh.Pipeline(source=src)
+    assert type(online._asr).__name__ == "NemotronAsrStage"
     assert online._asr.batch is False
     assert online._asr.warmup is True
+    online = voh.Pipeline(source=src, config=voh.PipelineConfig(asr={"language": "en"}))
+    assert type(online._asr).__name__ == "WhisperStage"
+    assert online._asr.warmup is True
 
+    # Offline with the language to discover, the measured best engine is
+    # Nemotron 3.5; naming a language keeps whisper (``choose_asr_engine``).
     offline = voh.OfflinePipeline(source=src)
+    assert type(offline._asr).__name__ == "NemotronAsrStage"
+    assert offline._asr.batch is True
+    offline = voh.OfflinePipeline(
+        source=src, config=voh.OfflinePipelineConfig(asr={"language": "fr"})
+    )
     assert offline._asr.batch is True
     assert offline._asr.warmup is False
 
@@ -239,6 +250,10 @@ def _stub_whisper(monkeypatch: pytest.MonkeyPatch, text: str, language: str | No
         )
 
     monkeypatch.setattr(WhisperStage, "_transcribe_blocking", _fake_transcribe)
+    # The language discovery that runs first on "auto" answers the same.
+    import vocal_helper.lid as lid_mod
+
+    monkeypatch.setattr(lid_mod, "detect_language", lambda pcm, **_: (language or "en", 1.0))
 
 
 def test_one_shot_helpers_surface_discovered_language(
@@ -262,6 +277,38 @@ def test_one_shot_helpers_surface_discovered_language(
     out = transcribe_pcm(np.zeros(SR, dtype=np.float32), sr=SR)
     assert out == "hola"
     assert isinstance(out, str)
+
+
+def test_auto_language_is_discovered_before_whisper_runs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """On ``"auto"``, 30 s from the middle are handed to language discovery and
+    whisper is then locked on its answer; a given language skips discovery."""
+    import vocal_helper.lid as lid_mod
+
+    _stub_whisper(monkeypatch, "bonjour", "fr")
+    seen: dict = {}
+    monkeypatch.setattr(
+        lid_mod,
+        "detect_language",
+        lambda pcm, **_: seen.setdefault("n", pcm.shape[0]) and ("fr", 0.9),
+    )
+    built: list[str] = []
+    original = WhisperStage.__init__
+
+    def _record(self, *a, **k):
+        built.append(k.get("language"))
+        original(self, *a, **k)
+
+    monkeypatch.setattr(WhisperStage, "__init__", _record)
+    transcribe_pcm(np.zeros(90 * SR, dtype=np.float32), sr=SR)
+    assert seen["n"] == 30 * SR
+    assert built[-1] == "fr"
+
+    seen.clear()
+    transcribe_pcm(np.zeros(SR, dtype=np.float32), sr=SR, language="en")
+    assert "n" not in seen
+    assert built[-1] == "en"
 
 
 # --------------------------------------------------------------------------- #

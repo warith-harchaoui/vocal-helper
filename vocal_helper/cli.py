@@ -49,12 +49,14 @@ from typing import Any
 import click
 
 from vocal_helper import __version__
+from vocal_helper.asr import DEFAULT_MODEL as DEFAULT_WHISPER_MODEL
 from vocal_helper.diar import JOIN_THRESHOLD
 from vocal_helper.pipeline import (
     OfflinePipeline,
     OfflinePipelineConfig,
     Pipeline,
     PipelineConfig,
+    choose_asr_engine,
     resolve_engine,
 )
 from vocal_helper.router import select_diarization
@@ -85,6 +87,7 @@ def _pipeline_config(
     # ASR dict passed straight through to WhisperStage.__init__ — the keys are
     # that constructor's parameter names, not a CLI-local shape.
     asr_cfg: dict = {
+        "engine": asr_engine,
         "model": whisper_model,
         "language": language,
         "threads": threads,
@@ -439,7 +442,7 @@ def _common_options(func: Callable[..., object]) -> Callable[..., object]:
     )(func)
     func = click.option(
         "--whisper-model",
-        default="large-v3-turbo-q5_0",
+        default=DEFAULT_WHISPER_MODEL,
         show_default=True,
         help="pywhispercpp model tag.",
     )(func)
@@ -448,13 +451,15 @@ def _common_options(func: Callable[..., object]) -> Callable[..., object]:
 
 
 def _asr_engine_option(func: Callable[..., object]) -> Callable[..., object]:
-    """``--asr-engine``: whisper.cpp (default) or the Nemotron 3.5 ONNX encoder."""
+    """``--asr-engine``: ``auto`` (default), whisper.cpp, or the Nemotron 3.5 ONNX encoder."""
     return click.option(
         "--asr-engine",
-        type=click.Choice(["whisper", "nemotron"]),
-        default="whisper",
+        type=click.Choice(["auto", "whisper", "nemotron"]),
+        default="auto",
         show_default=True,
-        help="'nemotron' runs the Nemotron 3.5 Transcribe encoder + CTC head as "
+        help="'auto' picks the best measured engine: Nemotron when the language "
+        "is to be discovered (offline and live), whisper as soon as --language, "
+        "--initial-prompt or --whisper-model is given. 'nemotron' runs the Nemotron 3.5 Transcribe encoder + CTC head as "
         "ONNX (no torch, word timestamps at 40 ms, language discovered); the "
         "int8 graph (669 MB) is fetched once from deraison.ai/nemotron-onnx, or "
         "read from $VH_NEMOTRON_ASR_GRAPH.",
@@ -697,7 +702,7 @@ def url(
 
 @cli.command()
 @click.argument("path", type=click.Path(exists=True))
-@click.option("--whisper-model", default="large-v3-turbo-q5_0", show_default=True)
+@click.option("--whisper-model", default=DEFAULT_WHISPER_MODEL, show_default=True)
 @click.option("--language", default="auto", show_default=True)
 @click.option("--threads", type=int, default=6, show_default=True)
 @click.option(
@@ -731,7 +736,8 @@ def transcribe(
     pcm, sr = load_audio(path, to_mono=True, to_numpy=True)
     # whisper.cpp wants a contiguous float32 buffer — coerce whatever dtype we got.
     pcm = np.asarray(pcm, dtype=np.float32)
-    if asr_engine == "nemotron":
+    hints = {"model": whisper_model, "language": language, "initial_prompt": initial_prompt}
+    if choose_asr_engine({"engine": asr_engine, **hints}, offline=True) == "nemotron":
         from vocal_helper.nemotron_asr import NemotronOnnxAsr
 
         if int(sr) != 16000:

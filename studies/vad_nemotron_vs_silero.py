@@ -26,6 +26,26 @@ sur 0,6 s, ses pics étant séparés de blancs même en pleine parole), sur le
 fichier entier (hors ligne) et en flux simulé à 2 s de pas, 16 s de contexte et 0,48 s
 d'anticipation (en ligne).
 
+Verdict :
+---------
+Silero reste le détecteur de parole par défaut (2026-11-04 ; 8 réunions AMI
+coupées à 600 s, 20 mixages bagarre et 20 bagarre-rich ; médianes par fichier).
+
+- **Silero est le meilleur sur les vraies réunions** : aire sous la courbe ROC
+  (AUC) 0,964 sur AMI, contre 0,929 pour le diariseur et 0,923 pour la tête CTC
+  lissée.
+- **Le diariseur Nemotron fait jeu égal sur les mixages** : AUC 0,894 et 0,900
+  contre 0,889 et 0,910 pour Silero, F-mesure 0,974 et 0,944 contre 0,968 et
+  0,948. Quand il tourne de toute façon, son activité vaut une détection de
+  parole gratuite ; elle ne justifie pas de retirer Silero du chemin en direct,
+  qui en a besoin avant tout diariseur.
+- **La tête CTC brute ne détecte pas la parole** (AUC 0,60 à 0,73, 74 à 80 %
+  de parole manquée au seuil 0,5) : ses pics sont séparés de blancs même en
+  pleine parole. Lissée sur 0,6 s, elle rattrape Silero sur AMI (F 0,918) mais
+  crie à la parole partout sur les mixages (75 à 82 % de fausses alarmes).
+- Hors ligne et en flux (2 s de pas, 16 s de contexte) donnent la même chose
+  pour la tête CTC, à 0,01 d'AUC près.
+
 Usage
 -----
     .venv/bin/python studies/vad_nemotron_vs_silero.py \\

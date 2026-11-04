@@ -24,6 +24,35 @@ Chaque moteur reçoit le fichier entier et découpe comme il l'entend ; le WER
 est calculé sur le texte normalisé de ``vocal_helper.bench`` (casse,
 ponctuation), en deux versions : stricte, et tolérante aux hésitations.
 
+Verdict :
+---------
+2026-11-04. Taux d'erreur sur les mots pondéré par corpus ; ``whisper-turbo``
+devine la langue, ``whisper-lid`` la découvre d'abord sur 30 s prises au milieu,
+``whisper-oracle`` la reçoit.
+
+==============  ===========  =============  ===========  ==============
+corpus          Nemotron     whisper-turbo  whisper-lid  whisper-oracle
+==============  ===========  =============  ===========  ==============
+ami (8)         **0,232**    0,375          0,375        0,375
+bagarre-rich    **0,383**    0,542          0,470        —
+cv-fr (40)      **0,266**    0,690          0,283        0,283
+cv-en (40)      0,067        **0,012**      **0,012**    **0,012**
+tv-fr (5)       0,592        0,688          **0,477**    0,535
+==============  ===========  =============  ===========  ==============
+
+- **Hors ligne, langue à découvrir : Nemotron par défaut.** Il gagne sur les
+  trois corpus à vérité exacte qui ont plusieurs voix ou une langue autre que
+  l'anglais, et tourne 2 à 3 fois plus vite (RTF int8 0,02 à 0,07, CPU).
+- **La langue donnée, whisper reprend la main sur la télévision** (0,48 contre
+  0,59 sur 5 émissions) ; ce chiffre est un désaccord avec une autre machine,
+  pas une vérité, et il ne pèse pas autant que les trois corpus exacts. D'où
+  la règle de ``choose_asr_engine`` : ``--language`` donné → whisper.
+- **Découvrir la langue avant whisper est un gain net** sur un fichier entier
+  (0,69 → 0,28 en français, 0,54 → 0,47 sur les mélanges, rien de perdu en
+  anglais) : branché dans ``transcribe_pcm_with_language`` quand
+  ``language="auto"``.
+- int8 = fp32 à 0,005 près partout : l'int8 est le graphe téléchargé.
+
 Usage
 -----
     .venv/bin/python studies/asr_nemotron_vs_whisper_offline.py \\
@@ -33,6 +62,7 @@ Usage
 from __future__ import annotations
 
 import json
+import os
 import pathlib
 import time
 
@@ -58,6 +88,10 @@ def _rttm_text(path: pathlib.Path) -> str:
         if len(parts) >= 10 and parts[0] == "SPEAKER":
             rows.append((float(parts[3]), " ".join(parts[9:])))
     return " ".join(word for _, word in sorted(rows))
+
+
+#: Les émissions transcrites par le chemin payant de parole-publique.
+TV_ROOT = pathlib.Path(os.environ.get("VH_TV_CORPUS", "/Volumes/orange-dev/francetv-corpus/output"))
 
 
 def _load(path: pathlib.Path) -> np.ndarray:
@@ -99,10 +133,15 @@ def corpus(name: str, limit: int) -> list[tuple[str, pathlib.Path, str]]:
                 picked.append(item)
         return picked[:limit]
     if name == "tv-fr":
-        root = pathlib.Path.home() / "parole-publique/output"
+        root = TV_ROOT
         out = []
         for transcript in sorted(root.glob("*/transcript.json")):
-            if transcript.parent.name.endswith("-free"):
+            # ``-free`` : la sortie du chemin gratuit, pas une référence. Un
+            # dossier peut aussi disparaître en cours d'étude (renommé ailleurs).
+            if (
+                transcript.parent.name.endswith("-free")
+                or not (transcript.parent / "audio.mp3").exists()
+            ):
                 continue
             utterances = json.loads(transcript.read_text())["utterances"]
             kept = [u for u in utterances if u["t1"] <= TV_CROP_S]
@@ -130,6 +169,19 @@ def engines(onnx_dir: pathlib.Path, wanted: list[str]):
         out["whisper-oracle"] = lambda a, lang: (
             transcribe_pcm(a, 16000, language=lang) if lang else None
         )
+    if "whisper-lid" in wanted:
+        from vocal_helper.asr import transcribe_pcm
+        from vocal_helper.lid import detect_language
+
+        # Ce que la pipeline peut faire sans rien savoir : découvrir la langue
+        # sur 30 s prises au milieu du fichier (loin des génériques), puis la
+        # donner à whisper. Le temps de la détection compte dans le RTF.
+        def whisper_lid(a, _lang):
+            mid = max(0, len(a) // 2 - 15 * 16000)
+            lang, _p = detect_language(a[mid : mid + 30 * 16000])
+            return transcribe_pcm(a, 16000, language=lang)
+
+        out["whisper-lid"] = whisper_lid
     from vocal_helper.nemotron_asr import NemotronOnnxAsr
 
     for precision in ("fp32", "int8"):
@@ -153,7 +205,13 @@ def main(onnx_dir: pathlib.Path, corpora: str, engine_names: str, limit: int) ->
     runners = engines(onnx_dir, engine_names.split(","))
     for name in corpora.split(","):
         for ident, path, reference, *crop in corpus(name, limit):
-            audio = _load(path)
+            try:
+                audio = _load(path)
+            except (OSError, RuntimeError):
+                # Le corpus TV est vivant : un dossier peut être nettoyé ou
+                # renommé pendant l'étude. On le saute plutôt que de tout perdre.
+                print(name, ident, "illisible, sauté", flush=True)
+                continue
             if crop:
                 audio = audio[: int(crop[0] * 16000)]
             seconds = len(audio) / 16000
