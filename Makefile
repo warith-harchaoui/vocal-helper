@@ -11,8 +11,11 @@
 # informational here (`-ruff format --check`) while the server blocked on it, so a
 # green preflight could still be a red push.
 
-PYTHON ?= python
-RUFF   ?= ruff
+# The project venv when there is one: a bare `python` can be a base interpreter
+# carrying an older install of the package, which then fails env-check for the
+# wrong reason.
+PYTHON ?= $(if $(wildcard .venv/bin/python),.venv/bin/python,python)
+RUFF  ?= ruff
 PYTEST ?= pytest
 # The `requires-python` floor. The server installs and imports on it; locally the
 # check runs when an interpreter of that version is on PATH and otherwise falls
@@ -28,6 +31,8 @@ help: ## Show this help
 
 .PHONY: sync
 sync: ## Install the package + dev extra exactly as the server does
+	# Same line as ci.yml until os-helper 4.1.0 is on PyPI; they leave together.
+	$(PYTHON) -m pip install 'os-helper @ git+https://github.com/warith-harchaoui/os-helper@main'
 	$(PYTHON) -m pip install -e '.[dev]'
 
 .PHONY: env-check
