@@ -91,6 +91,19 @@ def write_metadata_graph(path: Path, metadata: dict[str, str]) -> Path:
     return path
 
 
+@pytest.fixture(autouse=True)
+def _no_asr_graph_download(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Outside integration tests, fetching the ~700 MB ASR graph is an error, not a download."""
+    if request.node.get_closest_marker("integration"):
+        return
+    import vocal_helper.nemotron_asr as nemotron_asr
+
+    def refuse(url: str, target: Path, sha256: str | None) -> None:
+        raise FileNotFoundError(f"download refused in unit tests: {url}")
+
+    monkeypatch.setattr(nemotron_asr, "_download", refuse)
+
+
 @pytest.fixture(scope="session")
 def metadata_graph_writer():
     """:func:`write_metadata_graph`, for tests that build their own metadata."""

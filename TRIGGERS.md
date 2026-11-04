@@ -38,10 +38,10 @@ tools are the API routes, under fastapi-mcp's operation ids:
 | Ask | What it means here |
 |-----|--------------------|
 | "Nemotron", "Nemotron 3 Diarization", "Sortformer ONNX", "torch-free diarization", "diarize without HuggingFace" | the default offline diarizer: `NemotronOnnxDiar`, an ONNX graph from the diarization-engines bundle (no torch, no HF token) |
-| "Nemotron 3.5 Transcribe", "transcribe with Nemotron", "torch-free / ONNX speech-to-text", "CTC timestamps", "transcribe without whisper" | `--asr-engine nemotron` (CLI), `asr={"engine": "nemotron"}` (library), `NemotronOnnxAsr`: the Nemotron 3.5 encoder + CTC head as one ONNX graph (no torch, no LLM, words timed at 40 ms, language discovered, speaker / event tags apart); graph from `VH_NEMOTRON_ASR_GRAPH` |
+| "Nemotron 3.5 Transcribe", "transcribe with Nemotron", "torch-free / ONNX speech-to-text", "CTC timestamps", "transcribe without whisper" | `--asr-engine nemotron` (CLI), `asr={"engine": "nemotron"}` (library), `NemotronOnnxAsr`: the Nemotron 3.5 encoder + CTC head as one ONNX graph (no torch, no LLM, words timed at 40 ms, language discovered, speaker / event tags apart); the int8 graph is fetched once from `deraison.ai/nemotron-onnx` (`precision="fp32"` for the exact one), or read from `VH_NEMOTRON_ASR_GRAPH`; mirror with `VH_NEMOTRON_ASR_URL` |
 | "use pyannote / NeMo / sherpa instead" | `--diar-backend pyannote\|nemo\|sherpa` (CLI), `diar_backend` (API / MCP form field), `diar={"backend": …}` (library); `auto` lets the router pick |
 | "run on GPU / CUDA / CoreML / DirectML / TensorRT / OpenVINO", "force CPU", "which ONNX Runtime provider" | `providers=` on `NemotronOnnxDiar`, or `VOCAL_HELPER_PROVIDER=cuda` (`cpu`, `coreml`, `directml`, `tensorrt`, `openvino`, `qnn`, `nnapi`) in the shell |
-| "offline install", "air-gapped", "use my own engines bundle / mirror" | `VH_DIARIZATION_ENGINES` (URL or path of the bundle), `VH_DIARIZATION_ENGINES_SHA`, `VH_CACHE_DIR` |
+| "offline install", "air-gapped", "use my own engines bundle / mirror" | `VH_DIARIZATION_ENGINES` (URL or path of the bundle), `VH_DIARIZATION_ENGINES_SHA`, `VH_NEMOTRON_ASR_GRAPH` / `VH_NEMOTRON_ASR_URL` (ASR graph), `VH_CACHE_DIR` |
 | "low-latency live diarization", "label speakers faster" | `diar_latency_s=` (1.04 s or 0.32 s published schedules) |
 
 ## Natural-language phrasings that should fire

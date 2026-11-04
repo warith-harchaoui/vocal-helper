@@ -93,7 +93,7 @@ def _pipeline_config(
     }
     if asr_engine == "nemotron":
         # The Nemotron graph discovers the language itself and takes no prompt;
-        # it reads $VH_NEMOTRON_ASR_GRAPH. Only the thread budget carries over.
+        # it is fetched once into the cache. Only the thread budget carries over.
         asr_cfg = {"engine": "nemotron", "threads": threads}
     # Model weights load from the self-hosted diarization-engines bundle
     # (settings.yaml ``engines.diarization_url``) — no HuggingFace token.
@@ -456,7 +456,8 @@ def _asr_engine_option(func: Callable[..., object]) -> Callable[..., object]:
         show_default=True,
         help="'nemotron' runs the Nemotron 3.5 Transcribe encoder + CTC head as "
         "ONNX (no torch, word timestamps at 40 ms, language discovered); the "
-        "graph comes from $VH_NEMOTRON_ASR_GRAPH.",
+        "int8 graph (669 MB) is fetched once from deraison.ai/nemotron-onnx, or "
+        "read from $VH_NEMOTRON_ASR_GRAPH.",
     )(func)
 
 

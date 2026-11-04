@@ -53,6 +53,7 @@ __all__ = [
     "tokens_to_words",
     "NemotronOnnxAsr",
     "NemotronAsrStage",
+    "resolve_graph",
 ]
 
 #: Préfixe des métadonnées du graphe ASR.
@@ -63,6 +64,63 @@ CONTRACT = "nemotron-asr-ctc-1"
 
 #: La variable d'environnement qui désigne le graphe.
 GRAPH_ENV = "VH_NEMOTRON_ASR_GRAPH"
+
+#: Où le projet sert les graphes ; ``$VH_NEMOTRON_ASR_URL`` le remplace (miroir).
+DEFAULT_BASE_URL = "https://deraison.ai/nemotron-onnx"
+
+#: Les fichiers de chaque précision, et leur empreinte. Les empreintes ne
+#: valent que pour :data:`DEFAULT_BASE_URL` : un miroir sert ce qu'il veut.
+#: L'int8 est le défaut : 669 Mo en un fichier, deux fois plus rapide sur CPU,
+#: et un argmax identique à celui du fp32 sur 98,4 à 99,9 % des trames.
+GRAPH_FILES: dict[str, dict[str, str]] = {
+    "int8": {
+        "nemotron-asr-ctc.int8.onnx": "67c1af964d7397f4030acc730de85c3e476fc18387ea95fc5a12206ca4f88be1",
+    },
+    "fp32": {
+        "nemotron-asr-ctc.fp32.onnx": "acde813fd4453b7ced9b8b99533abc74a65ba9f120e7e457522b819eb191a225",
+        "nemotron-asr-ctc.fp32.onnx.data": "f7211b2cfb12288e7f8e350f1b7e825213610e30ae781a9941728a4aa9a34dc2",
+    },
+}
+
+#: La variable qui remplace l'adresse de base.
+URL_ENV = "VH_NEMOTRON_ASR_URL"
+
+
+def resolve_graph(precision: str = "int8") -> Path:
+    """Le graphe de la précision demandée, téléchargé une fois puis lu du cache.
+
+    Ordre : ``$VH_NEMOTRON_ASR_GRAPH`` s'il est défini, sinon le cache
+    (``$VH_CACHE_DIR/nemotron-onnx``, par défaut ``~/.cache/vocal-helper``),
+    rempli au besoin depuis ``$VH_NEMOTRON_ASR_URL`` ou :data:`DEFAULT_BASE_URL`.
+    Le téléchargement passe par os-helper : reprise, nouvelles tentatives,
+    écriture atomique, et vérification de l'empreinte sur l'adresse par défaut.
+
+    Raises
+    ------
+    ValueError
+        Si la précision est inconnue.
+    """
+    if os.environ.get(GRAPH_ENV):
+        return Path(os.environ[GRAPH_ENV]).expanduser()
+    if precision not in GRAPH_FILES:
+        raise ValueError(f"précision {precision!r} inconnue : {sorted(GRAPH_FILES)}")
+    files = GRAPH_FILES[precision]
+    cache = Path(os.environ.get("VH_CACHE_DIR", Path.home() / ".cache" / "vocal-helper"))
+    folder = cache / "nemotron-onnx"
+    base = os.environ.get(URL_ENV, "").rstrip("/") or DEFAULT_BASE_URL
+    for name, digest in files.items():
+        target = folder / name
+        if not target.exists():
+            folder.mkdir(parents=True, exist_ok=True)
+            _download(f"{base}/{name}", target, digest if base == DEFAULT_BASE_URL else None)
+    return folder / next(iter(files))
+
+
+def _download(url: str, target: Path, sha256: str | None) -> None:
+    import os_helper as osh
+
+    osh.download_file(url, str(target), sha256=sha256)
+
 
 #: Le séparateur de mots de SentencePiece.
 WORD_START = "▁"
@@ -339,7 +397,10 @@ class NemotronOnnxAsr:
     Parameters
     ----------
     graph : str or Path, optional
-        Le graphe. Par défaut ``$VH_NEMOTRON_ASR_GRAPH``.
+        Le graphe. Par défaut :func:`resolve_graph` : ``$VH_NEMOTRON_ASR_GRAPH``,
+        sinon le cache, rempli une fois depuis ``deraison.ai/nemotron-onnx``.
+    precision : str
+        ``"int8"`` (défaut, 669 Mo) ou ``"fp32"`` (2,7 Go, exact).
     providers : list of str, optional
         Les moteurs d'exécution ; même ordre d'autorité que le diariseur :
         l'argument, puis ``$VOCAL_HELPER_PROVIDER``, puis l'ordre mesuré.
@@ -351,29 +412,31 @@ class NemotronOnnxAsr:
         self,
         graph: str | Path | None = None,
         *,
+        precision: str = "int8",
         providers: list[str] | None = None,
         threads: int | None = None,
     ) -> None:
         """Repérer le graphe ; la session se crée au premier appel."""
         self._graph = Path(graph) if graph is not None else None
+        self._precision = precision
         self._providers = providers
         self._threads = threads
         self._settings: AsrSettings | None = None
         self._session: Any = None
 
     def locate(self) -> Path:
-        """Le chemin du graphe.
+        """Le chemin du graphe : l'argument, sinon :func:`resolve_graph`.
 
         Raises
         ------
         FileNotFoundError
-            Si aucun graphe n'est désigné ou s'il n'existe pas.
+            Si le graphe désigné n'existe pas.
         """
-        path = self._graph or (Path(os.environ[GRAPH_ENV]) if os.environ.get(GRAPH_ENV) else None)
-        if path is None or not path.exists():
+        path = self._graph or resolve_graph(self._precision)
+        if not path.exists():
             raise FileNotFoundError(
-                f"graphe Nemotron ASR introuvable ({path or 'non désigné'}) ; "
-                f"le passer en argument ou par ${GRAPH_ENV}"
+                f"graphe Nemotron ASR introuvable ({path}) ; le passer en argument, "
+                f"par ${GRAPH_ENV}, ou vider le cache pour le retélécharger"
             )
         return path
 
@@ -547,7 +610,9 @@ class NemotronAsrStage:
     Parameters
     ----------
     graph : str or Path, optional
-        Le graphe ; par défaut ``$VH_NEMOTRON_ASR_GRAPH``.
+        Le graphe ; par défaut celui de :func:`resolve_graph`.
+    precision : str
+        ``"int8"`` (défaut) ou ``"fp32"``.
     batch : bool
         Regrouper les segments (hors ligne) ou les traiter un par un (direct).
     max_chunk_s : float
@@ -562,6 +627,7 @@ class NemotronAsrStage:
         *,
         batch: bool = False,
         max_chunk_s: float = 30.0,
+        precision: str = "int8",
         providers: list[str] | None = None,
         threads: int | None = None,
         **_ignored: Any,
@@ -569,7 +635,9 @@ class NemotronAsrStage:
         """Préparer l'étage ; les options propres à whisper sont ignorées."""
         self.batch = batch
         self.max_chunk_s = float(max_chunk_s)
-        self._asr = NemotronOnnxAsr(graph, providers=providers, threads=threads)
+        self._asr = NemotronOnnxAsr(
+            graph, precision=precision, providers=providers, threads=threads
+        )
 
     def transcribe_chunk(self, chunk: list[dict]) -> list[dict]:
         """Transcrire des segments mis bout à bout ; une énonciation par segment."""

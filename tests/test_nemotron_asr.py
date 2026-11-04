@@ -79,10 +79,54 @@ def test_unknown_contract_is_refused(tmp_path: Path, metadata_graph_writer) -> N
         _ = NemotronOnnxAsr(graph).settings
 
 
-def test_missing_graph_names_the_env_var(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_without_a_graph_the_default_is_fetched_once_into_the_cache(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import vocal_helper.nemotron_asr as nemotron_asr
+
     monkeypatch.delenv(GRAPH_ENV, raising=False)
-    with pytest.raises(FileNotFoundError, match=GRAPH_ENV):
-        NemotronOnnxAsr().locate()
+    monkeypatch.delenv(nemotron_asr.URL_ENV, raising=False)
+    monkeypatch.setenv("VH_CACHE_DIR", str(tmp_path))
+    fetched: list[tuple[str, str | None]] = []
+
+    def fake(url: str, target: Path, sha256: str | None) -> None:
+        fetched.append((url, sha256))
+        target.write_bytes(b"x")
+
+    monkeypatch.setattr(nemotron_asr, "_download", fake)
+    path = NemotronOnnxAsr(precision="fp32").locate()
+    assert path == tmp_path / "nemotron-onnx" / "nemotron-asr-ctc.fp32.onnx"
+    assert [u.rsplit("/", 1)[1] for u, _ in fetched] == [
+        "nemotron-asr-ctc.fp32.onnx",
+        "nemotron-asr-ctc.fp32.onnx.data",
+    ]
+    assert all(u.startswith("https://deraison.ai/nemotron-onnx/") and d for u, d in fetched)
+    NemotronOnnxAsr(precision="fp32").locate()
+    assert len(fetched) == 2  # le cache sert la seconde fois
+
+
+def test_a_mirror_is_not_held_to_the_default_digests(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import vocal_helper.nemotron_asr as nemotron_asr
+
+    monkeypatch.delenv(GRAPH_ENV, raising=False)
+    monkeypatch.setenv(nemotron_asr.URL_ENV, "https://mirror.example/onnx/")
+    monkeypatch.setenv("VH_CACHE_DIR", str(tmp_path))
+    fetched: list[tuple[str, str | None]] = []
+    monkeypatch.setattr(
+        nemotron_asr,
+        "_download",
+        lambda url, target, sha256: fetched.append((url, sha256)) or target.write_bytes(b"x"),
+    )
+    NemotronOnnxAsr().locate()
+    assert fetched == [("https://mirror.example/onnx/nemotron-asr-ctc.int8.onnx", None)]
+
+
+def test_unknown_precision_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv(GRAPH_ENV, raising=False)
+    with pytest.raises(ValueError, match="précision"):
+        NemotronOnnxAsr(precision="fp8").locate()
 
 
 def test_graph_from_env(asr_graph: Path, monkeypatch: pytest.MonkeyPatch) -> None:
