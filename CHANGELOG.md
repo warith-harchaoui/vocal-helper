@@ -8,6 +8,14 @@ names exported from `vocal_helper.__all__` plus the documented CLI flags.
 
 ## [Unreleased]
 
+## [4.0.0] - 2026-11-04
+
+A major version because two defaults change, as the policy above requires: the
+ASR engine and the diarizer a bare call reaches are no longer the ones 3.x
+reached. The public names of 3.3.2 are all still exported, and each old path
+stays one argument away (`engine="whisper"`, an explicit `diar` backend,
+`growing=None`).
+
 ### Changed
 
 - **The default ASR engine is now the measured best one, offline and live.**
@@ -21,29 +29,96 @@ names exported from `vocal_helper.__all__` plus the documented CLI flags.
   0.27 / 0.79, French TV 0.48 / 0.83 (whisper misreads the language of a short segment and
   translates it). Told the language, whisper wins on French TV and stays ahead
   on read English, hence the rule. `engine="whisper"` restores the old path;
-  the live Nemotron stage opens its graph at start (`warmup`).
+  the live Nemotron stage opens its graph at start (`warmup`). The first
+  transcription downloads the 669 MB int8 graph. `POST /transcribe` stays on
+  whisper.
 - **`transcribe_pcm` / `transcribe_pcm_with_language` discover the language
   before whisper runs** when `language="auto"`: 30 s from the middle of the
   buffer go to `detect_language`, and whisper is locked on the answer. On a
   whole buffer whisper otherwise decides once on the first 30 s and translated
   French clips into English: WER 0.69 → 0.28 on Common Voice French, 0.54 →
   0.47 on overlapped mixes, unchanged in English.
+- **The default diarizer is Nemotron 3 through its ONNX graph, offline and
+  live**, whenever the graph is in the diarization-engines bundle. On a mix whose
+  ground truth is exact by construction, anechoic then reverberated at 0.3 s and
+  0.6 s RT60: DER 0.090 / 0.105 / 0.252 against pyannote's 0.299 / 0.296 / 0.553,
+  with the right speaker count everywhere. On AMI it reads worse (0.363–0.487),
+  because AMI's reference comes from the headset microphones while the model
+  hears the room; the README keeps both numbers. Live, a pipeline without the
+  graph falls back to the growing-buffer re-diarization (DER 0.176 on eight AMI
+  meetings) instead of the per-segment clusterer alone (0.369, sixty-five labels
+  for four speakers). `growing=None` restores the 3.x live path.
+- **The diarization stages default to `backend="auto"`**, resolved to the best
+  backend this installation can run (`OFFLINE_PREFERENCE`: nemotron, pyannote,
+  nemo, sherpa; `ONLINE_PREFERENCE`: nemo, pyannote, sherpa). The defaults used
+  to name `pyannote` and `nemo`, two extras, so a bare install raised.
+- **sherpa-onnx and onnxruntime are core dependencies**, so a bare install
+  diarizes. `[sherpa]` stays as an empty extra so existing requirement lines
+  still resolve.
+- **`os-helper>=4.1.0`**: the bundle resolver calls `osh.unzip_folder`, which
+  arrives there.
 
 ### Added
 
-- **Nemotron 3.5 as an opt-in ASR engine** (`--asr-engine nemotron`, or
+- **Nemotron 3.5 as an ASR engine** (`--asr-engine nemotron`, or
   `asr={"engine": "nemotron"}`): the audio encoder and CTC head exported to
   ONNX (`studies/nemotron_asr_export.py`), run by a numpy host
-  (`vocal_helper.nemotron_asr`) with no torch. The int8 graph (701 MB) is
+  (`vocal_helper.nemotron_asr`) with no torch. The int8 graph (669 MB) is
   downloaded once from `deraison.ai/nemotron-onnx` and checked against a
   pinned sha256; `VH_NEMOTRON_ASR_URL` points at a mirror and
   `VH_NEMOTRON_ASR_GRAPH` at a local file. Words carry timestamps and
-  confidences; speaker, event and style tags come out separately. whisper
-  stays the default engine.
-- `NemotronOnnxDiar.probabilities()`: per-speaker activity at 10 ms, the
-  matrix `diarize()` thresholds.
-- Studies: Nemotron against whisper offline and as a simulated stream, and
-  Silero against the diarizer's activity and the CTC blank as speech detectors.
+  confidences; speaker, event and style tags come out separately.
+- **`NemotronOnnxDiar` / `NemotronSchedule`**: Nemotron 3 streaming
+  diarization on onnxruntime and numpy, `probabilities()` for the per-speaker
+  activity at 10 ms, `--diar-backend nemotron`. `PipelineConfig(diar_latency_s=…)`
+  is its one knob: the default takes the longest viable context (6.4 s, RTF
+  0.166); a conversational caller asks for 1.04 or 0.32.
+- **The four modes, on two axes.** Besides the free `OfflinePipeline` /
+  `Pipeline`, the paid `CloudOfflinePipeline` (Gladia `solaria-3` or ElevenLabs
+  Scribe, with pyannoteAI `precision-3`) and `CloudLivePipeline` (Gladia
+  `solaria-1`, pyannoteAI `live-1`), plus the hybrid
+  `OfflinePipeline(diar={"backend": "pyannoteai"})`. They come with the `[cloud]`
+  extra, need their key (`credential`, `credentials_status`), raise rather than
+  degrade without one, and are never picked by the router. `wallet-helper`
+  memoises each billed call on the audio's bytes.
+- **Re-diarization stages**: `GrowingBufferDiarStage` (re-diarizes everything
+  heard so far on a geometric schedule; its last pass is the whole-file answer),
+  `PeriodicOfflineDiarStage` / `RediarPolicy` (`PipelineConfig(rediar=…)`,
+  bounded memory), each announcing its corrections through `on_revision` /
+  `LabelRevision`.
+- **Speaker tooling**: `IncrementalDiarStage` / `IncrementalClusterer` with a
+  per-recording threshold (`separating_threshold`, `inter_speaker_scale`,
+  `intra_speaker_scale`), `ExemplarClusterer` (a speaker as its observations,
+  not a centroid), `speaker_consistency` / `ConsistencyReport`,
+  `read_back_identities`.
+- **`vocal_helper.accel`**: the acceleration plan from the hardware
+  (`AccelPlan`, `Hardware`) and the live budget across stages (`live_budget`,
+  `LiveBudget`, `StageLoad`).
+- **`vocal_helper.turns`** (`consolidate`, `join_words`): an engine's raw output
+  turned into rows a person reads.
+- Studies: Nemotron against whisper offline and live, Silero against the
+  diarizer's activity and the CTC blank as speech detectors, the far-field
+  diarization comparison, the re-diarization campaigns.
+
+### Fixed
+
+- **`vocal-helper file` and `POST /pipeline` never reached Nemotron.** The
+  library's `backend="auto"` put it first, but those two surfaces go through
+  `select_diarization`, which did not know it: they kept the nemo / pyannote
+  duration crossover, and `--diar-backend` did not even accept `nemotron`. The
+  router now takes `nemotron_available`, the CLI and the API probe the bundle,
+  and an offline run goes to Nemotron whenever its graph is there.
+- **`OfflineDiarStage(backend="nemotron")` raised `AttributeError` on its first
+  buffer**: the stage calls `load()` on every backend, and `NemotronOnnxDiar`
+  had none. It does now. The stage's chunk length is also read from the resolved
+  backend rather than the requested one, so Nemotron is never chunked (it ships
+  no stitching embedder) and an auto-resolved Sortformer keeps its 60 s cap.
+- **A crashed stage hung the run instead of failing it.** A stage that dies
+  never sends its end-of-stream marker, and the merger waited on the output
+  queues alone, so `run()` sat on an idle event loop forever: the Nemotron load
+  error above surfaced as a `vocal-helper file` that never returned. Under
+  `strict=True` (the default) the merger now watches the stage tasks and
+  `run()` raises `StageCrashed`.
 
 ## [3.3.2] - 2026-11-01
 

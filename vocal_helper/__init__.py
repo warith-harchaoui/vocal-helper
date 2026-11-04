@@ -15,14 +15,17 @@ Stages, all stitched by :class:`Pipeline` :
 2. **VAD**: Silero v5 ONNX on CPU (:class:`SileroVADStage`).
    32 ms windows, ``activity_threshold=0.5``, default
    ``min_silence_ms=300``.
-3. **Online diarization**: :class:`OnlineDiarStage`. Per-segment
-   embedding (pyannote/embedding by default, TitaNet via NeMo with
-   ``backend='nemo'``) + cosine-distance running-mean clustering
-   with ``join_threshold`` defaulting to :data:`diar.JOIN_THRESHOLD`
-   (measured over 8 full AMI meetings on TitaNet embeddings).
-4. **STT**: :class:`WhisperStage`. pywhispercpp turbo
-   (``large-v3-turbo-q5_0``), threads default 6, word timestamps on.
-   Runs in :func:`asyncio.to_thread` so the loop is never blocked.
+3. **Diarization**: :class:`NemotronOnnxDiar` (Nemotron 3, ONNX, no torch)
+   when its graph is in the diarization-engines bundle, else
+   :class:`GrowingBufferDiarStage` over :class:`OnlineDiarStage` (per-segment
+   embedding, best installed of NeMo TitaNet / pyannote / sherpa, plus
+   cosine-distance running-mean clustering at :data:`diar.JOIN_THRESHOLD`).
+4. **STT**: ``asr={"engine": "auto"}`` picks Nemotron 3.5 in ONNX
+   (:mod:`vocal_helper.nemotron_asr`) when the language is to be discovered,
+   :class:`WhisperStage` (pywhispercpp ``large-v3-turbo-q5_0``) as soon as a
+   language, a prompt or a whisper model is given; see
+   :func:`vocal_helper.pipeline.choose_asr_engine`. Runs in
+   :func:`asyncio.to_thread` so the loop is never blocked.
 5. **LLM analyst** (optional): :class:`GemmaAnalystStage`. The model is
    resolved by ``best-engine-ai-helper`` from the committed
    ``vocal_helper/llm.brief.yaml`` (via :func:`resolve_engine`) and served
@@ -328,4 +331,4 @@ __all__ = [
 
 __author__ = "Warith Harchaoui, Ph.D."
 __email__ = "warithmetics@deraison.ai"
-__version__ = "3.3.2"
+__version__ = "4.0.0"
