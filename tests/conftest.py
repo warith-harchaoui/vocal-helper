@@ -92,6 +92,12 @@ def write_metadata_graph(path: Path, metadata: dict[str, str]) -> Path:
 
 
 @pytest.fixture(scope="session")
+def metadata_graph_writer():
+    """:func:`write_metadata_graph`, for tests that build their own metadata."""
+    return write_metadata_graph
+
+
+@pytest.fixture(scope="session")
 def nemotron_metadata_graph(tmp_path_factory: pytest.TempPathFactory) -> Path:
     """The Nemotron graph reduced to its metadata : a readable schedule, no weights."""
     import base64
