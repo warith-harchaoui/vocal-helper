@@ -561,6 +561,23 @@ def transcribe_pcm_with_language(
     >>> lang                                                    # doctest: +SKIP
     'fr'
     """
+    if language == "auto" and pcm.shape[0] > 0:
+        # On a whole buffer whisper.cpp decides the language once, on the first
+        # 30 s — a jingle, a silence, or a clip too short to tell — and then
+        # writes everything in it (French clips come back translated to
+        # English). Discover it first on 30 s from the middle of the buffer,
+        # then hand it over: word error rate 0.69 -> 0.28 on Common Voice French,
+        # 0.54 -> 0.47 on overlapped mixes, unchanged in English
+        # (studies/asr_nemotron_vs_whisper_offline.py, engine ``whisper-lid``).
+        from vocal_helper.lid import detect_language
+
+        window = int(30 * sr)
+        start = max(0, pcm.shape[0] // 2 - window // 2)
+        language, _p = detect_language(
+            np.ascontiguousarray(pcm[start : start + window], dtype=np.float32),
+            model=model,
+            threads=threads,
+        )
     stage = WhisperStage(
         model=model,
         language=language,

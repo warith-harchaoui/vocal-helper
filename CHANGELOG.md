@@ -18,6 +18,12 @@ names exported from `vocal_helper.__all__` plus the documented CLI flags.
   against whisper `auto`: AMI 0.23 / 0.38, overlapped mixes 0.38 / 0.54,
   Common Voice French 0.27 / 0.69; whisper told the language wins on French TV
   (0.32 / 0.46), hence the rule. `engine="whisper"` restores the old path.
+- **`transcribe_pcm` / `transcribe_pcm_with_language` discover the language
+  before whisper runs** when `language="auto"`: 30 s from the middle of the
+  buffer go to `detect_language`, and whisper is locked on the answer. On a
+  whole buffer whisper otherwise decides once on the first 30 s and translated
+  French clips into English: WER 0.69 → 0.28 on Common Voice French, 0.54 →
+  0.47 on overlapped mixes, unchanged in English.
 
 ### Added
 
