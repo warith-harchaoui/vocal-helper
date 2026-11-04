@@ -33,6 +33,7 @@ Usage
 from __future__ import annotations
 
 import json
+import os
 import pathlib
 import time
 
@@ -58,6 +59,10 @@ def _rttm_text(path: pathlib.Path) -> str:
         if len(parts) >= 10 and parts[0] == "SPEAKER":
             rows.append((float(parts[3]), " ".join(parts[9:])))
     return " ".join(word for _, word in sorted(rows))
+
+
+#: Les émissions transcrites par le chemin payant de parole-publique.
+TV_ROOT = pathlib.Path(os.environ.get("VH_TV_CORPUS", "/Volumes/orange-dev/francetv-corpus/output"))
 
 
 def _load(path: pathlib.Path) -> np.ndarray:
@@ -99,7 +104,7 @@ def corpus(name: str, limit: int) -> list[tuple[str, pathlib.Path, str]]:
                 picked.append(item)
         return picked[:limit]
     if name == "tv-fr":
-        root = pathlib.Path.home() / "parole-publique/output"
+        root = TV_ROOT
         out = []
         for transcript in sorted(root.glob("*/transcript.json")):
             # ``-free`` : la sortie du chemin gratuit, pas une référence. Un
