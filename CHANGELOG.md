@@ -10,8 +10,7 @@ names exported from `vocal_helper.__all__` plus the documented CLI flags.
 
 ### Changed
 
-- **Offline, the default ASR engine is now the measured best one** (breaking
-  default: this lands in the next MAJOR). `--asr-engine` and
+- **Offline, the default ASR engine is now the measured best one.** `--asr-engine` and
   `asr={"engine": ...}` default to `auto`: Nemotron 3.5 for an offline run
   whose language is to be discovered, whisper live, and whisper as soon as a
   language, an `initial_prompt` or a non-default whisper `model` is given
