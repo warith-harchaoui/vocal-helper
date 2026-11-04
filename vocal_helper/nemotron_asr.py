@@ -318,6 +318,20 @@ def tokens_to_words(
     return words, tags
 
 
+def _mel_per_frame(s: AsrSettings) -> int:
+    return int(round(s.frame_s * s.sample_rate / s.hop_length))
+
+
+def _concat(
+    parts: list[tuple[NDArray[np.int32], NDArray[np.float32], NDArray[np.float32]]],
+) -> tuple[NDArray[np.int32], NDArray[np.float32], NDArray[np.float32]]:
+    if not parts:
+        empty = np.zeros(0, np.float32)
+        return np.zeros(0, np.int32), empty, empty
+    ids, best, blank = zip(*parts, strict=True)
+    return np.concatenate(ids), np.concatenate(best), np.concatenate(blank)
+
+
 class NemotronOnnxAsr:
     """Transcrire un fichier avec le graphe ONNX de l'encodeur Nemotron.
 
@@ -398,29 +412,111 @@ class NemotronOnnxAsr:
             raise ValueError(f"le modèle veut {s.sample_rate} Hz, reçu {sample_rate} Hz")
         mel, valid = log_mel(audio, s)
         mel = normalize_per_feature(mel, valid)
-        session = self._load()
         chunk = int(round(s.chunk_s * s.sample_rate / s.hop_length))
-        mel_per_frame = int(round(s.frame_s * s.sample_rate / s.hop_length))
-        out_ids, out_best, out_blank = [], [], []
-        for start in range(0, max(valid, 1), chunk):
-            n = min(chunk, valid - start) if valid else 0
-            if n <= 0:
-                break
-            padded = -(-n // s.stack) * s.stack
-            window = np.zeros((1, mel.shape[0], padded), np.float32)
-            window[0, :, :n] = mel[:, start : start + n]
-            enc_len = padded // s.stack
-            ids, best, blank = session.run(
-                None, {"mel": window, "enc_len": np.array([enc_len], np.int64)}
-            )
-            keep = -(-n // mel_per_frame)
-            out_ids.append(ids[0, :keep])
-            out_best.append(best[0, :keep])
-            out_blank.append(blank[0, :keep])
-        if not out_ids:
-            empty = np.zeros(0, np.float32)
-            return np.zeros(0, np.int32), empty, empty
-        return np.concatenate(out_ids), np.concatenate(out_best), np.concatenate(out_blank)
+        parts = [
+            self._run(mel[:, start : min(start + chunk, valid)]) for start in range(0, valid, chunk)
+        ]
+        return _concat(parts)
+
+    def _run(
+        self, mel: NDArray[np.float32]
+    ) -> tuple[NDArray[np.int32], NDArray[np.float32], NDArray[np.float32]]:
+        """Une fenêtre de log-mel normalisé ``(n_mels, n)`` → ses trames de 40 ms."""
+        s = self.settings
+        n = mel.shape[1]
+        padded = -(-n // s.stack) * s.stack
+        window = np.zeros((1, mel.shape[0], padded), np.float32)
+        window[0, :, :n] = mel
+        ids, best, blank = self._load().run(
+            None, {"mel": window, "enc_len": np.array([padded // s.stack], np.int64)}
+        )
+        keep = -(-n // _mel_per_frame(s))
+        return ids[0, :keep], best[0, :keep], blank[0, :keep]
+
+    def streaming_frames(
+        self,
+        audio: NDArray[np.float32],
+        sample_rate: int,
+        *,
+        hop_s: float = 2.0,
+        left_s: float = 8.0,
+        right_s: float = 0.0,
+        normalize: str = "running",
+    ) -> tuple[NDArray[np.int32], NDArray[np.float32], NDArray[np.float32], NDArray[np.float32]]:
+        """Les trames d'un flux simulé, et le retard de chacune.
+
+        Toutes les ``hop_s`` secondes, on transcrit les ``left_s + hop_s +
+        right_s`` dernières secondes et on **arrête** les trames de
+        ``[t - right_s - hop_s, t - right_s)``. Une trame attend donc entre
+        ``right_s`` et ``right_s + hop_s`` avant d'être écrite, calcul en sus.
+        La concaténation des trames arrêtées se décode comme un fichier.
+
+        Un flux ne connaît pas la suite, donc pas la moyenne de l'enregistrement
+        que la normalisation hors ligne emploie. ``normalize="running"`` prend
+        la moyenne et l'écart-type par bande de **tout l'audio déjà vu**, ce
+        qui reste causal ; ``"window"`` les prend sur la fenêtre seule.
+
+        Returns
+        -------
+        tuple
+            ``ids``, ``logprob``, ``blank_logprob`` et ``delay_s``, le retard
+            de chaque trame entre la fin de son audio et son écriture, calcul
+            compris.
+
+        Raises
+        ------
+        ValueError
+            Si la fréquence n'est pas celle du modèle, si la fenêtre dépasse
+            celle que l'encodeur a apprise, ou si ``normalize`` est inconnu.
+        """
+        import time
+
+        if normalize not in ("running", "window"):
+            raise ValueError(f"normalisation {normalize!r} inconnue : 'running' ou 'window'")
+        s = self.settings
+        if sample_rate != s.sample_rate:
+            raise ValueError(f"le modèle veut {s.sample_rate} Hz, reçu {sample_rate} Hz")
+        if left_s + hop_s + right_s > s.chunk_s:
+            raise ValueError(f"fenêtre de {left_s + hop_s + right_s} s pour {s.chunk_s} s apprises")
+        per_frame = int(round(s.frame_s * s.sample_rate))  # échantillons par trame CTC
+        hop = max(1, int(round(hop_s / s.frame_s))) * per_frame
+        left = int(round(left_s / s.frame_s)) * per_frame
+        right = int(round(right_s / s.frame_s)) * per_frame
+        parts, delays = [], []
+        n_mels = s.fb.shape[0]
+        seen_sum, seen_sq, seen = np.zeros((n_mels, 1)), np.zeros((n_mels, 1)), 0
+        committed = end = 0  # ``committed`` reste un multiple de ``per_frame``
+        total = len(audio)
+        while committed < total:
+            previous, end = end, min(end + hop, total)
+            target = total if end == total else max(committed, end - right)
+            if target == committed:  # pas encore assez d'audio au-delà de l'anticipation
+                continue
+            start = max(0, committed - left)
+            t0 = time.perf_counter()
+            mel, valid = log_mel(audio[start:end], s)
+            if normalize == "window":
+                mel = normalize_per_feature(mel, valid)
+            else:
+                fresh = mel[:, (previous - start) // s.hop_length : valid].astype(np.float64)
+                seen_sum += fresh.sum(axis=1, keepdims=True)
+                seen_sq += (fresh**2).sum(axis=1, keepdims=True)
+                seen += fresh.shape[1]
+                mean = seen_sum / max(seen, 1)
+                var = (seen_sq - seen * mean**2) / max(seen - 1, 1)
+                std = np.sqrt(np.clip(var, 0.0, None))
+                mel = ((mel - mean) / (std + STD_FLOOR)).astype(np.float32)
+            ids, best, blank = self._run(mel[:, :valid])
+            elapsed = time.perf_counter() - t0
+            lo = (committed - start) // per_frame
+            hi = lo + -(-(target - committed) // per_frame)
+            parts.append((ids[lo:hi], best[lo:hi], blank[lo:hi]))
+            frame_end = np.arange(committed // per_frame, committed // per_frame + hi - lo) + 1
+            delays.append((end / s.sample_rate - frame_end * s.frame_s).clip(0) + elapsed)
+            committed = target
+        ids, best, blank = _concat(parts)
+        delay = np.concatenate(delays).astype(np.float32) if delays else np.zeros(0, np.float32)
+        return ids, best, blank, delay
 
     def transcribe(self, audio: NDArray[np.float32], sample_rate: int) -> Transcript:
         """Les mots horodatés, les balises, et la probabilité de parole par trame."""

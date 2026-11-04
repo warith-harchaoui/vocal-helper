@@ -187,3 +187,25 @@ def test_real_graph_transcribes_speech() -> None:
     audio, sr = sf.read(speech, dtype="float32")
     out = NemotronOnnxAsr(graph).transcribe(audio if audio.ndim == 1 else audio.mean(1), sr)
     assert len(out.words) > 3
+
+
+def test_streaming_commits_every_frame_once_within_its_delay(asr_graph: Path) -> None:
+    asr = NemotronOnnxAsr(asr_graph)
+    asr._session = _FakeSession()
+    audio = np.random.default_rng(3).normal(0, 0.1, 16000 * 11 + 300).astype(np.float32)
+    ids, best, blank, delay = asr.streaming_frames(
+        audio, 16000, hop_s=2.0, left_s=4.0, right_s=0.48
+    )
+    assert len(ids) == len(best) == len(blank) == len(delay) == -(-len(audio) // 640)
+    # Retard nominal entre l'anticipation et l'anticipation plus un pas ; la
+    # fin du flux est vidée sans anticipation, donc plus tôt.
+    nominal = delay[: -int(2.48 / 0.04)]
+    assert nominal.min() >= 0.48 - 1e-6
+    assert nominal.max() <= 2.48 + 0.5
+
+
+def test_streaming_window_is_bounded_by_the_trained_length(asr_graph: Path) -> None:
+    with pytest.raises(ValueError, match="apprises"):
+        NemotronOnnxAsr(asr_graph).streaming_frames(
+            np.zeros(16000, np.float32), 16000, hop_s=4.0, left_s=28.0
+        )
