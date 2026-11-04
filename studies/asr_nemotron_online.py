@@ -17,6 +17,26 @@ On mesure, par réglage, le WER contre la vérité et l'écart au même moteur
 hors ligne, et le retard réel (moyen et 95e centile) entre la fin de l'audio
 d'une trame et son écriture, calcul compris.
 
+Verdict :
+---------
+2026-11-04 ; 12 fichiers coupés à 300 s pour bagarre-rich, Common Voice
+français et la télévision, 5 réunions AMI (étude arrêtée là, les tendances
+étant nettes). Taux d'erreur sur les mots pondéré ; délai moyen par mot.
+
+- **Le réglage retenu est 2 s de pas, 16 s de contexte, 0,48 s
+  d'anticipation, normalisation cumulée** : 0,372 / 0,303 / 0,482 / 0,192
+  (bagarre-rich, CV-fr, TV, AMI) pour 1,7 s de délai, contre 0,318 / 0,258 /
+  0,481 / 0,180 hors ligne. Le flux perd 0 à 0,05 ; à la télévision, rien.
+- **L'anticipation est le levier qui compte** : sans elle (0 s), l'erreur
+  monte de 0,05 à 0,11 partout ; au-delà de 0,48 s, plus rien ne se gagne.
+- **Le contexte passé aide les mixages** (8 → 16 s : 0,413 → 0,372) puis
+  plafonne ; 24 s n'apporte presque rien de plus et allonge le calcul.
+- Un pas plus court ne coûte que du calcul et un peu de justesse (0,48 s :
+  0,43 sur bagarre-rich pour 0,9 s de délai) ; normaliser par fenêtre plutôt
+  que cumulativement ne change rien.
+- Ce flux n'est pas encore le défaut en direct : ``asr_live_whisper_vs_nemotron.py``
+  montre que Nemotron par segment fait aussi bien pour dix fois moins de calcul.
+
 Usage
 -----
     .venv/bin/python studies/asr_nemotron_online.py \\

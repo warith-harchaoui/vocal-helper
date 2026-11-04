@@ -21,6 +21,31 @@ Délai : pour un segment, un mot attend en moyenne la moitié du segment, puis
 le silence qui le ferme (300 ms) et le calcul ; pour le flux, celui que rend
 ``streaming_frames``. Le calcul est chronométré sur CPU.
 
+Verdict :
+---------
+2026-11-04, 12 fichiers par corpus (8 réunions AMI), coupés à 300 s. Taux
+d'erreur sur les mots pondéré ; délai moyen par mot et facteur temps réel
+(RTF) médians, sur un CPU partagé avec d'autres calculs.
+
+==============  ==================  ==================  ==================
+corpus          whisper-segment     nemotron-segment    nemotron-stream
+==============  ==================  ==================  ==================
+ami             0,253 · 3,0 s       0,237 · 2,7 s       **0,215** · 2,4 s
+bagarre-rich    0,531 · 4,1 s       0,383 · 4,6 s       **0,372** · 3,6 s
+cv-fr           0,791 · 2,8 s       **0,265** · 2,6 s   0,303 · 1,9 s
+tv-fr           0,831 · 56 s        **0,481** · 60 s    0,482 · 2,6 s
+==============  ==================  ==================  ==================
+
+- **Nemotron par segment devient le moteur en direct** (``auto``) : meilleur
+  que whisper sur les quatre corpus, RTF 0,08 à 0,17. whisper ne voit qu'un
+  segment court, devine mal sa langue et le traduit en anglais (0,79 en
+  français, 0,83 à la télévision).
+- **Le flux à fenêtres glissantes** (2 s de pas, 16 s de contexte) a la même
+  justesse et le seul délai qui ne dépend pas des silences : 2,6 s à la
+  télévision, où Silero ne coupe presque jamais (segments de plusieurs
+  minutes, 56 à 60 s de délai). Mais il recalcule son contexte à chaque pas
+  (RTF 0,39 à 1,06 ici) : à remesurer au calme avant d'en faire un défaut.
+
 Usage
 -----
     .venv/bin/python studies/asr_live_whisper_vs_nemotron.py \\

@@ -17,8 +17,8 @@ names exported from `vocal_helper.__all__` plus the documented CLI flags.
   (`vocal_helper.pipeline.choose_asr_engine`). Word error rate, Nemotron int8
   against whisper `auto`, offline: AMI 0.23 / 0.38, overlapped mixes
   0.38 / 0.54, Common Voice French 0.27 / 0.69. Live, segment by segment after
-  Silero: overlapped mixes 0.38 / 0.53, Common Voice French 0.27 / 0.79,
-  French TV 0.50 / 0.90 (whisper misreads the language of a short segment and
+  Silero: AMI 0.24 / 0.25, overlapped mixes 0.38 / 0.53, Common Voice French
+  0.27 / 0.79, French TV 0.48 / 0.83 (whisper misreads the language of a short segment and
   translates it). Told the language, whisper wins on French TV and stays ahead
   on read English, hence the rule. `engine="whisper"` restores the old path;
   the live Nemotron stage opens its graph at start (`warmup`).
