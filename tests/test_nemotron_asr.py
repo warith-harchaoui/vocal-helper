@@ -325,7 +325,8 @@ def test_pipeline_picks_the_engine_by_name(asr_graph: Path) -> None:
             True,
             "nemotron",
         ),
-        ({}, False, "whisper"),
+        ({}, False, "nemotron"),
+        ({"language": "fr", "warmup": True}, False, "whisper"),
         ({"language": "fr"}, True, "whisper"),
         ({"initial_prompt": "réunion budgétaire"}, True, "whisper"),
         ({"model": "small"}, True, "whisper"),
@@ -334,7 +335,7 @@ def test_pipeline_picks_the_engine_by_name(asr_graph: Path) -> None:
     ],
 )
 def test_auto_engine_is_the_measured_best(config: dict, offline: bool, expected: str) -> None:
-    """``auto`` : Nemotron hors ligne quand la langue est à découvrir, whisper sinon."""
+    """``auto`` : Nemotron quand la langue est à découvrir, hors ligne comme en direct ; whisper sinon."""
     from vocal_helper.pipeline import choose_asr_engine
 
     assert choose_asr_engine(config, offline=offline) == expected

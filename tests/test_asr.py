@@ -101,7 +101,11 @@ def test_pipeline_wiring_defaults() -> None:
 
     src = lambda: iter(())  # noqa: E731 — never run, just to construct.
     online = voh.Pipeline(source=src)
+    assert type(online._asr).__name__ == "NemotronAsrStage"
     assert online._asr.batch is False
+    assert online._asr.warmup is True
+    online = voh.Pipeline(source=src, config=voh.PipelineConfig(asr={"language": "en"}))
+    assert type(online._asr).__name__ == "WhisperStage"
     assert online._asr.warmup is True
 
     # Offline with the language to discover, the measured best engine is

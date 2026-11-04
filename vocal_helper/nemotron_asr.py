@@ -617,6 +617,9 @@ class NemotronAsrStage:
         Regrouper les segments (hors ligne) ou les traiter un par un (direct).
     max_chunk_s : float
         Longueur maximale d'une fenêtre ; 30 s, celle que l'encodeur a apprise.
+    warmup : bool
+        Ouvrir le graphe dès le démarrage plutôt qu'au premier segment, pour que
+        la première énonciation en direct n'attende pas le chargement.
     providers, threads
         Comme :class:`NemotronOnnxAsr`.
     """
@@ -630,10 +633,12 @@ class NemotronAsrStage:
         precision: str = "int8",
         providers: list[str] | None = None,
         threads: int | None = None,
+        warmup: bool = False,
         **_ignored: Any,
     ) -> None:
         """Préparer l'étage ; les options propres à whisper sont ignorées."""
         self.batch = batch
+        self.warmup = warmup
         self.max_chunk_s = float(max_chunk_s)
         self._asr = NemotronOnnxAsr(
             graph, precision=precision, providers=providers, threads=threads
@@ -687,6 +692,8 @@ class NemotronAsrStage:
 
         from vocal_helper.asr import _pack_segments
 
+        if self.warmup:
+            await asyncio.to_thread(self._asr._load)
         if not self.batch:
             while (item := await inbox.get()) is not None:
                 for utterance in await asyncio.to_thread(self.transcribe_chunk, [item]):

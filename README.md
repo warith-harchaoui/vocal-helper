@@ -21,7 +21,7 @@
 
 **Local-first by design.** vocal-helper runs entirely on your machine. Three stages, all local:
 
-- **transcription** — turning speech into text (Nemotron 3.5 in ONNX offline, whisper.cpp live or when the language is given);
+- **transcription** — turning speech into text (Nemotron 3.5 in ONNX when the language is to be discovered, whisper.cpp when it is given);
 - **diarization** — working out which of possibly several speakers said each part, labelling them `S0`, `S1`, and so on (pyannote / NeMo);
 - **summarisation** — an optional rolling summary (a local Ollama model).
 

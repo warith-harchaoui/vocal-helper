@@ -10,14 +10,18 @@ names exported from `vocal_helper.__all__` plus the documented CLI flags.
 
 ### Changed
 
-- **Offline, the default ASR engine is now the measured best one.** `--asr-engine` and
-  `asr={"engine": ...}` default to `auto`: Nemotron 3.5 for an offline run
-  whose language is to be discovered, whisper live, and whisper as soon as a
-  language, an `initial_prompt` or a non-default whisper `model` is given
+- **The default ASR engine is now the measured best one, offline and live.**
+  `--asr-engine` and `asr={"engine": ...}` default to `auto`: Nemotron 3.5
+  when the language is to be discovered, whisper as soon as a language, an
+  `initial_prompt` or a non-default whisper `model` is given
   (`vocal_helper.pipeline.choose_asr_engine`). Word error rate, Nemotron int8
-  against whisper `auto`: AMI 0.23 / 0.38, overlapped mixes 0.38 / 0.54,
-  Common Voice French 0.27 / 0.69; whisper told the language wins on French TV
-  (0.32 / 0.46), hence the rule. `engine="whisper"` restores the old path.
+  against whisper `auto`, offline: AMI 0.23 / 0.38, overlapped mixes
+  0.38 / 0.54, Common Voice French 0.27 / 0.69. Live, segment by segment after
+  Silero: overlapped mixes 0.38 / 0.53, Common Voice French 0.27 / 0.79,
+  French TV 0.50 / 0.90 (whisper misreads the language of a short segment and
+  translates it). Told the language, whisper wins on French TV and stays ahead
+  on read English, hence the rule. `engine="whisper"` restores the old path;
+  the live Nemotron stage opens its graph at start (`warmup`).
 - **`transcribe_pcm` / `transcribe_pcm_with_language` discover the language
   before whisper runs** when `language="auto"`: 30 s from the middle of the
   buffer go to `detect_language`, and whisper is locked on the answer. On a

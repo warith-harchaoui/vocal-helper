@@ -457,8 +457,8 @@ def _asr_engine_option(func: Callable[..., object]) -> Callable[..., object]:
         type=click.Choice(["auto", "whisper", "nemotron"]),
         default="auto",
         show_default=True,
-        help="'auto' picks the best measured engine: Nemotron offline when the "
-        "language is to be discovered, whisper live or as soon as --language, "
+        help="'auto' picks the best measured engine: Nemotron when the language "
+        "is to be discovered (offline and live), whisper as soon as --language, "
         "--initial-prompt or --whisper-model is given. 'nemotron' runs the Nemotron 3.5 Transcribe encoder + CTC head as "
         "ONNX (no torch, word timestamps at 40 ms, language discovered); the "
         "int8 graph (669 MB) is fetched once from deraison.ai/nemotron-onnx, or "

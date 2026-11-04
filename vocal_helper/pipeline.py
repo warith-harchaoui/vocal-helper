@@ -451,8 +451,8 @@ class Pipeline:
                 policy=policy,
                 on_revision=on_revision,
             )
-        # Streaming enables whisper warm-up by default so the first
-        # caption doesn't stall on the model's cold first inference. Any
+        # Streaming enables warm-up by default (whisper's cold first inference,
+        # the Nemotron graph's load) so the first caption doesn't stall. Any
         # explicit ``warmup`` in ``config.asr`` wins ; the offline
         # pipeline leaves it off (batch throughput doesn't care).
         self._asr = _asr_stage({"warmup": True, **self.config.asr})
@@ -763,23 +763,26 @@ class Pipeline:
 def choose_asr_engine(config: dict, *, offline: bool) -> str:
     """Le moteur ASR à faire tourner : ``config["engine"]``, ou le meilleur mesuré si ``"auto"``.
 
-    ``"auto"`` (le défaut) suit l'étude ``studies/asr_nemotron_vs_whisper_offline.py``
-    (2026-11), taux d'erreur sur les mots :
+    ``"auto"`` (le défaut) suit les études de 2026-11, taux d'erreur sur les mots :
 
-    - **hors ligne, langue à découvrir** → ``"nemotron"`` : AMI 0,23 contre 0,38,
-      voix mêlées 0,38 contre 0,54, Common Voice français 0,27 contre 0,69
-      (whisper ``"auto"`` traduit les clips courts), trois fois plus rapide ;
+    - **langue à découvrir** → ``"nemotron"``, hors ligne comme en direct.
+      Hors ligne (``studies/asr_nemotron_vs_whisper_offline.py``) : AMI 0,23
+      contre 0,38, voix mêlées 0,38 contre 0,54, Common Voice français 0,27
+      contre 0,69, trois fois plus vite. En direct, segment par segment après
+      Silero (``studies/asr_live_whisper_vs_nemotron.py``) : voix mêlées 0,38
+      contre 0,53, Common Voice français 0,27 contre 0,79, télévision 0,50
+      contre 0,90 — whisper devine mal la langue d'un segment court et le
+      traduit en anglais ;
     - **langue donnée, prompt ou modèle whisper nommé** → ``"whisper"`` : à qui
-      l'on donne la langue, whisper rattrape Nemotron sur Common Voice français
-      (0,28) et le dépasse sur la télévision française (0,32 contre 0,46) ;
-    - **en direct** → ``"whisper"`` : Nemotron en flux perd de son contexte
-      (0,24 → 0,27 au mieux, 0,35 sans anticipation, ``studies/asr_nemotron_online.py``).
+      l'on donne la langue, whisper rattrape Nemotron sur Common Voice
+      français (0,28) et le dépasse sur la télévision française, et il reste
+      devant en anglais lu (0,012 contre 0,067).
+
+    ``offline`` est gardé pour les appelants ; la règle est la même des deux côtés.
     """
     engine = str(config.get("engine", "auto")).lower()
     if engine != "auto":
         return engine
-    if not offline:
-        return "whisper"
     language = config.get("language")
     model = config.get("model")
     if (
