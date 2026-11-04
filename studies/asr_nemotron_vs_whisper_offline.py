@@ -176,7 +176,13 @@ def main(onnx_dir: pathlib.Path, corpora: str, engine_names: str, limit: int) ->
     runners = engines(onnx_dir, engine_names.split(","))
     for name in corpora.split(","):
         for ident, path, reference, *crop in corpus(name, limit):
-            audio = _load(path)
+            try:
+                audio = _load(path)
+            except (OSError, RuntimeError):
+                # Le corpus TV est vivant : un dossier peut être nettoyé ou
+                # renommé pendant l'étude. On le saute plutôt que de tout perdre.
+                print(name, ident, "illisible, sauté", flush=True)
+                continue
             if crop:
                 audio = audio[: int(crop[0] * 16000)]
             seconds = len(audio) / 16000
