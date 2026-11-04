@@ -68,8 +68,12 @@ floor: ## The requires-python floor installs and imports (server's `floor` job)
 precommit: ## pre-commit hygiene hooks over all files (whitespace, yaml, toml…)
 	pre-commit run --all-files
 
+.PHONY: triggers
+triggers: ## The skill's trigger catalogue covers every capability bucket
+	$(PYTHON) scripts/check_triggers.py
+
 .PHONY: preflight
-preflight: env-check precommit lint format-check test floor ## Full local CI mirror — run before pushing
+preflight: env-check precommit lint format-check triggers test floor ## Full local CI mirror — run before pushing
 	@echo "✅ preflight green — the server CI gates will pass"
 
 .PHONY: ci
