@@ -200,6 +200,13 @@ bench = [
 ]
 dev = [
     "pytest>=8", "pytest-timeout>=2.3",
+    # The coverage floor in [tool.coverage.report] is a gate, so the plugin that
+    # enforces it belongs to the environment both gates install: CI used to add it
+    # with a bare `pip install pytest-cov` the local mirror never ran.
+    "pytest-cov>=5",
+    # scripts/check_env.py parses requirements with it; pip vendors its own copy,
+    # which is not importable, so it is declared rather than assumed.
+    "packaging>=23",
     # The fan-out and strict-pipeline tests are `async def` carrying
     # @pytest.mark.asyncio. Without this plugin pytest does not skip them, it
     # FAILS them — eleven red tests in CI for a missing line here.

@@ -1,10 +1,30 @@
 name: CI
 
+# Changes that cannot alter a test outcome do not start a runner: prose, figures,
+# and the measured numbers studies/ writes next to its scripts. Every one of them
+# still goes through `make preflight` in the pre-push hook, and `ruff` there covers
+# the study scripts themselves, which is why *.py under studies/ is NOT ignored.
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - "**/*.md"
+      - "doc/**"
+      - "assets/**"
+      - "studies/**/*.json"
+      - "studies/**/*.log"
+      - "LICENSE"
+      - "CITATION.cff"
   pull_request:
     branches: [main]
+    paths-ignore:
+      - "**/*.md"
+      - "doc/**"
+      - "assets/**"
+      - "studies/**/*.json"
+      - "studies/**/*.log"
+      - "LICENSE"
+      - "CITATION.cff"
   workflow_dispatch:
 
 # Avoid stacking redundant runs on rapid pushes / force-pushes.
@@ -13,7 +33,8 @@ concurrency:
   cancel-in-progress: true
 
 # Deliberement legere, et c'est une position : les memes portes tournent dans
-# .githooks/pre-push avant qu'un push puisse quitter la machine, donc tout ce
+# `make preflight` (pose en pre-push par `make install-hooks`, avec la meme
+# severite, garde d'environnement comprise) avant qu'un push puisse quitter la machine, donc tout ce
 # qui suit a deja passe une fois. La CI confirme, elle ne decouvre pas. Deux
 # jobs seulement -- la suite, et la promesse d'installation sur le plancher de
 # version -- la ou il y en avait quatre dont deux refaisaient le travail des
@@ -103,10 +124,10 @@ jobs:
       # verite, la couverture etant le seul ajout du second. Les
       # [tool.coverage.*] de pyproject.toml portent la source, les exclusions
       # et le plancher, donc le seuil reste un garde.
+      # pytest-cov vient de l'extra [dev], comme en local : le plugin qui porte
+      # le plancher appartient a l'environnement que les deux portes installent.
       - name: pytest (avec couverture)
-        run: |
-          pip install pytest-cov
-          pytest -q --color=yes --cov --cov-report=term-missing
+        run: pytest -q --color=yes --cov --cov-report=term-missing:skip-covered
 
   floor:
     name: Floor (py3.10 installs and imports)
