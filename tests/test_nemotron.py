@@ -584,3 +584,18 @@ def test_no_environment_means_no_opinion(monkeypatch) -> None:
     assert nemotron._requested_providers() is None
     monkeypatch.setenv(nemotron.PROVIDER_ENV, "   ")
     assert nemotron._requested_providers() is None
+
+
+def test_the_offline_stage_can_load_and_never_chunks_nemotron() -> None:
+    """``OfflineDiarStage(backend="nemotron")`` calls ``load()`` and must not chunk.
+
+    Without ``load()`` the first offline diarization raised AttributeError; with
+    pyannote's hour as its chunk size, a longer buffer reached a stitching
+    embedder Nemotron does not ship.
+    """
+    from vocal_helper.diar import IDEAL_DURATION_S_SHERPA, OfflineDiarStage
+    from vocal_helper.nemotron import NemotronOnnxDiar
+
+    assert callable(getattr(NemotronOnnxDiar, "load", None))
+    stage = OfflineDiarStage(backend="nemotron")
+    assert stage.ideal_duration_s == IDEAL_DURATION_S_SHERPA

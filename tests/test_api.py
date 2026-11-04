@@ -160,6 +160,7 @@ def test_resolve_offline_backend_routes_by_duration(monkeypatch) -> None:
 
     monkeypatch.setattr(cli, "_offline_pyannote_available", lambda: True)
     monkeypatch.setattr(cli, "_offline_nemo_available", lambda: True)
+    monkeypatch.setattr(cli, "_offline_nemotron_available", lambda: False)
     sr = 16_000
     # 45 s of audio → short/dense branch → nemo.
     assert _resolve_offline_backend("auto", 45 * sr, sr) == "nemo"
@@ -169,6 +170,10 @@ def test_resolve_offline_backend_routes_by_duration(monkeypatch) -> None:
     assert _resolve_offline_backend("auto", 45 * sr, 0) == "pyannote"
     # An explicit backend is honoured verbatim, router untouched.
     assert _resolve_offline_backend("sherpa", 45 * sr, sr) == "sherpa"
+    # The Nemotron graph in the bundle outranks the crossover at every length.
+    monkeypatch.setattr(cli, "_offline_nemotron_available", lambda: True)
+    assert _resolve_offline_backend("auto", 45 * sr, sr) == "nemotron"
+    assert _resolve_offline_backend("auto", 1800 * sr, sr) == "nemotron"
 
 
 # ---------------------------------------------------------------------------

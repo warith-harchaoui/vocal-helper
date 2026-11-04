@@ -12,8 +12,8 @@ by accident:
 ====================  ==================================  ============================
 mode                  class                               engines
 ====================  ==================================  ============================
-local, free, offline  :class:`vocal_helper.OfflinePipeline`   whisper.cpp + pyannote / NeMo / sherpa
-local, free, live     :class:`vocal_helper.Pipeline`          whisper.cpp + NeMo TitaNet
+local, free, offline  :class:`vocal_helper.OfflinePipeline`   Nemotron / whisper.cpp + Nemotron / pyannote / NeMo / sherpa
+local, free, live     :class:`vocal_helper.Pipeline`          Nemotron / whisper.cpp + Nemotron / growing buffer
 paid, offline         :class:`CloudOfflinePipeline`           Gladia ``solaria-3`` + pyannoteAI ``precision-3``
 paid, live            :class:`CloudLivePipeline`              Gladia ``solaria-1`` + pyannoteAI ``live-1``
 ====================  ==================================  ============================

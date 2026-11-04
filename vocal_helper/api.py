@@ -312,7 +312,11 @@ def _resolve_offline_backend(diar_backend: str, n_samples: int, sr: int) -> str:
         return diar_backend
     # Import lazily so the base [api] install (no pyannote/nemo extras) still
     # boots for /health without pulling the availability probes' dependencies.
-    from vocal_helper.cli import _offline_nemo_available, _offline_pyannote_available
+    from vocal_helper.cli import (
+        _offline_nemo_available,
+        _offline_nemotron_available,
+        _offline_pyannote_available,
+    )
     from vocal_helper.router import select_diarization
 
     # Duration from the decoded buffer — O(1), already in memory. sr==0 (unknown)
@@ -323,6 +327,7 @@ def _resolve_offline_backend(diar_backend: str, n_samples: int, sr: int) -> str:
         duration_s=duration_s,
         pyannote_available=_offline_pyannote_available(),
         nemo_available=_offline_nemo_available(),
+        nemotron_available=_offline_nemotron_available(),
     )
     return plan.backend
 
@@ -433,8 +438,9 @@ def pipeline(
     threads: int = Form(6),
     diar_backend: str = Form(
         "auto",
-        description="auto | pyannote | nemo | sherpa. 'auto' lets the router pick "
-        "by duration (short→nemo, long→pyannote), reporting DER + RTF.",
+        description="auto | nemotron | pyannote | nemo | sherpa. 'auto' lets the router "
+        "pick: nemotron when its graph is in the bundle, else by duration "
+        "(short→nemo, long→pyannote).",
     ),
     llm: bool = Form(False, description="Enable the LLM analyst stage."),
     llm_recent_window_s: float = Form(60.0),

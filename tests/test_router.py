@@ -271,3 +271,17 @@ def test_no_reason_pins_a_pyannote_checkpoint() -> None:
                 f"reason pins checkpoint {name!r} but the wrapper defaults to "
                 f"{default!r}: {plan.reason!r}"
             )
+
+
+def test_nemotron_present_routes_every_offline_run_and_never_a_live_one() -> None:
+    """The graph in the bundle sends offline runs to nemotron, torch-free or not.
+
+    Default ``nemotron_available=False`` keeps the crossover for callers that do
+    not probe; live is never routed here (the streaming pipeline swaps it in).
+    """
+    for kwargs in ({"duration_s": 45.0}, {"duration_s": 1800.0}, {"torch_free": True}, {}):
+        plan = select_diarization(live=False, nemotron_available=True, **kwargs)
+        assert (plan.mode, plan.backend) == ("offline", "nemotron")
+        assert (plan.expected_der, plan.expected_rtf) == _PROFILE[("offline", "nemotron")]
+    assert select_diarization(live=True, nemotron_available=True).backend == "nemo"
+    assert select_diarization(live=False, duration_s=45.0, max_speakers=3).backend == "nemo"

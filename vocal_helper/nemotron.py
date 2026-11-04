@@ -1074,6 +1074,16 @@ class NemotronOnnxDiar:
             self._session = ort.InferenceSession(str(self.locate()), options, providers=providers)
         return self._session, schedule, silence
 
+    def load(self) -> None:
+        """Ouvrir la session tout de suite, comme les autres moteurs de diarisation.
+
+        :class:`vocal_helper.diar.OfflineDiarStage` appelle ``load()`` sur chaque
+        moteur avant le premier tampon. Sans cette méthode, ``backend="nemotron"``
+        (donc ``"auto"`` dès que le graphe est dans le bundle) levait
+        ``AttributeError`` à la première diarisation hors ligne.
+        """
+        self._load()
+
     @property
     def schedule(self) -> NemotronSchedule:
         """Le calendrier effectif, celui du graphe ou celui demandé."""

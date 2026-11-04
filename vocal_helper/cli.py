@@ -160,6 +160,18 @@ def _offline_nemo_available() -> bool:
     return True
 
 
+def _offline_nemotron_available() -> bool:
+    """True when the Nemotron 3 ONNX graph is in the local diarization-engines bundle.
+
+    Its code is always importable (onnxruntime is a core dependency) and its
+    weights are not, so the probe is the graph file, as in
+    :func:`vocal_helper.diar.resolve_backend`.
+    """
+    from vocal_helper.diar import _installed
+
+    return _installed("nemotron")
+
+
 def _route_backend(
     *,
     requested_backend: str,
@@ -202,6 +214,7 @@ def _route_backend(
         torch_free=False,
         pyannote_available=_offline_pyannote_available(),
         nemo_available=_offline_nemo_available(),
+        nemotron_available=not live and _offline_nemotron_available(),
     )
     note = (
         f"vocal-helper: router → {plan.mode} {plan.backend} "
@@ -254,7 +267,12 @@ def _choose_file_diar(
         return True, {**base_diar, "backend": backend}, note
     # Auto path: prefer offline for batch when an offline backend can actually
     # run, and let the router choose it from the probed length.
-    offline_runnable = pyannote_ok or nemo_ok or (explicit and requested_backend == "sherpa")
+    offline_runnable = (
+        pyannote_ok
+        or nemo_ok
+        or (explicit and requested_backend in ("sherpa", "nemotron"))
+        or (not explicit and _offline_nemotron_available())
+    )
     if batch and not force_online and offline_runnable:
         backend, note = _route_backend(
             requested_backend=requested_backend, live=False, duration_s=duration_s
@@ -416,14 +434,15 @@ def _common_options(func: Callable[..., object]) -> Callable[..., object]:
     )(func)
     func = click.option(
         "--diar-backend",
-        type=click.Choice(["auto", "pyannote", "nemo", "sherpa"]),
+        type=click.Choice(["auto", "nemotron", "pyannote", "nemo", "sherpa"]),
         default="auto",
         show_default=True,
         help="Speaker-diarization backend. Default 'auto' delegates to the "
-        "study-grounded router (the aiguilleur): offline short → 'nemo', "
-        "offline long/unknown → 'pyannote', live → 'nemo', reporting DER "
-        "(quality) and RTF (speed). Pass 'pyannote' / 'nemo' / 'sherpa' to "
-        "override; 'sherpa' is torch-free (needs the [sherpa] extra).",
+        "study-grounded router (the aiguilleur): offline → 'nemotron' when its "
+        "graph is in the engines bundle, else short → 'nemo', long/unknown → "
+        "'pyannote'; live → Nemotron swapped in by the pipeline when present. "
+        "It reports DER (quality) and RTF (speed). Pass a name to override; "
+        "'nemotron' and 'sherpa' are torch-free and in the base install.",
     )(func)
     func = click.option(
         "--initial-prompt",

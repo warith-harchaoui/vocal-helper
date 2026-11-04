@@ -72,3 +72,30 @@ def test_the_error_names_every_stage_that_died() -> None:
     assert "voh.offline.source" in str(err) and "voh.offline.asr" in str(err)
     assert "incomplete" in str(err)
     assert len(err.failures) == 2
+
+
+class _DeadDiar:
+    """A diarizer that dies before reading anything, as a backend failing to load does."""
+
+    async def run(self, inbox: asyncio.Queue, outbox: asyncio.Queue) -> None:
+        raise AttributeError("'NemotronOnnxDiar' object has no attribute 'load'")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("factory", [voh.OfflinePipeline, voh.Pipeline])
+async def test_a_dead_stage_ends_the_run_instead_of_hanging_it(factory) -> None:
+    """A stage that dies never sends its end-of-stream downstream.
+
+    The merger used to wait on the output queues alone, so the run hung forever
+    with an idle event loop: that is how ``backend="nemotron"`` failing to load
+    showed up, as a ``vocal-helper file`` that never returned. It must raise.
+    """
+    import numpy as np
+
+    pcm = np.zeros(16_000 * 3, dtype=np.float32)
+    pipe = factory(source=lambda: voh.sources.from_numpy_array(pcm, sample_rate=16_000))
+    pipe._diar = _DeadDiar()
+    with pytest.raises(StageCrashed, match="diar"):
+        async with asyncio.timeout(10):
+            async for _ in pipe.run():
+                pass

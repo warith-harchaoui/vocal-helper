@@ -1459,11 +1459,16 @@ class OfflineDiarStage:
         # will actually run rather than the word "auto".
         self.backend = resolve_backend(backend, mode="offline")
         if ideal_duration_s is None:
+            # Keyed on the RESOLVED backend: keyed on the request, "auto" fell to
+            # pyannote's hour whatever ran, so an auto-resolved Sortformer lost its
+            # 60 s cap. Nemotron streams the buffer through its own speaker cache
+            # and ships no stitching embedder, so it must never be chunked.
             ideal_duration_s = {
+                "nemotron": IDEAL_DURATION_S_SHERPA,
                 "pyannote": IDEAL_DURATION_S_PYANNOTE,
                 "nemo": IDEAL_DURATION_S_NEMO,
                 "sherpa": IDEAL_DURATION_S_SHERPA,
-            }.get(backend, IDEAL_DURATION_S_PYANNOTE)
+            }.get(self.backend, IDEAL_DURATION_S_PYANNOTE)
         self.ideal_duration_s = ideal_duration_s
         self.overlap_s = overlap_s
         self.stitch_threshold = stitch_threshold
@@ -1526,8 +1531,8 @@ class OfflineDiarStage:
             self._embedder = _torch_free_embedder_or_stub("pyannoteai is a hosted service")
         else:
             raise ValueError(
-                f"unknown backend {self.backend!r}; expected 'pyannote', 'nemo', "
-                f"'sherpa' (all free and local) or 'pyannoteai' (paid, hosted)"
+                f"unknown backend {self.backend!r}; expected 'nemotron', 'pyannote', "
+                f"'nemo', 'sherpa' (all free and local) or 'pyannoteai' (paid, hosted)"
             )
         self._backend_obj.load()
         self._embedder.load()

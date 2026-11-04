@@ -34,6 +34,8 @@ from vocal_helper.router import _PROFILE, select_diarization
 # here turns any silent edit of the scientific claims into a red test — the DER
 # regression that needs no models to catch.
 EXPECTED_PROFILE: dict[tuple[str, str], tuple[float, float]] = {
+    # studies/diar_far_field.py (exact-truth mix, anechoic) and the 6.4 s schedule's RTF.
+    ("offline", "nemotron"): (0.090, 0.166),
     ("offline", "nemo"): (0.142, 0.051),
     ("offline", "pyannote"): (0.122, 0.067),
     ("offline", "sherpa"): (0.174, 0.58),

@@ -568,7 +568,9 @@ class Pipeline:
             await self._q_summary.put(None)
 
         try:
-            async for ev in self._merge(q_utt_for_output, self._q_summary):
+            async for ev in self._merge(
+                q_utt_for_output, self._q_summary, watch=tasks if self.strict else None
+            ):
                 yield ev
         finally:
             for t in tasks:
@@ -693,6 +695,7 @@ class Pipeline:
         self,
         utt_q: asyncio.Queue,
         summary_q: asyncio.Queue,
+        watch: list[asyncio.Task] | None = None,
     ) -> AsyncIterator[Utterance | SummarySnapshot]:
         """Interleave Utterance + SummarySnapshot streams until both end."""
 
@@ -720,12 +723,25 @@ class Pipeline:
         sum_done = False
         # Loop until BOTH streams have delivered their None sentinel — a closed
         # stream drops out of ``pending`` so we stop re-reading it.
+        watched = set(watch or ())
         while not (utt_done and sum_done):
             pending = {t for t, done in [(utt_task, utt_done), (sum_task, sum_done)] if not done}
             if not pending:
                 break
-            done, _ = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
+            done, _ = await asyncio.wait(
+                pending | {t for t in watched if not t.done()},
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            if _stage_crashed(done, watched):
+                # A dead stage never sends its None downstream, so waiting on
+                # the queues would hang forever. run() records the crash and
+                # raises StageCrashed once the stages are drained.
+                utt_task.cancel()
+                sum_task.cancel()
+                return
             for d in done:
+                if d is not utt_task and d is not sum_task:
+                    continue
                 item = d.result()
                 # For each finished read : a None retires that stream, otherwise
                 # we yield the event and immediately re-arm a fresh read of it.
@@ -753,6 +769,20 @@ class Pipeline:
                     else:
                         yield item
                         sum_task = asyncio.create_task(reader(summary_q))
+
+
+def _stage_crashed(done: set[asyncio.Task], watched: set[asyncio.Task]) -> bool:
+    """Whether a watched stage task in ``done`` ended on an exception.
+
+    Retires every finished watched task from ``watched``, so a stage that ended
+    cleanly is not waited on again.
+    """
+    crashed = False
+    for task in done & watched:
+        watched.discard(task)
+        if not task.cancelled() and task.exception() is not None:
+            crashed = True
+    return crashed
 
 
 # ===========================================================================
@@ -975,7 +1005,9 @@ class OfflinePipeline:
             await self._q_summary.put(None)
 
         try:
-            async for ev in self._merge(q_utt_for_output, self._q_summary):
+            async for ev in self._merge(
+                q_utt_for_output, self._q_summary, watch=tasks if self.strict else None
+            ):
                 yield ev
         finally:
             # Cancel any still-running stage, then await each so exceptions
@@ -1046,6 +1078,7 @@ class OfflinePipeline:
         self,
         utt_q: asyncio.Queue,
         summary_q: asyncio.Queue,
+        watch: list[asyncio.Task] | None = None,
     ) -> AsyncIterator[Utterance | SummarySnapshot]:
         """Interleave Utterance + SummarySnapshot streams until both end."""
 
@@ -1071,12 +1104,25 @@ class OfflinePipeline:
         utt_done = False
         sum_done = False
         # Run until both streams have signalled end via their None sentinel.
+        watched = set(watch or ())
         while not (utt_done and sum_done):
             pending = {t for t, done in [(utt_task, utt_done), (sum_task, sum_done)] if not done}
             if not pending:
                 break
-            done, _ = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
+            done, _ = await asyncio.wait(
+                pending | {t for t in watched if not t.done()},
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            if _stage_crashed(done, watched):
+                # A dead stage never sends its None downstream, so waiting on
+                # the queues would hang forever. run() records the crash and
+                # raises StageCrashed once the stages are drained.
+                utt_task.cancel()
+                sum_task.cancel()
+                return
             for d in done:
+                if d is not utt_task and d is not sum_task:
+                    continue
                 item = d.result()
                 # None retires the stream ; a real event is yielded then the
                 # read is re-armed to keep the interleave going.

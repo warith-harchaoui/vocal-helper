@@ -144,6 +144,9 @@ SORTFORMER_MAX_SPEAKERS: int = 4
 # are listed — online never routes to pyannote (it loses to nemo online at every
 # length: 0.590/0.844 vs 0.586/0.497).
 _PROFILE: dict[tuple[str, str], tuple[float, float]] = {
+    # Synthetic mix with exact ground truth (studies/diar_far_field.py), anechoic;
+    # 0.252 at 0.6 s RT60. RTF at the default 6.4 s context, CPU.
+    ("offline", "nemotron"): (0.090, 0.166),
     ("offline", "nemo"): (0.142, 0.051),  # bagarre n=30, offline Sortformer
     ("offline", "pyannote"): (0.122, 0.067),  # AMI dev-slice n=2 median
     ("offline", "sherpa"): (0.174, 0.58),  # ADR 0002, ES2011a, TitaNet-large ONNX
@@ -162,7 +165,7 @@ class BackendPlan:
         ``"online"`` (streaming :class:`~vocal_helper.OnlineDiarStage`) or
         ``"offline"`` (whole-buffer :class:`~vocal_helper.OfflineDiarStage`).
     backend : str
-        Diarization backend — ``"pyannote"``, ``"nemo"`` or ``"sherpa"`` — to
+        Diarization backend — ``"nemotron"``, ``"pyannote"``, ``"nemo"`` or ``"sherpa"`` — to
         pass straight to the stage's ``diar={"backend": ...}`` config.
     expected_der : float
         Representative diarization error rate (quality — lower is better) for
@@ -236,6 +239,7 @@ def select_diarization(
     torch_free: bool = False,
     pyannote_available: bool = True,
     nemo_available: bool = True,
+    nemotron_available: bool = False,
 ) -> BackendPlan:
     """Route to the diarization backend that the experiments justify.
 
@@ -278,6 +282,13 @@ def select_diarization(
         is importable). When the short/dense rule would pick ``nemo`` but it is
         not installed, the router falls through to the robust ``pyannote`` branch
         rather than emitting an unrunnable backend. Default ``True``.
+    nemotron_available : bool, optional
+        Whether the Nemotron 3 ONNX graph is in the diarization-engines bundle.
+        When it is, every offline run routes to ``nemotron``: it leads
+        :data:`vocal_helper.diar.OFFLINE_PREFERENCE` on error rate alone, is
+        torch-free, and has neither Sortformer's length hang nor its 4-speaker
+        cap. Default ``False``, so a caller that does not probe keeps the
+        duration crossover; the CLI and the HTTP surface probe.
 
     Returns
     -------
@@ -312,6 +323,21 @@ def select_diarization(
     sherpa is from ADR 0002.
     """
     mode = "online" if live else "offline"
+
+    # 0. OFFLINE, Nemotron present → Nemotron. It used to be reachable only from
+    #    the library's ``backend="auto"``, which reads OFFLINE_PREFERENCE, while
+    #    the CLI and HTTP paths came here and got a duration crossover that did
+    #    not know it existed. It is torch-free, so the torch_free override below
+    #    does not outrank it. Live is not routed here: the streaming Pipeline
+    #    swaps Nemotron in itself when the graph is present.
+    if not live and nemotron_available:
+        der, rtf = _PROFILE[("offline", "nemotron")]
+        return _plan(
+            "offline",
+            "nemotron",
+            f"graph in the bundle → nemotron (torch-free ONNX, end-to-end; DER {der} "
+            f"on an exact-truth mix, 0.252 reverberated; RTF {rtf})",
+        )
 
     # 1. Portability override — no PyTorch available. The torch-free ONNX
     #    TitaNet (sherpa) is the only runnable backend; quality beats NeMo

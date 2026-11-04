@@ -51,6 +51,9 @@ def probes(monkeypatch: pytest.MonkeyPatch):
         """Pin the pyannote / nemo availability probes to fixed booleans."""
         monkeypatch.setattr(cli, "_offline_pyannote_available", lambda: pyannote)
         monkeypatch.setattr(cli, "_offline_nemo_available", lambda: nemo)
+        # The Nemotron graph may well sit in this machine's bundle; these
+        # scenarios are about the duration crossover, so it is pinned absent.
+        monkeypatch.setattr(cli, "_offline_nemotron_available", lambda: False)
 
     return _set
 
@@ -226,3 +229,21 @@ def test_choose_preserves_base_keys_and_does_not_mutate(probes) -> None:
     )
     assert diar == {"join_threshold": 0.25, "backend": "nemo"}  # merged, not clobbered
     assert base == {"join_threshold": 0.25}  # input left intact
+
+
+def test_nemotron_in_the_bundle_wins_the_auto_batch_route(probes, monkeypatch) -> None:
+    """With the Nemotron graph present, a batch file goes offline to ``nemotron``.
+
+    The library's ``backend="auto"`` already put it first; the CLI router did not
+    know it existed, so ``vocal-helper file`` never reached the measured default.
+    Holds even when neither pyannote nor NeMo is installed: it needs neither.
+    """
+    probes(False, False)
+    monkeypatch.setattr(cli, "_offline_nemotron_available", lambda: True)
+    for duration_s in (SHORT_S, LONG_S, None):
+        use_offline, diar, note = cli._choose_file_diar(
+            BASE, explicit_offline=False, batch=True, force_online=False, duration_s=duration_s
+        )
+        assert use_offline is True
+        assert diar == {"backend": "nemotron"}
+        assert note is not None and "nemotron" in note
