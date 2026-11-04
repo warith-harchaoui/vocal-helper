@@ -769,9 +769,9 @@ def choose_asr_engine(config: dict, *, offline: bool) -> str:
       Hors ligne (``studies/asr_nemotron_vs_whisper_offline.py``) : AMI 0,23
       contre 0,38, voix mêlées 0,38 contre 0,54, Common Voice français 0,27
       contre 0,69, trois fois plus vite. En direct, segment par segment après
-      Silero (``studies/asr_live_whisper_vs_nemotron.py``) : voix mêlées 0,38
-      contre 0,53, Common Voice français 0,27 contre 0,79, télévision 0,50
-      contre 0,90 — whisper devine mal la langue d'un segment court et le
+      Silero (``studies/asr_live_whisper_vs_nemotron.py``) : AMI 0,24 contre
+      0,25, voix mêlées 0,38 contre 0,53, Common Voice français 0,27 contre
+      0,79, télévision 0,48 contre 0,83 — whisper devine mal la langue d'un segment court et le
       traduit en anglais ;
     - **langue donnée, prompt ou modèle whisper nommé** → ``"whisper"`` : à qui
       l'on donne la langue, whisper rattrape Nemotron sur Common Voice
