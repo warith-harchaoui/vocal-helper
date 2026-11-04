@@ -6,6 +6,24 @@ on, **breaking behaviour and default changes land only in MAJOR releases; MINOR
 adds features compatibly; PATCH is bug-fixes and docs.** The public API is the
 names exported from `vocal_helper.__all__` plus the documented CLI flags.
 
+## [Unreleased]
+
+### Added
+
+- **Nemotron 3.5 as an opt-in ASR engine** (`--asr-engine nemotron`, or
+  `asr={"engine": "nemotron"}`): the audio encoder and CTC head exported to
+  ONNX (`studies/nemotron_asr_export.py`), run by a numpy host
+  (`vocal_helper.nemotron_asr`) with no torch. The int8 graph (701 MB) is
+  downloaded once from `deraison.ai/nemotron-onnx` and checked against a
+  pinned sha256; `VH_NEMOTRON_ASR_URL` points at a mirror and
+  `VH_NEMOTRON_ASR_GRAPH` at a local file. Words carry timestamps and
+  confidences; speaker, event and style tags come out separately. whisper
+  stays the default engine.
+- `NemotronOnnxDiar.probabilities()`: per-speaker activity at 10 ms, the
+  matrix `diarize()` thresholds.
+- Studies: Nemotron against whisper offline and as a simulated stream, and
+  Silero against the diarizer's activity and the CTC blank as speech detectors.
+
 ## [3.3.2] - 2026-11-01
 
 ### Fixed
