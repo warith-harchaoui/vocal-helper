@@ -28,7 +28,7 @@ metadata:
 `vocal-helper` is a local-first Python toolkit that turns speech audio into a
 **diarized, speaker-labelled, transcribed** conversation, optionally with a
 rolling LLM summary. It answers three questions at once: *what was said*
-(whisper.cpp STT), *who spoke when* (VAD + speaker diarization), and — with the
+(Nemotron 3.5 ONNX or whisper.cpp STT), *who spoke when* (VAD + speaker diarization), and — with the
 analyst stage — *what does it all mean* (local Gemma summary). The same pipeline
 is reachable five ways (library, CLI, HTTP API, MCP, GUI) so an agent can
 pick whichever fits. Nothing leaves the machine.
@@ -43,10 +43,10 @@ python -c "import vocal_helper"   # library import check
 If missing, install it (ffmpeg is a hard system dependency):
 
 ```bash
-pip install vocal-helper                       # base: STT + language ID (wheel-based, no compiler)
-pip install 'vocal-helper[pyannote]'           # + robust offline diarization (torch)
-pip install 'vocal-helper[sherpa]'             # + torch-free ONNX diarization (lightest)
+pip install vocal-helper                       # base: STT + torch-free diarization (Nemotron / sherpa ONNX), no compiler
+pip install 'vocal-helper[pyannote]'           # + pyannote offline diarization (torch)
 pip install 'vocal-helper[nemo]'               # + NeMo Sortformer diarization (~5 GB torch)
+pip install 'vocal-helper[cloud]'              # + paid hosted modes (Gladia / ElevenLabs / pyannoteAI), key-gated
 pip install 'vocal-helper[llm]'                # + local Gemma rolling summary (Ollama)
 pip install 'vocal-helper[stream]'             # + URL ingest (YouTube / RSS / direct, yt-dlp)
 pip install 'vocal-helper[mic]'                # + live microphone input
@@ -96,8 +96,14 @@ async for ev in pipe.run():
 ```
 
 The **diarization backend is auto-routed** by a study-grounded quality×speed
-router: short/dense audio (≤300 s, ≤4 speakers) → NeMo, long/unknown → pyannote,
-torch-free installs → sherpa. Pass an explicit `--diar-backend` to override.
+router: Nemotron 3 ONNX whenever its graph is in the engines bundle; without it,
+short/dense audio (≤300 s, ≤4 speakers) → NeMo, long/unknown → pyannote, else
+sherpa. Pass an explicit `--diar-backend nemotron|pyannote|nemo|sherpa` to override.
+
+The **ASR engine is auto-picked** too (`--asr-engine auto`): Nemotron 3.5 ONNX when
+the language is to be discovered (its 669 MB graph downloads once), whisper.cpp as
+soon as `--language`, `--initial-prompt` or `--whisper-model` is given.
+`--asr-engine whisper|nemotron` forces one.
 
 For the full flag matrix and every option, read `references/cli-reference.md`.
 For the API / MCP / GUI surfaces (endpoints, ports, the `/gui` transcript viewer),
@@ -113,13 +119,15 @@ read `references/surfaces.md`. For the exhaustive, auditable trigger list, read
   track of `.mp4/.mkv/.mov/.webm`; `[stream]` fetches any yt-dlp URL — no need
   to pre-extract.
 - **Language is discovered, not assumed.** `--language auto` (the default) lets
-  whisper detect it; only pass a code when you must lock it.
-- **Diarization needs a backend extra.** Base install transcribes but does not
-  diarize; install `[pyannote]` (robust), `[sherpa]` (torch-free, lightest), or
-  `[nemo]` (short-clip specialist). Absent → clear `ImportError` / 400.
+  the engine detect it; passing a code locks it and switches `auto` to whisper.
+- **The base install diarizes.** sherpa-onnx and onnxruntime are core, so Nemotron
+  (once the bundle is fetched) and sherpa run with no extra; `[pyannote]` and
+  `[nemo]` add the torch backends.
 - **The summary is opt-in and local.** `--llm` attaches the Gemma-via-Ollama
   analyst; it needs `[llm]` and a running local Ollama.
 - **After running, report the transcript / output and the detected language and
   speakers** — do not re-run unless something failed.
-- **Local only.** No network except the one-time model-bundle / yt-dlp fetch;
-  audio and transcripts never go to a SaaS.
+- **Local by default.** No network except the one-time model downloads / yt-dlp
+  fetch. The paid modes (`CloudOfflinePipeline`, `CloudLivePipeline`,
+  `diar={"backend": "pyannoteai"}`) send audio out only when asked for by name
+  with a key set; never pick them unless the user asks for a hosted service.

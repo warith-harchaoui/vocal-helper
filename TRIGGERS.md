@@ -9,8 +9,9 @@ and its [`references/triggers.md`](skills/vocal-helper/references/triggers.md)).
 `vocal-helper` turns **speech** (audio, the audio track of video, or any
 yt-dlp-reachable URL) into a **diarized, speaker-labelled, transcribed**
 conversation, with an optional rolling local-LLM summary. It also identifies
-the spoken language. It is **local-first**: whisper.cpp / pyannote / NeMo /
-sherpa / local Ollama, no telemetry, no account, no SaaS. It does **not** edit
+the spoken language. It is **local-first**: Nemotron ONNX / whisper.cpp / pyannote / NeMo /
+sherpa / local Ollama, no telemetry, no account, no SaaS unless a paid
+`[cloud]` mode is asked for by name with its key. It does **not** edit
 audio files, synthesize voices, or fetch media just for storage.
 
 ## What it does → how to invoke
@@ -37,9 +38,10 @@ tools are the API routes, under fastapi-mcp's operation ids:
 
 | Ask | What it means here |
 |-----|--------------------|
-| "Nemotron", "Nemotron 3 Diarization", "Sortformer ONNX", "torch-free diarization", "diarize without HuggingFace" | the default offline diarizer: `NemotronOnnxDiar`, an ONNX graph from the diarization-engines bundle (no torch, no HF token) |
+| "Nemotron", "Nemotron 3 Diarization", "Sortformer ONNX", "torch-free diarization", "diarize without HuggingFace" | the default diarizer, offline and live, when its graph is in the bundle: `NemotronOnnxDiar`, an ONNX graph from the diarization-engines bundle (no torch, no HF token); `--diar-backend nemotron` forces it |
+| "use Gladia / ElevenLabs Scribe / pyannoteAI", "hosted / paid transcription", "cloud diarization" | needs `[cloud]` plus the provider key (`GLADIA_API_KEY`, `ELEVENLABS_API_KEY`, `PYANNOTEAI_API_KEY`): `CloudOfflinePipeline`, `CloudLivePipeline`, or the hybrid `diar={"backend": "pyannoteai"}` with local words; `credentials_status()` says which are configured. Never picked by the router, never without being asked |
 | "Nemotron 3.5 Transcribe", "transcribe with Nemotron", "torch-free / ONNX speech-to-text", "CTC timestamps", "transcribe without whisper" | `--asr-engine auto` (default: Nemotron when the language is to be discovered, offline and live; whisper when `--language` / `--initial-prompt` / `--whisper-model` is given) or `nemotron` (CLI), `asr={"engine": "nemotron"}` (library), `NemotronOnnxAsr`: the Nemotron 3.5 encoder + CTC head as one ONNX graph (no torch, no LLM, words timed at 40 ms, language discovered, speaker / event tags apart); the int8 graph is fetched once from `deraison.ai/nemotron-onnx` (`precision="fp32"` for the exact one), or read from `VH_NEMOTRON_ASR_GRAPH`; mirror with `VH_NEMOTRON_ASR_URL` |
-| "use pyannote / NeMo / sherpa instead" | `--diar-backend pyannote\|nemo\|sherpa` (CLI), `diar_backend` (API / MCP form field), `diar={"backend": …}` (library); `auto` lets the router pick |
+| "use pyannote / NeMo / sherpa instead" | `--diar-backend nemotron\|pyannote\|nemo\|sherpa` (CLI), `diar_backend` (API / MCP form field), `diar={"backend": …}` (library); `auto` lets the router pick |
 | "run on GPU / CUDA / CoreML / DirectML / TensorRT / OpenVINO", "force CPU", "which ONNX Runtime provider" | `providers=` on `NemotronOnnxDiar`, or `VOCAL_HELPER_PROVIDER=cuda` (`cpu`, `coreml`, `directml`, `tensorrt`, `openvino`, `qnn`, `nnapi`) in the shell |
 | "offline install", "air-gapped", "use my own engines bundle / mirror" | `VH_DIARIZATION_ENGINES` (URL or path of the bundle), `VH_DIARIZATION_ENGINES_SHA`, `VH_NEMOTRON_ASR_GRAPH` / `VH_NEMOTRON_ASR_URL` (ASR graph), `VH_CACHE_DIR` |
 | "low-latency live diarization", "label speakers faster" | `diar_latency_s=` (1.04 s or 0.32 s published schedules) |

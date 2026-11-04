@@ -25,8 +25,9 @@ vocal-helper <subcommand> --help
 | `--whisper-model` | `large-v3-turbo-q5_0` | whisper.cpp model id. |
 | `--threads` | `6` | whisper.cpp decode threads. |
 | `--initial-prompt` | `""` | Whisper bias prompt; name the domain and a few proper nouns. |
-| `--diar-backend` | `auto` | `auto` \| `pyannote` \| `nemo` \| `sherpa`. `auto` routes by length. |
-| `--join-threshold` | `0.30` | Cosine-distance join threshold for the online diarizer. |
+| `--asr-engine` | `auto` | `auto` \| `whisper` \| `nemotron` (also on `transcribe`). `auto`: Nemotron 3.5 ONNX when the language is to be discovered, whisper as soon as `--language`, `--initial-prompt` or `--whisper-model` is given. |
+| `--diar-backend` | `auto` | `auto` \| `nemotron` \| `pyannote` \| `nemo` \| `sherpa`. `auto`: nemotron when its graph is in the bundle, else routed by length. |
+| `--join-threshold` | `0.50` | Cosine-distance join threshold for the online diarizer. |
 | `--llm` | off | Attach the local rolling-summary analyst. |
 | `--llm-recent-window-s` | `60` | Verbatim recent-transcript window before the digest. |
 | `--endpoint` | backend's local URL | Override the LLM serving base URL (remote Ollama / vLLM). |
@@ -44,10 +45,11 @@ lever. `best-engine-ai-helper` resolves it per machine from the committed
 `--diar-backend auto` (default) hands the file's real duration to
 `select_diarization`, trading quality (DER) against speed (RTF) per scenario:
 
+- offline, the Nemotron graph in the engines bundle → **nemotron** (torch-free, best DER measured)
 - offline short (≤300 s, ≤4 speakers) → **nemo** (best DER on short/dense audio)
 - offline long / unknown length → **pyannote** (robust default)
 - torch-free install → **sherpa** (ONNX, no PyTorch)
-- online (mic / url) → **nemo**
+- online (mic / url) → **nemo** embedder, with the pipeline swapping Nemotron in when its graph is present
 
 It never routes to an uninstalled backend — a short file with no `[nemo]` extra
 falls back to pyannote rather than crashing. Any explicit `--diar-backend`
