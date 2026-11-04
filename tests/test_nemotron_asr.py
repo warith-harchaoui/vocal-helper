@@ -314,3 +314,23 @@ def test_pipeline_picks_the_engine_by_name(asr_graph: Path) -> None:
     assert isinstance(stage, NemotronAsrStage) and stage.batch
     with pytest.raises(ValueError, match="inconnu"):
         _asr_stage({"engine": "gladia"})
+
+
+@pytest.mark.parametrize(
+    ("config", "offline", "expected"),
+    [
+        ({}, True, "nemotron"),
+        ({"language": "auto", "model": "large-v3-turbo-q5_0", "initial_prompt": ""}, True, "nemotron"),
+        ({}, False, "whisper"),
+        ({"language": "fr"}, True, "whisper"),
+        ({"initial_prompt": "réunion budgétaire"}, True, "whisper"),
+        ({"model": "small"}, True, "whisper"),
+        ({"engine": "nemotron"}, False, "nemotron"),
+        ({"engine": "whisper"}, True, "whisper"),
+    ],
+)
+def test_auto_engine_is_the_measured_best(config: dict, offline: bool, expected: str) -> None:
+    """``auto`` : Nemotron hors ligne quand la langue est à découvrir, whisper sinon."""
+    from vocal_helper.pipeline import choose_asr_engine
+
+    assert choose_asr_engine(config, offline=offline) == expected

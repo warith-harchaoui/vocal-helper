@@ -8,6 +8,18 @@ names exported from `vocal_helper.__all__` plus the documented CLI flags.
 
 ## [Unreleased]
 
+### Changed
+
+- **Offline, the default ASR engine is now the measured best one** (breaking
+  default: this lands in the next MAJOR). `--asr-engine` and
+  `asr={"engine": ...}` default to `auto`: Nemotron 3.5 for an offline run
+  whose language is to be discovered, whisper live, and whisper as soon as a
+  language, an `initial_prompt` or a non-default whisper `model` is given
+  (`vocal_helper.pipeline.choose_asr_engine`). Word error rate, Nemotron int8
+  against whisper `auto`: AMI 0.23 / 0.38, overlapped mixes 0.38 / 0.54,
+  Common Voice French 0.27 / 0.69; whisper told the language wins on French TV
+  (0.32 / 0.46), hence the rule. `engine="whisper"` restores the old path.
+
 ### Added
 
 - **Nemotron 3.5 as an opt-in ASR engine** (`--asr-engine nemotron`, or

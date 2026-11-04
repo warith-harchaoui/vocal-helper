@@ -102,7 +102,11 @@ def corpus(name: str, limit: int) -> list[tuple[str, pathlib.Path, str]]:
         root = pathlib.Path.home() / "parole-publique/output"
         out = []
         for transcript in sorted(root.glob("*/transcript.json")):
-            if transcript.parent.name.endswith("-free"):
+            # ``-free`` : la sortie du chemin gratuit, pas une référence. Un
+            # dossier peut aussi disparaître en cours d'étude (renommé ailleurs).
+            if transcript.parent.name.endswith("-free") or not (
+                transcript.parent / "audio.mp3"
+            ).exists():
                 continue
             utterances = json.loads(transcript.read_text())["utterances"]
             kept = [u for u in utterances if u["t1"] <= TV_CROP_S]
@@ -130,6 +134,19 @@ def engines(onnx_dir: pathlib.Path, wanted: list[str]):
         out["whisper-oracle"] = lambda a, lang: (
             transcribe_pcm(a, 16000, language=lang) if lang else None
         )
+    if "whisper-lid" in wanted:
+        from vocal_helper.asr import transcribe_pcm
+        from vocal_helper.lid import detect_language
+
+        # Ce que la pipeline peut faire sans rien savoir : découvrir la langue
+        # sur 30 s prises au milieu du fichier (loin des génériques), puis la
+        # donner à whisper. Le temps de la détection compte dans le RTF.
+        def whisper_lid(a, _lang):
+            mid = max(0, len(a) // 2 - 15 * 16000)
+            lang, _p = detect_language(a[mid : mid + 30 * 16000])
+            return transcribe_pcm(a, 16000, language=lang)
+
+        out["whisper-lid"] = whisper_lid
     from vocal_helper.nemotron_asr import NemotronOnnxAsr
 
     for precision in ("fp32", "int8"):

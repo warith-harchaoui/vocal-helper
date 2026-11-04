@@ -104,7 +104,14 @@ def test_pipeline_wiring_defaults() -> None:
     assert online._asr.batch is False
     assert online._asr.warmup is True
 
+    # Offline with the language to discover, the measured best engine is
+    # Nemotron 3.5; naming a language keeps whisper (``choose_asr_engine``).
     offline = voh.OfflinePipeline(source=src)
+    assert type(offline._asr).__name__ == "NemotronAsrStage"
+    assert offline._asr.batch is True
+    offline = voh.OfflinePipeline(
+        source=src, config=voh.OfflinePipelineConfig(asr={"language": "fr"})
+    )
     assert offline._asr.batch is True
     assert offline._asr.warmup is False
 

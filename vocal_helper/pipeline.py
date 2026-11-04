@@ -36,6 +36,7 @@ from typing import Any
 
 import best_engine_ai_helper as beh
 
+from vocal_helper.asr import DEFAULT_MODEL as DEFAULT_WHISPER_MODEL
 from vocal_helper.asr import WhisperStage
 from vocal_helper.diar import OfflineDiarStage, OnlineDiarStage
 
@@ -759,22 +760,55 @@ class Pipeline:
 # ===========================================================================
 
 
-def _asr_stage(config: dict) -> Any:
-    """L'étage ASR que ``config["engine"]`` désigne : ``"whisper"`` (défaut) ou ``"nemotron"``.
+def choose_asr_engine(config: dict, *, offline: bool) -> str:
+    """Le moteur ASR à faire tourner : ``config["engine"]``, ou le meilleur mesuré si ``"auto"``.
+
+    ``"auto"`` (le défaut) suit l'étude ``studies/asr_nemotron_vs_whisper_offline.py``
+    (2026-11), taux d'erreur sur les mots :
+
+    - **hors ligne, langue à découvrir** → ``"nemotron"`` : AMI 0,23 contre 0,38,
+      voix mêlées 0,38 contre 0,54, Common Voice français 0,27 contre 0,69
+      (whisper ``"auto"`` traduit les clips courts), trois fois plus rapide ;
+    - **langue donnée, prompt ou modèle whisper nommé** → ``"whisper"`` : à qui
+      l'on donne la langue, whisper rattrape Nemotron sur Common Voice français
+      (0,28) et le dépasse sur la télévision française (0,32 contre 0,46) ;
+    - **en direct** → ``"whisper"`` : Nemotron en flux perd de son contexte
+      (0,24 → 0,27 au mieux, 0,35 sans anticipation, ``studies/asr_nemotron_online.py``).
+    """
+    engine = str(config.get("engine", "auto")).lower()
+    if engine != "auto":
+        return engine
+    if not offline:
+        return "whisper"
+    language = config.get("language")
+    model = config.get("model")
+    if (
+        language not in (None, "", "auto")
+        or config.get("initial_prompt")
+        or model not in (None, "", DEFAULT_WHISPER_MODEL)
+    ):
+        return "whisper"
+    return "nemotron"
+
+
+def _asr_stage(config: dict, *, offline: bool = False) -> Any:
+    """L'étage ASR que :func:`choose_asr_engine` désigne : whisper.cpp ou Nemotron 3.5.
 
     ``"nemotron"`` est l'encodeur de Nemotron 3.5 Transcribe en ONNX
     (:class:`vocal_helper.nemotron_asr.NemotronAsrStage`), sans torch ; le
-    graphe vient de ``config["graph"]`` ou de ``$VH_NEMOTRON_ASR_GRAPH``.
+    graphe vient de ``config["graph"]``, de ``$VH_NEMOTRON_ASR_GRAPH``, ou est
+    téléchargé une fois depuis ``deraison.ai/nemotron-onnx``.
     """
     options = dict(config)
-    engine = str(options.pop("engine", "whisper")).lower()
+    options.pop("engine", None)
+    engine = choose_asr_engine(config, offline=offline)
     if engine == "whisper":
         return WhisperStage(**options)
     if engine == "nemotron":
         from vocal_helper.nemotron_asr import NemotronAsrStage
 
         return NemotronAsrStage(**options)
-    raise ValueError(f"moteur ASR inconnu {engine!r} : 'whisper' ou 'nemotron'")
+    raise ValueError(f"moteur ASR inconnu {engine!r} : 'auto', 'whisper' ou 'nemotron'")
 
 
 @dataclass
@@ -865,7 +899,10 @@ class OfflinePipeline:
         # with ``OfflinePipelineConfig(asr={"batch": False})`` ; any
         # explicit ``batch`` in ``config.asr`` wins.
         asr_cfg = {"batch": True, **self.config.asr}
-        self._asr = _asr_stage(asr_cfg)
+        # Hors ligne, le moteur par défaut est Nemotron 3.5 quand la langue est à
+        # découvrir, whisper dès qu'on lui donne langue, prompt ou modèle
+        # (:func:`choose_asr_engine`) ; ``asr={"engine": "whisper"}`` le force.
+        self._asr = _asr_stage(asr_cfg, offline=True)
         self._llm: GemmaAnalystStage | None = (
             GemmaAnalystStage(**self.config.llm) if self.config.llm is not None else None
         )

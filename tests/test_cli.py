@@ -424,12 +424,12 @@ def test_transcribe_happy_path(monkeypatch: pytest.MonkeyPatch, tmp_path) -> Non
     runner = CliRunner()
 
     # Default mode → plain text on stdout.
-    plain = runner.invoke(cli, ["transcribe", str(wav)])
+    plain = runner.invoke(cli, ["transcribe", str(wav), "--asr-engine", "whisper"])
     assert plain.exit_code == 0
     assert plain.output.strip() == "hello world"
 
     # --jsonl mode → a single JSON object carrying the path and the transcript.
-    jsonl = runner.invoke(cli, ["transcribe", str(wav), "--jsonl"])
+    jsonl = runner.invoke(cli, ["transcribe", str(wav), "--jsonl", "--asr-engine", "whisper"])
     assert jsonl.exit_code == 0
     payload = _json.loads(jsonl.output.strip())
     assert payload == {"path": str(wav), "text": "hello world"}
