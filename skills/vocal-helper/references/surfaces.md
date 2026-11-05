@@ -80,6 +80,8 @@ vocal-helper-mcp                 # or: python -m vocal_helper.mcp
 
 Wraps the FastAPI app with `fastapi-mcp`, publishing `transcribe` and `pipeline`
 as MCP tools (same argument names as the HTTP routes) to any MCP-aware host.
+It binds `0.0.0.0:8000` by default; `--host` / `--port` or `VOCAL_HELPER_HOST`
+/ `VOCAL_HELPER_PORT` change it (`vocal-helper-mcp --help` lists them).
 
 ## 5. Browser GUI — the transcript viewer (`GET /gui`)
 

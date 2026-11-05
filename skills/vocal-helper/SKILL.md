@@ -31,7 +31,8 @@ rolling LLM summary. It answers three questions at once: *what was said*
 (Nemotron 3.5 ONNX or whisper.cpp STT), *who spoke when* (VAD + speaker diarization), and — with the
 analyst stage — *what does it all mean* (local Gemma summary). The same pipeline
 is reachable five ways (library, CLI, HTTP API, MCP, GUI) so an agent can
-pick whichever fits. Nothing leaves the machine.
+pick whichever fits. Nothing leaves the machine unless a paid `[cloud]` mode
+is asked for by name, with its key.
 
 ## Before anything: verify it is installed
 
@@ -63,7 +64,7 @@ ffmpeg must be on PATH:
 
 | Intent | CLI | Library |
 |--------|-----|---------|
-| Transcribe an audio file / URL (words only) | `vocal-helper transcribe` | `transcribe_pcm_with_language` |
+| Transcribe an audio file (words only) | `vocal-helper transcribe` | `transcribe_pcm_with_language` |
 | Full offline pipeline — diarize + transcribe (+ summary) a file | `vocal-helper file` | `OfflinePipeline` |
 | Full online pipeline on a URL (YouTube / RSS / direct) | `vocal-helper url <URL>` | `Pipeline` + `sources.from_url` |
 | Live transcription from the microphone | `vocal-helper mic` | `Pipeline` + `sources.from_microphone` |

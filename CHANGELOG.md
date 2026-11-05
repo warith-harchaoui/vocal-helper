@@ -8,6 +8,23 @@ names exported from `vocal_helper.__all__` plus the documented CLI flags.
 
 ## [Unreleased]
 
+### Fixed
+
+- **`vocal-helper-mcp --help` started a server.** The launcher read its bind
+  from `VOCAL_HELPER_HOST` / `VOCAL_HELPER_PORT` and ignored its arguments, so
+  asking for help served on port 8000 and never returned. It is now a click
+  command: `--help` (and `-h`) prints the usage, `--host` / `--port` set the
+  bind, and the environment variables and defaults (`0.0.0.0:8000`) work as
+  before. A test runs every console script with `--help` under a timeout.
+- **The trigger catalogue had two diverging copies.** The skill's
+  `references/triggers.md` still described the engines as whisper.cpp /
+  pyannote / NeMo / sherpa without Nemotron, the default since 5.0.0, and said
+  nothing ever leaves the machine although the `[cloud]` modes exist. The root
+  `TRIGGERS.md` claimed every subcommand was an MCP tool, when the microphone
+  and language ID have no route. Both paths now hold one corrected catalogue,
+  which also says that vocal-helper writes no `.srt` / `.vtt` file itself, and
+  `scripts/check_triggers.py` fails when they drift.
+
 ## [5.0.0] - 2026-11-05
 
 A major version because a default changes, as the policy above requires: the

@@ -1,9 +1,21 @@
-# TRIGGERS — vocal-helper (exhaustive, auditable)
+# TRIGGERS: vocal-helper
 
-`vocal-helper` turns **speech** (audio, the audio track of video, or a URL) into
-a **diarized, speaker-labelled, transcribed** conversation, optionally with a
-rolling local-LLM summary, and can identify the spoken language. Local-first —
-whisper.cpp / pyannote / NeMo / sherpa / local Ollama; nothing leaves the machine.
+This is the user-facing, exhaustive catalogue of what `vocal-helper` can do and
+the natural-language phrasings, commands, functions, file types, and URLs that
+should invoke it, whether you call it yourself or drive it as a Claude /
+OpenCode **skill**. The `description:` in `skills/vocal-helper/SKILL.md` is what
+a host model actually sees and is capped at 1024 characters; this file carries
+the full list, so keep the two in sync. The repo-root `TRIGGERS.md` and
+`skills/vocal-helper/references/triggers.md` are the same file, byte for byte;
+`scripts/check_triggers.py` fails when they drift.
+
+`vocal-helper` turns **speech** (audio, the audio track of video, or any
+yt-dlp-reachable URL) into a **diarized, speaker-labelled, transcribed**
+conversation, with an optional rolling local-LLM summary. It also identifies
+the spoken language. It is **local-first**: Nemotron ONNX / whisper.cpp / pyannote / NeMo /
+sherpa / local Ollama, no telemetry, no account, no SaaS unless a paid
+`[cloud]` mode is asked for by name with its key. It does **not** edit
+audio files, synthesize voices, or fetch media just for storage.
 
 ## What it does → how to invoke
 
@@ -16,9 +28,17 @@ whisper.cpp / pyannote / NeMo / sherpa / local Ollama; nothing leaves the machin
 | Detect spoken language / regions | — | `detect_language`, `detect_language_regions` | — |
 | Browser transcript viewer (for a human) | — | — | `GET /gui` |
 
+The file, URL and one-shot transcription paths are also reachable through the
+MCP tools (`vocal-helper-mcp`) and the browser **transcript viewer** at
+`GET /gui` (drop a file or paste a URL → colour-coded, speaker-labelled
+transcript + summary). The live microphone and the language-ID functions have
+no HTTP route, so no MCP tool either.
+
 **MCP** (`vocal-helper-mcp`, extra `[api,mcp]`): streamable-HTTP endpoint at
-`http://127.0.0.1:8000/mcp` (`VOCAL_HELPER_HOST` / `VOCAL_HELPER_PORT`). The
-tools are the API routes, under fastapi-mcp's operation ids:
+`http://127.0.0.1:8000/mcp`. The server binds `0.0.0.0:8000` by default;
+`--host` / `--port` or `VOCAL_HELPER_HOST` / `VOCAL_HELPER_PORT` change it,
+and `vocal-helper-mcp --help` lists them. The tools are the API routes, under
+fastapi-mcp's operation ids:
 `transcribe_transcribe_post`, `pipeline_pipeline_post`, `health_health_get`,
 `gui_gui_get`. Same arguments as the HTTP routes.
 
@@ -39,7 +59,8 @@ tools are the API routes, under fastapi-mcp's operation ids:
 - **Transcribe / caption**: "transcribe this recording / meeting / interview /
   podcast / lecture / voice memo", "turn this audio into text", "give me the
   transcript", "make subtitles / captions / an SRT / a VTT", "speech to text",
-  "STT / ASR this".
+  "STT / ASR this". vocal-helper returns timed, speaker-labelled utterances;
+  it writes no `.srt` / `.vtt` file itself, so the caller formats them.
 - **Diarize / who-spoke-when**: "who spoke when", "diarize this", "label / name
   the speakers", "separate the speakers", "speaker turns / segmentation", "how
   many speakers are there", "which speaker said X", "attribute each line to a
@@ -62,16 +83,15 @@ tools are the API routes, under fastapi-mcp's operation ids:
 
 - **Audio**: `.wav .mp3 .m4a .m4b .flac .ogg .oga .opus .aac .wma .aiff .aif`.
 - **Video** (speech track decoded via ffmpeg): `.mp4 .mkv .mov .webm .avi …`.
-- **URLs** (needs `[stream]`): YouTube / Vimeo / Twitch / SoundCloud, podcast
-  RSS feeds (latest episode), and direct audio / HLS URLs — anything yt-dlp
-  reaches.
-- **Live**: the microphone (needs `[mic]`).
+- **URLs** *(needs `[stream]`)*: YouTube / Vimeo / Twitch / SoundCloud, podcast
+  RSS (latest episode), direct audio / HLS: anything yt-dlp reaches.
+- **Live**: the microphone *(needs `[mic]`)*.
 
 ## When NOT to use vocal-helper (SKIP)
 
-- Pure audio-file transforms with no speech target — convert / re-encode /
+- Pure audio-file transforms with no speech target: convert / re-encode /
   resample, cut / trim / split / concatenate, silence, room-tone, MFCC
-  similarity, or Demucs stem separation → use **audio-helper**.
+  similarity, Demucs stem separation → use **audio-helper**.
 - Text-to-speech, voice cloning, speech synthesis.
 - Music transcription (notes / MIDI), not speech.
 - Downloading media from a URL for storage with no transcription wanted → use
@@ -81,7 +101,8 @@ tools are the API routes, under fastapi-mcp's operation ids:
 
 ## See also
 
-- [`../../README.md`](../../README.md) — features, install, quick start.
-- [`../../TRIGGERS.md`](../../TRIGGERS.md) — the repo-level trigger catalogue.
-- [`../README.md`](../README.md) — installing this as an agent skill.
-- [`cli-reference.md`](cli-reference.md) · [`surfaces.md`](surfaces.md).
+- the repo's `README.md`: features, install, quick start.
+- the repo's `LISEZMOI.md`: version française.
+- the repo's `EXAMPLES.md`: runnable recipes.
+- the repo's `skills/README.md`: installing this as an agent skill.
+- the skill's `references/cli-reference.md` and `references/surfaces.md`.

@@ -65,24 +65,31 @@ else:  # pragma: no cover — legacy fastapi-mcp
     mcp.mount()
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> None:
     """
     Entry point for the ``vocal-helper-mcp`` console script.
 
     Boots the FastAPI app (which now serves both the ``/…`` HTTP routes
     and the MCP endpoint) with ``uvicorn`` in single-worker mode. Meant
     for local / container usage; behind a real load balancer use
-    ``uvicorn`` / ``gunicorn`` directly.
+    ``uvicorn`` / ``gunicorn`` directly. The bind comes from ``--host`` /
+    ``--port`` or ``VOCAL_HELPER_HOST`` / ``VOCAL_HELPER_PORT``. A click
+    command, so ``--help`` answers instead of starting the server.
     """
-    import os
+    import click
 
-    import uvicorn
+    @click.command(context_settings={"help_option_names": ["-h", "--help"]})
+    @click.option("--host", envvar="VOCAL_HELPER_HOST", default="0.0.0.0", show_default=True)
+    @click.option("--port", envvar="VOCAL_HELPER_PORT", default=8000, type=int, show_default=True)
+    def serve(host: str, port: int) -> None:
+        """Serve the vocal-helper HTTP API with its MCP endpoint."""
+        import uvicorn
 
-    host = os.environ.get("VOCAL_HELPER_HOST", "0.0.0.0")
-    port = int(os.environ.get("VOCAL_HELPER_PORT", "8000"))
-    # Single worker keeps whisper.cpp + pyannote model instances in a
-    # shared process (no reload storms across workers).
-    uvicorn.run(app, host=host, port=port, workers=1)
+        # Single worker keeps whisper.cpp + pyannote model instances in a
+        # shared process (no reload storms across workers).
+        uvicorn.run(app, host=host, port=port, workers=1)
+
+    serve.main(args=argv, prog_name="vocal-helper-mcp")
 
 
 if __name__ == "__main__":  # pragma: no cover

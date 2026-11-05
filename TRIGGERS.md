@@ -3,8 +3,11 @@
 This is the user-facing, exhaustive catalogue of what `vocal-helper` can do and
 the natural-language phrasings, commands, functions, file types, and URLs that
 should invoke it, whether you call it yourself or drive it as a Claude /
-OpenCode **skill** (see [`skills/vocal-helper/SKILL.md`](skills/vocal-helper/SKILL.md)
-and its [`references/triggers.md`](skills/vocal-helper/references/triggers.md)).
+OpenCode **skill**. The `description:` in `skills/vocal-helper/SKILL.md` is what
+a host model actually sees and is capped at 1024 characters; this file carries
+the full list, so keep the two in sync. The repo-root `TRIGGERS.md` and
+`skills/vocal-helper/references/triggers.md` are the same file, byte for byte;
+`scripts/check_triggers.py` fails when they drift.
 
 `vocal-helper` turns **speech** (audio, the audio track of video, or any
 yt-dlp-reachable URL) into a **diarized, speaker-labelled, transcribed**
@@ -23,14 +26,19 @@ audio files, synthesize voices, or fetch media just for storage.
 | Diarize + transcribe a URL | `vocal-helper url` | `Pipeline` + `sources.from_url` | `POST /pipeline` (`url` field) |
 | Live mic transcription | `vocal-helper mic` | `Pipeline` + `sources.from_microphone` | — |
 | Detect spoken language / regions | — | `detect_language`, `detect_language_regions` | — |
+| Browser transcript viewer (for a human) | — | — | `GET /gui` |
 
-Every subcommand is also reachable through the MCP tools (`vocal-helper-mcp`)
-and the browser **transcript viewer** at `GET /gui` (drop a file or paste a URL
-→ colour-coded, speaker-labelled transcript + summary).
+The file, URL and one-shot transcription paths are also reachable through the
+MCP tools (`vocal-helper-mcp`) and the browser **transcript viewer** at
+`GET /gui` (drop a file or paste a URL → colour-coded, speaker-labelled
+transcript + summary). The live microphone and the language-ID functions have
+no HTTP route, so no MCP tool either.
 
 **MCP** (`vocal-helper-mcp`, extra `[api,mcp]`): streamable-HTTP endpoint at
-`http://127.0.0.1:8000/mcp` (`VOCAL_HELPER_HOST` / `VOCAL_HELPER_PORT`). The
-tools are the API routes, under fastapi-mcp's operation ids:
+`http://127.0.0.1:8000/mcp`. The server binds `0.0.0.0:8000` by default;
+`--host` / `--port` or `VOCAL_HELPER_HOST` / `VOCAL_HELPER_PORT` change it,
+and `vocal-helper-mcp --help` lists them. The tools are the API routes, under
+fastapi-mcp's operation ids:
 `transcribe_transcribe_post`, `pipeline_pipeline_post`, `health_health_get`,
 `gui_gui_get`. Same arguments as the HTTP routes.
 
@@ -50,17 +58,19 @@ tools are the API routes, under fastapi-mcp's operation ids:
 
 - **Transcribe / caption**: "transcribe this recording / meeting / interview /
   podcast / lecture / voice memo", "turn this audio into text", "give me the
-  transcript", "make subtitles / captions / SRT / VTT", "speech to text",
-  "STT / ASR this".
+  transcript", "make subtitles / captions / an SRT / a VTT", "speech to text",
+  "STT / ASR this". vocal-helper returns timed, speaker-labelled utterances;
+  it writes no `.srt` / `.vtt` file itself, so the caller formats them.
 - **Diarize / who-spoke-when**: "who spoke when", "diarize this", "label / name
   the speakers", "separate the speakers", "speaker turns / segmentation", "how
-  many speakers", "which speaker said X", "speaker-labelled transcript".
+  many speakers are there", "which speaker said X", "attribute each line to a
+  speaker", "speaker-labelled transcript".
 - **Summarise**: "summarise this meeting audio", "rolling summary", "minutes /
   notes from this recording", "TL;DR of this call".
 - **Language ID**: "what language is this", "detect the language", "is this
   French or English", "which parts are in which language".
-- **Live**: "transcribe my microphone", "live captions", "transcribe this stream
-  as it plays".
+- **Live**: "transcribe my microphone", "live captions", "transcribe this
+  stream / YouTube live as it plays".
 - **Surfaces**: "run the vocal-helper API / MCP server", "open the transcript
   viewer / GUI", "install vocal-helper",
   "connect vocal-helper to my MCP client / Claude / IDE".
@@ -69,7 +79,7 @@ tools are the API routes, under fastapi-mcp's operation ids:
   "diarize offline / air-gapped", "transcribe with Nemotron",
   "ONNX speech-to-text without whisper or torch".
 
-## Sources it accepts
+## File types & sources it accepts
 
 - **Audio**: `.wav .mp3 .m4a .m4b .flac .ogg .oga .opus .aac .wma .aiff .aif`.
 - **Video** (speech track decoded via ffmpeg): `.mp4 .mkv .mov .webm .avi …`.
@@ -91,7 +101,8 @@ tools are the API routes, under fastapi-mcp's operation ids:
 
 ## See also
 
-- [`README.md`](README.md): features, install, quick start.
-- [`LISEZMOI.md`](LISEZMOI.md): version française.
-- [`EXAMPLES.md`](EXAMPLES.md): runnable recipes.
-- [`skills/README.md`](skills/README.md): installing this as an agent skill.
+- the repo's `README.md`: features, install, quick start.
+- the repo's `LISEZMOI.md`: version française.
+- the repo's `EXAMPLES.md`: runnable recipes.
+- the repo's `skills/README.md`: installing this as an agent skill.
+- the skill's `references/cli-reference.md` and `references/surfaces.md`.
