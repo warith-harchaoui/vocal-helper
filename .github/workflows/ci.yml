@@ -55,15 +55,27 @@ jobs:
       - uses: actions/checkout@v7
 
       - uses: actions/setup-python@v7
+        id: py
         with:
           python-version: ${{ matrix.python-version }}
-          cache: pip
-          # Le workflow entre dans la cle : le cache d'avant pesait 3 Go (torch
-          # CUDA), et sans changement de cle il serait restaure tel quel a
-          # chaque run, 45 s de telechargement pour des roues jamais relues.
-          cache-dependency-path: |
-            pyproject.toml
-            .github/workflows/ci.yml
+
+      # Un venv entier en cache, pas le cache pip : restaurer des roues puis les
+      # reinstaller coutait 40 s a chaque run (torch seul en prend 20 a
+      # deballer). La cle porte pyproject.toml, ce workflow et la semaine ISO,
+      # donc les dependances non epinglees sont re-resolues au moins une fois
+      # par semaine, et a chaque changement de l'un ou de l'autre.
+      - id: week
+        run: echo "week=$(date -u +%G-%V)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@v6
+        id: venv
+        with:
+          path: ~/venv
+          key: venv-${{ runner.os }}-py${{ steps.py.outputs.python-version }}-${{ steps.week.outputs.week }}-${{ hashFiles('pyproject.toml', '.github/workflows/ci.yml') }}
+      - name: Activer le venv
+        run: |
+          [ -x "$HOME/venv/bin/python" ] || python -m venv "$HOME/venv"
+          echo "VIRTUAL_ENV=$HOME/venv" >> "$GITHUB_ENV"
+          echo "$HOME/venv/bin" >> "$GITHUB_PATH"
 
       - name: ffmpeg + ffprobe (pinned static build, not apt)
         run: |
@@ -95,27 +107,27 @@ jobs:
           "$HOME/ffmpeg/bin/ffmpeg" -version | head -1
           "$HOME/ffmpeg/bin/ffprobe" -version | head -1
 
-      - name: Install ruff (pinned)
-        # Epingle : une installation libre a laisse ruff 0.16 changer le format
-        # des blocs de code Markdown et casser le format-check en silence.
-        run: pip install "ruff==0.15.21"
-
       # torch arrive par silero-vad. Depuis PyPI, sur Linux, c'est la roue
-      # CUDA plus une quinzaine de paquets nvidia-* : 3 Go a telecharger puis
-      # a mettre en cache, pour un coureur qui n'a pas de GPU. La roue CPU de
-      # l'index PyTorch pese 200 Mo et satisfait la meme contrainte, donc
-      # l'installation qui suit la trouve deja la et n'y touche plus.
-      - name: torch CPU (pas la roue CUDA de PyPI)
-        run: python -m pip install --index-url https://download.pytorch.org/whl/cpu torch
-
-      - name: Install package + dev extras
+      # CUDA plus une quinzaine de paquets nvidia-* : 3 Go pour un coureur qui
+      # n'a pas de GPU. La roue CPU de l'index PyTorch pese 200 Mo et satisfait
+      # la meme contrainte, donc l'installation qui suit la trouve deja la.
+      # ruff est epingle : une installation libre a laisse ruff 0.16 changer le
+      # format des blocs de code Markdown et casser le format-check en silence.
+      - name: Install torch CPU + package + dev extras (venv neuf)
+        if: steps.venv.outputs.cache-hit != 'true'
         run: |
           python -m pip install --upgrade pip
+          python -m pip install --index-url https://download.pytorch.org/whl/cpu torch
           # The ``integration`` marker is filtered out by pyproject.toml's
-          # ``addopts`` — we only install the lightweight deps. Heavy
-          # extras (pyannote, nemo, ollama, capture-helper) require auth
-          # or model downloads and are exercised manually.
-          pip install -e '.[dev]'
+          # ``addopts``: only the lightweight deps. Heavy extras (pyannote,
+          # nemo, ollama, capture-helper) need auth or model downloads.
+          python -m pip install -e '.[dev]' "ruff==0.15.21"
+
+      # Venv restaure : le paquet seul, sans dependances, pour que l'import
+      # pointe sur ce checkout et pas sur celui qui a rempli le cache.
+      - name: Install package (venv restaure)
+        if: steps.venv.outputs.cache-hit == 'true'
+        run: python -m pip install --no-deps -e .
 
       # Les gardes de format vivent ici plutot que dans un job a part : un
       # second coureur, son installation et son cache coutaient une minute
@@ -149,19 +161,32 @@ jobs:
     # Install and import, deliberately not the test suite. The tests use 3.11
     # features legitimately (`tomllib`, behind a `tomli` fallback), and gating
     # the floor on dev-only concerns would fail this job for reasons that have
-    # nothing to do with the promise. No member carries torch in its base
-    # dependencies, so this is a cached-wheel install: well under a minute,
-    # which is the point.
+    # nothing to do with the promise. This member does carry torch (through
+    # silero-vad), hence the CPU wheel and the cached venv below.
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
+        id: py
         with:
           python-version: "3.10"
-          cache: pip
-          cache-dependency-path: |
-            pyproject.toml
-            .github/workflows/ci.yml
-      # Meme raison que dans le job du dessus : la roue CPU, pas les 3 Go CUDA.
-      - run: python -m pip install --index-url https://download.pytorch.org/whl/cpu torch
-      - run: pip install .
+      # Meme venv en cache que le job du dessus, meme cle hebdomadaire. Sur un
+      # venv restaure, `pip install .` verifie encore que chaque dependance
+      # declaree est satisfaite sur 3.10 ; la resolution complete depuis zero
+      # se rejoue des que la cle change, au plus tard chaque semaine.
+      - id: week
+        run: echo "week=$(date -u +%G-%V)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@v6
+        id: venv
+        with:
+          path: ~/venv
+          key: venv-floor-${{ runner.os }}-py${{ steps.py.outputs.python-version }}-${{ steps.week.outputs.week }}-${{ hashFiles('pyproject.toml', '.github/workflows/ci.yml') }}
+      - name: Activer le venv
+        run: |
+          [ -x "$HOME/venv/bin/python" ] || python -m venv "$HOME/venv"
+          echo "VIRTUAL_ENV=$HOME/venv" >> "$GITHUB_ENV"
+          echo "$HOME/venv/bin" >> "$GITHUB_PATH"
+      # La roue CPU de torch, pas les 3 Go CUDA de PyPI.
+      - if: steps.venv.outputs.cache-hit != 'true'
+        run: python -m pip install --index-url https://download.pytorch.org/whl/cpu torch
+      - run: python -m pip install .
       - run: python -c "import vocal_helper"
