@@ -147,13 +147,14 @@ pip install \
 
 | Extra | Pulls | Needed for |
 |---|---|---|
+| (none) | whisper.cpp, Nemotron 3.5 ASR, sherpa-onnx, onnxruntime, best-engine-ai-helper | Both ASR engines, torch-free diarization (Nemotron 3, sherpa), the LLM analyst |
 | `pyannote` | `pyannote.audio>=3.3` | Diarization (online + offline) |
-| `llm` | `ollama` client | Gemma analyst + semantic EOT gating |
+| `llm` | `best-engine-ai-helper` (already core) | Gemma analyst + semantic EOT gating; listed for intent |
 | `stream` | `podcast-helper` (via git URL) | `from_url` (YouTube, RSS, HLS…) |
-| `nemo` | `torch`, `torchaudio`, `nemo-toolkit[asr]` | Alternative TitaNet diar backend (`backend="nemo"`) — **now the default per the 2026-06-30 sweep** |
-| `sherpa` | `sherpa-onnx>=1.13` | Torch-free TitaNet diar backend (`backend="sherpa"`) — same embedder via onnxruntime, embeddable anywhere |
+| `nemo` | `torch`, `torchaudio`, `nemo-toolkit[asr]` | TitaNet diar backend (`backend="nemo"`) — what `backend="auto"` picks first for the online clusterer when installed |
+| `sherpa` | nothing any more (sherpa-onnx is core) | Kept so `vocal-helper[sherpa]` still resolves |
 | `mic` | `capture-helper` | Skip on server |
-| `all` | Everything except `mic` and `nemo` | One-line install for prod |
+| `all` | Every extra, `mic` and `nemo` included | One-line install; on a server, list the extras you want instead |
 
 ### Whisper — the trickiest piece
 
@@ -188,21 +189,24 @@ pip install faster-whisper ctranslate2
 
 ### Diarization backend choice
 
-`OnlineDiarStage` defaults to `backend="nemo"` (TitaNet) since the
-2026-06-30 study (76 % better separability than pyannote/embedding on
-AMI). If you skip the `nemo` extra to save the ~ 5 GB install
-footprint, force `backend="pyannote"` :
+Since `4.0.0` the default diarizer, live and offline, is Nemotron 3 through
+its ONNX graph whenever that graph is in the diarization-engines bundle: no
+torch, no GPU needed. Without it the live pipeline falls back to the
+growing-buffer re-diarization over `OnlineDiarStage`, whose `backend="auto"`
+takes TitaNet (`nemo`) first since the 2026-06-30 study (76 % better
+separability than pyannote/embedding on AMI). If you skip the `nemo` extra to
+save the ~ 5 GB install footprint, `auto` moves on to pyannote, or force it:
 
 ```python
 diar = {"backend": "pyannote"}
 ```
 
 A third option, `backend="sherpa"`, runs the same TitaNet-large through
-onnxruntime (the `sherpa` extra) — **no PyTorch**, so it installs light and
+onnxruntime (in the base install) — **no PyTorch**, so it installs light and
 embeds on any platform. Same quality as `nemo`, torch-free.
 
-`OfflineDiarStage` uses `pyannote/speaker-diarization-3.1` and will run
-on CUDA automatically thanks to `_auto_torch_device`. The wrapper
+`OfflineDiarStage(backend="pyannote")` uses pyannote community-1 (3.1 when the
+bundle predates it) and runs on CUDA automatically thanks to `_auto_torch_device`. The wrapper
 handles the pyannote 3.x `DiarizeOutput` API change transparently.
 
 ### Backend router — the *aiguilleur*
@@ -217,6 +221,7 @@ DER + RTF) against bagarre (30 short mixes) + AMI dev-slice; `sherpa` from ADR
 
 | Mode | Scenario | Backend | DER | RTF | Why |
 |---|---|---|---|---|---|
+| offline | the Nemotron graph is in the bundle | **`nemotron`** | **0.090** | 0.166 | End-to-end, torch-free, right speaker count; exact-truth synthetic mix. |
 | offline | short ≤ 300 s, ≤ 4 speakers | **`nemo`** | **0.142** | 0.051 | End-to-end slot attribution, ~2.3× better than pyannote on short dense turns (0.330). |
 | offline | long / unknown / > 4 speakers | **`pyannote`** | **0.122** | 0.067 | Robust default; NeMo hangs past ~25 min, caps at 4 speakers. |
 | offline | torch-free | **`sherpa`** | 0.174 | 0.58 | ONNX TitaNet-large, beats NeMo Sortformer 0.267, FR+EN (ADR 0002). |
@@ -228,7 +233,7 @@ router; online has none — the streaming clusterer is a latency-bound
 approximation where nemo wins at every length, so streaming always routes to
 nemo. `select_diarization(...)` returns a `BackendPlan(mode, backend,
 expected_der, expected_rtf, reason)`; see the [README router
-section](https://github.com/warith-harchaoui/vocal-helper#backend-router--the-aiguilleur)
+section](https://github.com/warith-harchaoui/vocal-helper#backend-router-the-aiguilleur)
 for the authoritative narrative.
 
 ## Layer 4 — music-helper

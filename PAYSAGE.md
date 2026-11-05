@@ -10,7 +10,7 @@ pour autre chose — transcription par lot, diarisation hors ligne seulement —
 pour autant : la note dit l'adéquation à *ce* créneau, rien d'autre.
 
 Mise à jour le 2026-10-19. Ce qui a changé depuis le tableau d'août n'est pas seulement la liste
-des entrées : plusieurs notes viennent désormais de **nos propres mesures** et non d'impressions,
+des entrées : plusieurs notes viennent désormais de **nos propres mesures** et non d'impressions
 et ces mesures en ont déplacé deux.
 
 ## Ce que nous avons mesuré nous-mêmes
@@ -127,7 +127,7 @@ corpus nommé, jamais d'un chiffre fourni par un éditeur :
 | DER + RTF par scénario derrière le routeur | [`studies/router_profile_validation.py`](studies/router_profile_validation.py) | 30 mixes courts (`bagarre`) + AMI dev-slice, `pyannote.metrics` collar 0.25, médiane |
 | le défaut d'embedder online (`nemo`) | [`studies/diar_embedding_backend.py`](studies/diar_embedding_backend.py) | AMI dev-slice, marge cosinus inter- moins intra-locuteur |
 | community-1 contre 3.1, médiane et queue | [`CHANGELOG.md`](CHANGELOG.md), entrée `3.0.0` | AMI, 8 réunions, collar 0, recouvrement compté |
-| la sur-segmentation sur de vrais plateaux, dont les ×19,7 de sherpa-onnx | [`DIARIZATION-TROUBLES.md`](DIARIZATION-TROUBLES.md) §9-§10 | trois plateaux de 64 min à six personnes |
+| la sur-segmentation sur de vrais plateaux, dont les ×19,7 de sherpa-onnx | une note de campagne interne (`DIARIZATION-TROUBLES.md` §9-§10), non publiée dans ce dépôt | trois plateaux de 64 min à six personnes |
 | ce que vaut un `initial_prompt` en WER et en RTF | [`studies/whisper_prompt_lang_lock.py`](studies/whisper_prompt_lang_lock.py) | AMI dev-slice |
 | la cadence de résumé (`flush_every_s=60`) | [`studies/llm_cadence_sweep_multi.py`](studies/llm_cadence_sweep_multi.py) | ≥ 4 réunions AMI |
 
@@ -158,7 +158,7 @@ INTERSPEECH 2023 de Bredin pour la bande de DER publiée à laquelle la chaîne
 pyannote est comparée.
 
 Aucun chiffre de benchmark n'apparaît ci-dessus pour Deepgram, Gladia,
-AssemblyAI ou pyannoteAI : nous ne les avons pas fait tourner sur ce corpus, et
+AssemblyAI ou pyannoteAI : nous ne les avons pas fait tourner sur ce corpus et
 imprimer le chiffre d'un éditeur à côté des nôtres aurait l'air d'une
 comparaison alors que ce n'en est pas une.
 

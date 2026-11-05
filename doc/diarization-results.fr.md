@@ -1,4 +1,4 @@
-# Diarisation : ce qu'on a mesuré, et ce qu'on livre
+# Diarisation : ce qu'on a mesuré et ce qu'on livre
 
 *2026-11-02. Pendant de [`diarization-roadmap.md`](diarization-roadmap.md), qui posait le problème
 le 2026-10-20. Celui-ci y répond par des chiffres, y compris les réponses qui se sont révélées
@@ -26,16 +26,16 @@ trouve huit locuteurs ou moins :
 | nemo sortformer | 0,128 *(10)* | 0,108 *(13)* |
 | sherpa | 0,447 *(29)* | 0,551 *(**102**)* |
 
-Ce chiffre doit être lu pour ce qu'il est : un **désaccord avec un service payant**, et non un taux
-d'erreur absolu. pyannoteAI n'est pas la vérité — son propre taux est de l'ordre de 0,10 à 0,20, et
+Ce chiffre doit être lu pour ce qu'il est : un **désaccord avec un service payant** et non un taux
+d'erreur absolu. pyannoteAI n'est pas la vérité — son propre taux est de l'ordre de 0,10 à 0,20 et
 deux moteurs peuvent s'en écarter en ayant tous les deux raison. C'est en revanche la question que
 se pose quelqu'un avant de décider de payer.
 
 ## Le diagnostic de la feuille de route était juste : compter, pas le DER
 
 Elle disait que le problème n'était pas un taux d'erreur trop élevé mais que **rien ne savait
-compter les locuteurs**, et qu'une métrique pondérée par la durée cache exactement cela. Tout ce
-qui a été mesuré depuis le confirme, et la colonne du nombre d'étiquettes a été la plus
+compter les locuteurs** et qu'une métrique pondérée par la durée cache exactement cela. Tout ce
+qui a été mesuré depuis le confirme et la colonne du nombre d'étiquettes a été la plus
 informative de tous les tableaux. Deux illustrations :
 
 - Le regroupement glouton livré comme défaut du direct se trompe dans les **deux** sens selon la
@@ -64,18 +64,18 @@ l'indice : on réglait une décision qu'un modèle devrait prendre. Nemotron n'a
 tient un cache de locuteurs par ordre d'arrivée et **apprend** l'identité.
 
 Les relevés sont dans `studies/diar_incremental_delta_sweep.py` et
-`studies/diar_incremental_scale_calibration.py`, et la réfutation est inscrite dans le module pour
+`studies/diar_incremental_scale_calibration.py` et la réfutation est inscrite dans le module pour
 que personne ne la retente à l'aveugle.
 
 ## Le regroupement sans centroïde : une branche fermée
 
-Le centroïde d'un locuteur est une moyenne, donc un **point**, et un point ne peut pas représenter
+Le centroïde d'un locuteur est une moyenne, donc un **point** ; or un point ne peut pas représenter
 un étalement — or c'est bien ce qu'est une voix près et loin d'un micro. On l'a donc remplacé par
 un ensemble borné d'exemplaires, la ressemblance étant mesurée au **meilleur point**. Quatre règles
 de référence et cinq seuils de fusion plus tard, le centroïde gagne sur toutes les métriques, pire
 cas compris.
 
-La moyenne joue en fait un rôle de **régularisateur** qu'on sous-estimait, et le meilleur point est
+La moyenne joue en fait un rôle de **régularisateur** qu'on sous-estimait et le meilleur point est
 un estimateur *optimiste* : un minimum sur un ensemble diminue mécaniquement quand l'ensemble
 grandit, si bien qu'un seul exemplaire bruité suffit à capturer un locuteur. Demander le k-ième
 plus proche au lieu du plus proche récupère l'essentiel de l'écart (0,529 → 0,363) sans le combler.
@@ -101,7 +101,7 @@ Et la relecture de l'amorçage faisait un argmax glouton là où c'est une **bij
 moteur fusionnait deux locuteurs de l'amorçage, une étiquette gagnait deux créneaux et la seconde
 écriture **écrasait** la première : un locuteur connu perdait son étiquette en silence et revenait
 comme nouveau venu. Le dispositif inventait des locuteurs précisément là où il devait en
-reconnaître. C'est une affectation optimale désormais, et `read_back_identities` explique pourquoi.
+reconnaître. C'est une affectation optimale désormais et `read_back_identities` explique pourquoi.
 
 ## La qualité du différé, en direct : la fenêtre croissante
 
@@ -110,21 +110,21 @@ absent de la zone que les deux diarisations partagent. Si la seconde passe porte
 depuis le début**, ce cas disparaît — quiconque a parlé est dans la zone commune, qui couvre alors
 la quasi-totalité du signal.
 
-La dernière passe est donc une diarisation du fichier entier, et la réponse finale **est** celle du
+La dernière passe est donc une diarisation du fichier entier et la réponse finale **est** celle du
 différé. Mesuré sur les huit réunions d'AMI dev-slice : 0,176 en médiane, le bon nombre de
 locuteurs, à la troisième décimale. L'espacement géométrique garde le coût proportionnel à la
 séance et non à son carré — 2,6 à 3,3 fois l'audio, facteur temps réel de 0,10 à 0,16.
 
 Ce que ça coûte n'est pas la qualité mais la **fraîcheur** : la parole postérieure à la dernière
-passe n'a pas encore d'étiquette faisant autorité, et ce retard vaut 0,375 fois la séance au réglage
+passe n'a pas encore d'étiquette faisant autorité et ce retard vaut 0,375 fois la séance au réglage
 par défaut — bon pour vingt minutes, pas pour deux heures, où `max_period_s` le borne.
-`voh.GrowingBufferDiarStage` le livre, et il reste le meilleur chemin sans modèle supplémentaire,
+`voh.GrowingBufferDiarStage` le livre et il reste le meilleur chemin sans modèle supplémentaire,
 ainsi que le seul mesuré sur un enregistrement réel avec une référence humaine.
 
-## AMI ne peut pas arbitrer, et on l'a prouvé au lieu de le supposer
+## AMI ne peut pas arbitrer et on l'a prouvé au lieu de le supposer
 
 Nemotron arrive **dernier** sur AMI — 0,487 contre 0,192 pour pyannote — tout en affichant une
-confusion de locuteurs de 0,003 contre 0,036. Ça ne se tient pas, et tout l'écart est de la parole
+confusion de locuteurs de 0,003 contre 0,036. Ça ne se tient pas et tout l'écart est de la parole
 qu'il n'émet pas : 616 secondes sur les 815 annotées. Quatre explications ont été testées :
 
 | hypothèse | test | verdict |
@@ -143,13 +143,13 @@ qu'une référence exacte punit — sur le mixage réverbéré son manqué est d
 
 `studies/diar_far_field.py` et l'étude contre le payant portent ces mesures.
 
-## Le réglage de latence, et un défaut d'abord mal choisi
+## Le réglage de latence et un défaut d'abord mal choisi
 
 La latence est un réglage, en secondes ; le calendrier s'en déduit. Le premier défaut prenait le
 plus long contexte viable — 6,4 s — parce que plus de contexte est **moins cher** à qualité égale :
 facteur temps réel de 0,166 contre 0,258, pour 0,092 d'erreur contre 0,090.
 
-Cette égalité n'existe qu'en salle **anéchoïque**, et une salle de réunion ne l'est pas. Réverbérée
+Cette égalité n'existe qu'en salle **anéchoïque** et une salle de réunion ne l'est pas. Réverbérée
 à 0,6 s de RT60, les deux se séparent nettement :
 
 | latence | erreur | confusion | accord ≥300 s |
@@ -179,14 +179,14 @@ Reshape '/pos_enc/Reshape_3' : Input shape {5000,64}, requested shape {1,1,5144,
 ```
 
 La première lecture était une limite de longueur de séquence — 625 trames pour
-`[cache | file | morceau]`. Ce n'est pas toute l'histoire, et un sondage par dichotomie sur le
+`[cache | file | morceau]`. Ce n'est pas toute l'histoire et un sondage par dichotomie sur le
 fichier lui-même acceptait 321 trames de morceau, ce qui a mis sur la bonne piste. La vraie cause :
 **la file grandit sans borne.** La mise à jour lui ajoute `chunk_len` trames et n'en retire que
 `fifo_len`, donc un morceau plus long que la file la fait grandir — à 281 trames de morceau elle
 atteint 241 au lieu de 40 et la séquence monte à 826. C'est le portage fidèle de la référence, dont
 la règle n'est cohérente que si le morceau n'excède pas la file : ses trois calendriers de flux
 publiés le respectent (9, 6, 3 trames) et son calendrier hors ligne, à 340, le viole. Le contexte
-utilisable plafonne donc à 6,4 s, et la limite est vérifiée plutôt que supposée.
+utilisable plafonne donc à 6,4 s et la limite est vérifiée plutôt que supposée.
 
 ## Moteurs d'exécution : mesurés, pas raisonnés
 
@@ -198,7 +198,7 @@ partitions**, si bien que chaque pas de flux paie autant de traversées : facteu
 
 Forcer huit fils sur une machine à huit cœurs performants était tout aussi contre-productif : 0,953
 contre 0,528 en laissant ONNX Runtime choisir. Les deux « optimisations » nuisaient. Le CPU mène
-l'ordre désormais, CUDA devant lui au titre de sa couverture d'opérateurs — non mesuré, et le
+l'ordre désormais, CUDA devant lui au titre de sa couverture d'opérateurs — non mesuré et le
 commentaire le dit.
 
 ## Le Rust fait-il gagner du RTF ? Non. Il fait gagner des endroits où tourner.
@@ -212,15 +212,15 @@ Profilé sur deux minutes d'audio, l'appel au graphe et le front-end mel chronom
 | comptabilité du cache + Python | 0,10 s | 0,1 % |
 
 Le plafond d'un portage Rust est de **0,2 % du temps** : 0,754 au lieu de 0,755. La caisse `ort`
-appelle la même bibliothèque C++, et les deux morceaux de Python sont soit vectorisés, soit du
+appelle la même bibliothèque C++ et les deux morceaux de Python sont soit vectorisés, soit du
 travail sur des tableaux de 264 × 512 à raison d'un appel par seconde environ.
 
-Le Rust se justifie quand même, pour une autre raison, et il faut l'annoncer comme telle : **sur
+Le Rust se justifie quand même, pour une autre raison, qu'il faut annoncer comme telle : **sur
 mobile, le chemin Python n'existe pas.** On n'embarque pas raisonnablement CPython et une pile
 scientifique dans une application iOS ou Android. Ce n'est pas un argument de performance mais de
 *possibilité* — plus un binaire unique par plateforme, aucune résolution de dépendances à
-l'installation, et aucun interpréteur à démarrer. Même moteur, même vitesse, des endroits où
-tourner que Python n'atteint pas. Promettre un gain de RTF serait faux, et la mesure le dit.
+l'installation et aucun interpréteur à démarrer. Même moteur, même vitesse, des endroits où
+tourner que Python n'atteint pas. Promettre un gain de RTF serait faux et la mesure le dit.
 
 ## Ce qui n'est pas mesuré
 
@@ -232,4 +232,4 @@ tourner que Python n'atteint pas. Promettre un gain de RTF serait faux, et la me
 - **CUDA**, faute de machine NVIDIA.
 - **Les facteurs temps réel ont une dispersion d'un facteur deux** selon la charge de la machine —
   0,258 puis 0,755 pour le même calendrier. Les chiffres cités ici sont des ordres de grandeur et
-  non des spécifications, et une remesure propre sur machine au repos est due.
+  non des spécifications et une remesure propre sur machine au repos est due.

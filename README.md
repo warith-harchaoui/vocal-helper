@@ -77,8 +77,8 @@ coroutine. Colours follow the
 flowchart LR
     S([Source<br/><i>PCM frames</i>]):::source
       --> V[VAD<br/><i>Silero v5 ONNX</i>]:::vad
-      --> D[Online Diar<br/><i>TitaNet · cosine clustering</i>]:::diar
-      --> A[STT<br/><i>whisper.cpp turbo</i>]:::asr
+      --> D[Online Diar<br/><i>Nemotron 3 ONNX · growing-buffer fallback</i>]:::diar
+      --> A[STT<br/><i>Nemotron 3.5 ONNX · whisper.cpp turbo</i>]:::asr
       -.-> L[LLM analyst<br/><i>best-engine model · rolling summary</i>]:::llm
 
     classDef source fill:#CCE4FF,stroke:#007AFF,stroke-width:2px,color:#0b3d91
@@ -95,8 +95,8 @@ The dashed edge marks the analyst as optional (`llm=None` disables it).
 ```mermaid
 flowchart LR
     S([Source<br/><i>full PCM buffer</i>]):::source
-      --> D[Offline Diar<br/><i>pyannote community-1<br/>whole-buffer</i>]:::diar
-      --> A[STT<br/><i>whisper.cpp turbo</i>]:::asr
+      --> D[Offline Diar<br/><i>Nemotron 3 ONNX · pyannote community-1<br/>whole-buffer</i>]:::diar
+      --> A[STT<br/><i>Nemotron 3.5 ONNX · whisper.cpp turbo</i>]:::asr
       -.-> L[LLM analyst<br/><i>best-engine model · rolling summary</i>]:::llm
 
     classDef source fill:#CCE4FF,stroke:#007AFF,stroke-width:2px,color:#0b3d91
@@ -111,7 +111,7 @@ and does its own segmentation.
 | Stage | Backend | Notes |
 |---|---|---|
 | **VAD** *(online only)* | Silero v5 ONNX (Central Processing Unit, CPU) | 32 ms window, `activity_threshold=0.5`, default `min_silence_ms=300`. |
-| **Online diarization** | Nemotron 3 ONNX when its graph is in the bundle, else the growing-buffer re-diarization over the per-segment clusterer (see [Live diarization](#live-diarization-what-changed-and-why)). The clusterer's embedder: `nvidia/titanet_large` (NeMo), `pyannote/embedding`, or `sherpa` (torch-free ONNX TitaNet), `backend="auto"` taking the best one installed | The per-segment clusterer: embedding + cosine-distance running-mean clustering, `join_threshold=0.50`. Raised from 0.30 to **0.50** once TitaNet became the default embedder: it sits on a different cosine scale, and the 8-meeting AMI replay (`DIARIZATION-TROUBLES.md` root cause 5) found 0.30 inventing 87 speakers where there were 4, against 28 at 0.50, with median confusion 0.234 against 0.095. Default backend switched to NeMo by the 2026-06-30 embedding sweep (`studies/diar_embedding_backend.py`): TitaNet has **+76 % separability margin** (inter − intra median cosine = 0.354 vs pyannote 0.201) on AMI dev-slice, at 7× per-call latency (45 ms vs 6 ms, still negligible per voiced segment). Pass `backend='pyannote'` to skip the ~ 5 GB NeMo install, or `backend='sherpa'` for the torch-free path that a bare install already carries. |
+| **Online diarization** | Nemotron 3 ONNX when its graph is in the bundle, else the growing-buffer re-diarization over the per-segment clusterer (see [Live diarization](#live-diarization-what-changed-and-why)). The clusterer's embedder: `nvidia/titanet_large` (NeMo), `pyannote/embedding`, or `sherpa` (torch-free ONNX TitaNet), `backend="auto"` taking the best one installed | The per-segment clusterer: embedding + cosine-distance running-mean clustering, `join_threshold=0.50`. Raised from 0.30 to **0.50** once TitaNet became the default embedder: it sits on a different cosine scale, and an 8-meeting AMI replay found 0.30 inventing 87 speakers where there were 4, against 28 at 0.50, with median confusion 0.234 against 0.095. Default backend switched to NeMo by the 2026-06-30 embedding sweep (`studies/diar_embedding_backend.py`): TitaNet has **+76 % separability margin** (inter − intra median cosine = 0.354 vs pyannote 0.201) on AMI dev-slice, at 7× per-call latency (45 ms vs 6 ms, still negligible per voiced segment). Pass `backend='pyannote'` to skip the ~ 5 GB NeMo install, or `backend='sherpa'` for the torch-free path that a bare install already carries. |
 | **Offline diarization** | `nemotron` (Nemotron 3 ONNX, torch-free, default when its graph is in the bundle), `pyannote` **community-1**, `nvidia/diar_sortformer_v1` (NeMo), or `sherpa` (torch-free) | `backend="auto"` takes the first installed in `OFFLINE_PREFERENCE` (nemotron, pyannote, nemo, sherpa). Whole-buffer call. Inputs longer than `ideal_duration_s` (**3600 s** for pyannote, effectively whole-buffer, chunking is a memory backstop only; **60 s** for NeMo, forced by its Sortformer 90 s cap) are auto-chunked with 10 s overlap and stitched by cosine AHC at `stitch_threshold=0.35`. The 2026-07-14 offline map-reduce study found whole-buffer strictly best for DER (0.143 vs 0.170 at 300 s). `sherpa` clusters the whole buffer internally, so `stitch_threshold` has no effect on it; its clustering is tuned instead by `sherpa_cluster_threshold` (default `0.5`, from clean AMI) and `sherpa_num_clusters` (default `-1` auto), both exposed since **v0.7.0**. The `0.5` default over-segments noisy 2-party telephony into dozens of speakers, so set `sherpa_num_clusters=2` when the count is known (see `doc/studies/diar-study.md` §12 in `pasdebonneoudemauvaisesituation`). **Which backend is picked is decided by the [router](#backend-router-the-aiguilleur) below.** |
 | **STT** | `engine="auto"` (default): **Nemotron 3.5** (encoder + CTC head in ONNX, numpy host, no torch) when the language is to be discovered; [`pywhispercpp`](https://github.com/abdeladim-s/pywhispercpp) turbo as soon as a `language`, an `initial_prompt` or a non-default whisper `model` is given (`voh.pipeline.choose_asr_engine`) | Word error rate, Nemotron int8 against whisper `auto`, offline: AMI 0.23 / 0.38, overlapped mixes 0.38 / 0.54, Common Voice French 0.27 / 0.69; live, segment by segment, French TV 0.48 / 0.83. Told the language, whisper wins on French TV and on read English, hence the rule. The Nemotron int8 graph (669 MB) downloads once from `deraison.ai/nemotron-onnx` against a pinned sha256 (`VH_NEMOTRON_ASR_URL` for a mirror, `VH_NEMOTRON_ASR_GRAPH` for a local file). `engine="whisper"` / `--asr-engine whisper` restores the old path. On whisper: `large-v3-turbo-q5_0` by default, and with `language="auto"` the language is detected on 30 s from the middle of the buffer before whisper runs. Word timestamps on. Runs in a thread pool so the event loop never stalls. **Strongly recommended: supply `initial_prompt` (domain bias)**, cuts WER 15-25 pp and saves up to 39 % RTF per the 2026-06-30 sweep (`studies/whisper_prompt_lang_lock.py`). |
 | **LLM analyst** *(runtime-optional: pass `llm=None` to disable)* | Model resolved via **best-engine-ai-helper** from the committed `vocal_helper/llm.brief.yaml`, served over Ollama or vLLM | Rolling summary of everything **older than 60 s**. The recent 60 s window is kept verbatim. Summary refreshes every **60 s of evicted content** (`flush_every_s=60`). No model tag is hard-coded here: `best-engine-ai-helper` resolves the brief into a machine-specific `llm.engine.yaml` (gitignored) naming the backend + model, and the stage routes every request through `best_engine_ai_helper.llm.chat`. The historical 2026-06-30 7-model Pareto sweep (`studies/llm_model_size_sweep.py`), which surfaced small low-RTF models like `gemma3:4b` / `qwen2.5:3b` and `gemma4:12b-mlx` for offline quality, now informs the brief's `min_tps` / `headroom` knobs rather than a pinned tag. |
@@ -130,7 +130,7 @@ Two replacements now ship, and the pipeline picks between them:
 |---|---:|---:|---|---|
 | online clusterer *(the old default)* | 0.369 | 65 | ~0.5 s | nothing |
 | growing-buffer re-diarization | **0.176** | 4 | minutes, then exact | nothing |
-| Nemotron 3 ONNX | **0.090 – 0.252** | 4 | 1.04 s | the bundle's graph |
+| Nemotron 3 ONNX | **0.090 – 0.252** | 4 | 1.04 s (6.4 s by default in `Pipeline`, see below) | the bundle's graph |
 
 **Growing buffer** (`voh.GrowingBufferDiarStage`) keeps the fast provisional label and periodically re-diarizes *everything heard so far*. Because the last pass sees the whole session, its final answer **is** the full-file answer — 0.176 median on those same eight meetings, to the third decimal. Passes are spaced geometrically, so the cost stays proportional to the session rather than to its square: 2.6–3.3× the audio, RTF 0.10–0.16. What it costs is not quality but **freshness**, and `on_revision` says so out loud rather than rewriting history in silence.
 
@@ -138,9 +138,11 @@ Two replacements now ship, and the pipeline picks between them:
 
 Two honest caveats. On AMI it looks far worse (0.363–0.487) because it emits only 616 s of the 815 s annotated — but AMI's reference is transcribed from the **headset** microphones while the model is given the room mix, so the reference marks words the signal does not carry, and pyannote has AMI in its training data. Three candidate explanations for that missed speech were tested and rejected: the extraction threshold (0.05 recovers almost nothing), the signal level (a 2.8× gain makes it slightly *worse*), and reverberation (Nemotron's missed detection stays flat at 0.090/0.093/0.101 across rooms). Only the annotation is left. And the evidence favouring Nemotron is all synthetic: the one real corpus available is the one whose annotation is the problem.
 
-**Latency is one knob, not a choice of engine.** `PipelineConfig(diar_latency_s=…)` takes seconds; the schedule follows. The default asks for nothing and takes the longest viable context — 6.4 s — because more context is both better and *cheaper*: a real-time factor of 0.166 against 0.258, for 0.092 error against 0.090, which is identical within noise. Fewer, longer steps mean fewer graph calls.
+**Latency is one knob, not a choice of engine.** `PipelineConfig(diar_latency_s=…)` takes seconds; the schedule follows. Left at `None`, the pipeline asks for nothing and takes the longest viable context, 6.4 s. In an anechoic room that is as good and *cheaper*: a real-time factor of 0.166 against 0.258, for 0.092 error against 0.090. Fewer, longer steps mean fewer graph calls.
 
-Six seconds before a turn gets its speaker is invisible in a meeting write-up, so that is the default. A conversational agent has the opposite priority: `discussion-helper` answers in the moment and can never un-say a label, so it sets `diar_latency_s=1.04` (the published low-latency schedule) or `0.32` for the shortest. It can afford to — what matters live is the **total** real-time factor across stages, not one stage's latency, and the budget holds either way:
+A meeting room is not anechoic, and there the two schedules part ways. Reverberated at 0.6 s RT60, 6.4 s of context gives 0.350 error against 0.252 at 1.04 s, and speaker agreement beyond 300 s drops from 0.668 to 0.372: a long context sees more signal, but signal the room has smeared. This is why `NemotronOnnxDiar` built on its own defaults to 1.04 s, the published low-latency schedule. `Pipeline` still passes `None`, so a recording made in a real room is better served by setting `diar_latency_s=1.04` explicitly.
+
+A conversational agent wants the short schedule for another reason: `discussion-helper` answers in the moment and can never un-say a label, so it sets `diar_latency_s=1.04` or `0.32` for the shortest. It can afford to — what matters live is the **total** real-time factor across stages, not one stage's latency, and the budget holds either way:
 
 | diarization | ASR | total RTF | headroom |
 |---|---|---:|---:|
@@ -175,7 +177,10 @@ The numbers below were **re-validated on-machine** against ground truth — `stu
 Two findings, both measured here: without the Nemotron graph, **offline** has a real length crossover (nemo
 short ↔ pyannote long), so it needs a router; **online** has none, since vocal-helper's
 streaming clusterer is a latency-bound approximation where nemo wins at every
-length, so streaming always routes to nemo. `voh.select_diarization(live=…,
+length, so streaming always routes to nemo. That online row picks the
+per-segment clusterer's embedder only: `Pipeline` then swaps Nemotron in when its
+graph is in the bundle, and wraps the clusterer in the growing-buffer
+re-diarization when it is not. `voh.select_diarization(live=…,
 duration_s=…, max_speakers=…, torch_free=…, pyannote_available=…, nemotron_available=…)` returns a
 `BackendPlan(mode, backend, expected_der, expected_rtf, reason)`; the
 quality/speed numbers are first-class fields and the `reason` carries the
@@ -208,7 +213,7 @@ without you choosing. Pass an explicit `nemotron` / `pyannote` / `nemo` / `sherp
 > for the full install recipe : CUDA + PyTorch, whisper.cpp with `GGML_CUDA=on`,
 > pyannote 3.1 on MPS/CUDA, local Ollama, expected RTFs per GPU, and a
 > reproducible install manifest covering the AI Helpers suite (os-helper,
-> audio-helper, podcast-helper, youtube-helper, vocal-helper, music-helper).
+> audio-helper, podcast-helper, youtube-helper, vocal-helper).
 
 **Prerequisites**: **Python 3.10–3.13** and **git**, **ffmpeg**, **PortAudio**, cross-platform:
 
@@ -273,9 +278,11 @@ ollama serve   # the engine file's `serve:` line names the exact `ollama pull �
 ### Model weights: no HuggingFace needed
 
 All model weights ship in a single self-hosted **diarization-engines
-bundle** (offline pyannote 3.1, NeMo Sortformer, the online
-`pyannote/embedding` embedder, SpeechBrain VoxLingua107, and the
-torch-free `sherpa` ONNX, pyannote-3.0 segmentation + TitaNet). Point
+bundle** (the Nemotron 3 diarization graph, offline pyannote community-1 and 3.1,
+NeMo Sortformer, the online `pyannote/embedding` embedder, SpeechBrain
+VoxLingua107, and the torch-free `sherpa` ONNX, pyannote-3.0 segmentation +
+TitaNet). The Nemotron 3.5 ASR graph is the one exception: it downloads on its
+own from `deraison.ai/nemotron-onnx`. Point
 `vocal-helper` at it once and the whole stack runs **HuggingFace-free**:
 no token, no gated downloads, `HF_HUB_OFFLINE=1` safe.
 
@@ -293,16 +300,26 @@ cp settings.yaml.example settings.yaml
 
 `https://deraison.ai/diarization-engines-slim.zip` is a **self-hosted ZIP**
 (~800 MB) that mirrors every gated/hub-hosted model the pipeline needs, so
-the project never has to authenticate against HuggingFace. It contains:
+the project never has to authenticate against HuggingFace. The code reads these
+folders from it:
 
 | Folder | Weights | Used by |
 |---|---|---|
+| `nemotron3/` | `nemotron-3-diarization.onnx` (~400 MB) | diarization, offline and live — the default whenever it is present |
 | `pyannote-community-1/` | the community-1 checkpoint folder with its own `config.yaml` | offline diarization — the default the code looks for first |
 | `pyannote-3.1/` | segmentation-3.0 + wespeaker `.bin` + a local `config.yaml` | offline diarization — the warned fallback when the configured bundle predates community-1 |
 | `nemo-sortformer/` | `diar_sortformer_4spk-v1.nemo` | offline diarization (NeMo) |
 | `pyannote-embedding/` | embedding `.bin` | online diarization |
+| `sherpa/` | pyannote-3.0 segmentation + TitaNet ONNX | the torch-free `sherpa` backend |
 | `speechbrain-voxlingua107/` | ECAPA VoxLingua107 snapshot | language-ID cross-check |
 | `manifest.json` | sha256 + sizes | integrity check on download |
+
+**The published ZIP lags the code.** As of 2026-11-04 `diarization-engines-slim.zip`
+carries neither `nemotron3/` nor `pyannote-community-1/`. With it, the live path
+falls back to the growing-buffer re-diarization, offline `auto` routes by length
+instead of picking `nemotron`, and pyannote loads 3.1 with a warning. A local
+bundle directory holding both folders, named by `$VH_DIARIZATION_ENGINES`,
+restores the defaults described above.
 
 On first use it is downloaded once, verified against `manifest.json`, and
 cached under `~/.cache/vocal-helper`; later runs load straight from the
@@ -397,8 +414,8 @@ When to use which, and the [router](#backend-router-the-aiguilleur) picks the ba
 
 | Use-case | Pipeline | Backend (router pick) | Why |
 |---|---|---|---|
-| Live mic / live stream | `Pipeline` | online `nemo` | Real-time diarization + transcript at RTF ≈ 0.03. Online is a latency-bound approximation (~3–4× the offline DER); `nemo` is the best online embedder at every length. |
-| Meeting / podcast / lecture / voicemail batch | `OfflinePipeline` | `pyannote` community-1 | Whole-audio pyannote is the highest-quality answer: AMI median DER 0.116, inside Bredin 2023's band, and community-1's worst meeting is 0.149 against 3.1's 0.474; NeMo hangs past ~25 min. |
+| Live mic / live stream | `Pipeline` | Nemotron 3 ONNX when its graph is in the bundle, else the growing-buffer re-diarization (over the online `nemo` clusterer) | Nemotron: DER 0.090 anechoic, 0.252 reverberated, the right speaker count. The growing buffer: 0.176 on AMI, paid in freshness rather than quality. The per-segment clusterer alone (`growing=None`) is a latency-bound approximation, ~3–4× the offline DER. |
+| Meeting / podcast / lecture / voicemail batch | `OfflinePipeline` | `nemotron` when its graph is in the bundle, else `pyannote` community-1 | Whole-audio pyannote is the highest-quality answer: AMI median DER 0.116, inside Bredin 2023's band, and community-1's worst meeting is 0.149 against 3.1's 0.474; NeMo hangs past ~25 min. |
 | ≤ 60 s clips, ≤ 4 speakers, fast turn-around | `OfflinePipeline(backend='nemo')` | `nemo` Sortformer | End-to-end attribution, confusion ≈ 0, RTF ≈ 0.004 (250×). |
 | On-device / no PyTorch | either, `backend='sherpa'` | `sherpa` ONNX | Torch-free TitaNet-large; DER 0.174/0.148, FR+EN, embeddable anywhere. |
 
@@ -627,16 +644,17 @@ still open:
 ## Versioning & stability
 
 `vocal-helper` reached its first stable release at `1.0.0` and is currently at
-`3.x`, following [Semantic Versioning](https://semver.org):
+`4.x`, following [Semantic Versioning](https://semver.org):
 
 - **The public API** is the names exported from `vocal_helper.__all__` plus the
   documented CLI flags. That's what stability promises apply to.
 - **Breaking behaviour and default changes land only in MAJOR releases**
   (`1.x` → `2.0.0`). A **MINOR** release adds features compatibly; a **PATCH**
   is bug-fixes and docs only, it will never change a default under you.
-- Two MAJORs have shipped since `1.0.0`, both for a changed default rather than a removed name.
+- Three MAJORs have shipped since `1.0.0`, all for a changed default rather than a removed name.
   - `2.0.0` replaced the hard-coded LLM model tag with a per-machine engine resolved from a committed brief, which changed the analyst's CLI/API surface.
   - `3.0.0` made a run that lost a stage raise `StageCrashed` instead of returning an empty transcript, and moved the offline pyannote checkpoint to community-1. `strict=False` restores the lenient behaviour; the checkpoint has no public knob — a bundle that predates community-1 falls back to 3.1 with a warning.
+  - `4.0.0` made the measured best engines the defaults: Nemotron 3.5 for transcription when the language is to be discovered, Nemotron 3 for diarization whenever its graph is in the bundle (the growing-buffer re-diarization live when it is not), and `backend="auto"` on both diarization stages. `asr={"engine": "whisper"}`, an explicit offline `diar` backend and `growing=None` restore the 3.x paths.
 - Deprecations get a release with a warning before removal.
 
 ## Author

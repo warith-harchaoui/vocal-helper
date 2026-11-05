@@ -127,7 +127,7 @@ run against a named corpus — never from a vendor's own number:
 | per-scenario DER + RTF behind the router | [`studies/router_profile_validation.py`](studies/router_profile_validation.py) | 30 short mixes (`bagarre`) + AMI dev-slice, `pyannote.metrics` collar 0.25, median |
 | the online embedder default (`nemo`) | [`studies/diar_embedding_backend.py`](studies/diar_embedding_backend.py) | AMI dev-slice, inter- minus intra-speaker cosine margin |
 | community-1 against 3.1, median and tail | [`CHANGELOG.md`](CHANGELOG.md) under `3.0.0` | AMI, 8 meetings, collar 0, overlap scored |
-| over-splitting on real panels, including sherpa-onnx's 19.7× | [`DIARIZATION-TROUBLES.md`](DIARIZATION-TROUBLES.md) §9-§10 | three 64-minute six-speaker panels |
+| over-splitting on real panels, including sherpa-onnx's 19.7× | an internal campaign note (`DIARIZATION-TROUBLES.md` §9-§10), not published in this repository | three 64-minute six-speaker panels |
 | what an `initial_prompt` is worth in WER and RTF | [`studies/whisper_prompt_lang_lock.py`](studies/whisper_prompt_lang_lock.py) | AMI dev-slice |
 | the summary cadence (`flush_every_s=60`) | [`studies/llm_cadence_sweep_multi.py`](studies/llm_cadence_sweep_multi.py) | ≥ 4 AMI meetings |
 

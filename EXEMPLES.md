@@ -274,8 +274,10 @@ config = voh.PipelineConfig(
 )
 ```
 
-`nemo` est déjà l'embedder online par défaut : ce que l'extrait change, c'est
-uniquement le seuil. Le monter fusionne plus volontiers, ce qu'il faut quand une
+`backend="auto"` choisit déjà `nemo` quand l'extra `[nemo]` est installé : ce
+que l'extrait change, c'est uniquement le seuil, là seulement où le clusterer
+par segment tourne — sous le buffer croissant quand le graphe Nemotron manque,
+seul avec `growing=None`. Le monter fusionne plus volontiers, ce qu'il faut quand une
 même personne se fait découper en plusieurs ; le baisser sépare plus volontiers,
 pour le cas inverse. Le 0,50 livré est lui-même le résultat d'une montée depuis
 0,30 : sur 8 réunions AMI à 4 locuteurs, 0,30 inventait 87 locuteurs là où 0,50
@@ -429,7 +431,7 @@ Commands:
 ```
 
 ```bash
-vocal-helper -V                                   # vocal-helper, version 3.3.0
+vocal-helper -V                                   # vocal-helper, version 4.0.0
 
 vocal-helper transcribe clip.wav                  # texte seul, langue découverte
 vocal-helper transcribe clip.wav --jsonl          # {"path": …, "text": …} sur stdout
@@ -443,9 +445,10 @@ vocal-helper url "https://youtu.be/…" --language fr
 vocal-helper file reunion.wav --diar-backend sherpa   # forcer, contre le routeur
 ```
 
-`--whisper-model`, `--language`, `--threads`, `--initial-prompt`,
+`--asr-engine`, `--whisper-model`, `--language`, `--threads`, `--initial-prompt`,
 `--diar-backend`, `--join-threshold`, `--llm`, `--llm-recent-window-s`,
-`--endpoint`, `--eot` puis `--jsonl` sont partagés par `mic`, `file` et `url` ;
+`--endpoint`, `--eot` et `--jsonl` sont partagés par `mic`, `file` et `url` ;
+`transcribe` prend `--asr-engine`, les quatre options whisper et `--jsonl` ;
 `vocal-helper <sous-commande> --help` imprime la surface complète. `--language`
 vaut `auto` par défaut : ne le passez que pour *forcer* une langue plutôt que
 pour en découvrir une.

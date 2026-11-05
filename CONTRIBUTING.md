@@ -23,7 +23,8 @@ Everything the server enforces is mirrored by a single local target, so
 failures surface on your machine instead of blocking on GitHub:
 
 ```bash
-make preflight     # pre-commit hooks + ruff check + ruff format-check + pytest
+make preflight     # env check + pre-commit hooks + ruff check + ruff format-check
+                   # + trigger catalogue + pytest with coverage floor + py3.10 floor
 ```
 
 A green `preflight` means the CI pipeline in `.github/workflows/ci.yml`
@@ -40,6 +41,10 @@ only one hooks directory, the script points `core.hooksPath` at
 `.git/hooks` for this repo only (leaving global config untouched) and
 copies any pre-existing global hooks in so they keep firing here. Bypass
 the gate in a pinch with `git push --no-verify`.
+
+The repository also versions a lighter gate, `.githooks/pre-push` (ruff check,
+ruff format --check, pytest). `git config core.hooksPath .githooks` selects it
+instead of the `make preflight` hook.
 
 ### The underlying hooks
 
@@ -73,7 +78,7 @@ Default run skips integration tests (the ones that load Whisper, pyannote, NeMo,
 pytest -q -m integration
 ```
 
-The unit suite is fast (< 100 ms) and split by surface:
+The unit suite is split by surface, one file per module under `tests/`; a few landmarks:
 
 - `tests/test_smoke.py`: top-level imports, frame shapes, config sanity.
 - `tests/test_settings.py`: the `settings.yaml` parser and its
@@ -105,15 +110,18 @@ The integration suite expects:
 
 ## CI
 
-Three jobs run on every push and PR to `main`
-(see `.github/workflows/ci.yml`):
+Two jobs run on every push and PR to `main` that touches code
+(see `.github/workflows/ci.yml`; Markdown, `doc/`, `assets/` and the
+study outputs do not start a run):
 
-- **lint**: `ruff check .` (hard fail) + `ruff format --check .`
-  (informational until adopted).
-- **test**: pytest across Python 3.10 → 3.13 with pip caching;
-  coverage XML uploaded as an artifact on the 3.12 leg.
-- **pre-commit**: `pre-commit run --all-files`, mirroring the local
-  commit-time hooks (ruff + filesystem hygiene).
+- **test** (Python 3.12, a cached venv with the CPU build of torch):
+  `ruff check .`, `ruff format --check .`, then one pytest pass with
+  coverage, whose floor in `pyproject.toml` is a hard gate.
+- **floor** (Python 3.10): the package installs and imports, which is
+  the promise `requires-python` makes.
+
+The other Python versions, the pre-commit hooks and the trigger
+catalogue run locally, in `make preflight`, before a push.
 
 ## Lint / format
 

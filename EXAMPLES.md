@@ -270,8 +270,10 @@ config = voh.PipelineConfig(
 )
 ```
 
-`nemo` is already the default online embedder, so what this changes is only the
-threshold. Raising it merges more readily, which is what you want when one
+`backend="auto"` already picks `nemo` when the `[nemo]` extra is installed, so
+what this changes is only the threshold, and only where the per-segment
+clusterer runs: under the growing buffer when the Nemotron graph is absent, or
+alone with `growing=None`. Raising it merges more readily, which is what you want when one
 person keeps being split into several; lowering it splits more readily, for when
 two people are being fused into one. The shipped **0.50** is itself the result of
 raising it from 0.30: on 8 AMI meetings with 4 speakers each, 0.30 invented 87
@@ -422,7 +424,7 @@ Commands:
 ```
 
 ```bash
-vocal-helper -V                                   # vocal-helper, version 3.3.0
+vocal-helper -V                                   # vocal-helper, version 4.0.0
 
 vocal-helper transcribe clip.wav                  # text only, language discovered
 vocal-helper transcribe clip.wav --jsonl          # {"path": …, "text": …} on stdout
@@ -436,9 +438,10 @@ vocal-helper url "https://youtu.be/…" --language fr
 vocal-helper file meeting.wav --diar-backend sherpa   # override the router
 ```
 
-`--whisper-model`, `--language`, `--threads`, `--initial-prompt`,
+`--asr-engine`, `--whisper-model`, `--language`, `--threads`, `--initial-prompt`,
 `--diar-backend`, `--join-threshold`, `--llm`, `--llm-recent-window-s`,
 `--endpoint`, `--eot` and `--jsonl` are shared by `mic`, `file` and `url`;
+`transcribe` takes `--asr-engine`, the four whisper flags and `--jsonl`;
 `vocal-helper <subcommand> --help` prints the full surface. `--language`
 defaults to `auto`, so pass it only to *force* a language rather than discover
 one.
