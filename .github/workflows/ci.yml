@@ -54,10 +54,13 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # Patch epingle : le venv en cache pointe sur l'interprete exact qui l'a
+      # cree, et les images du coureur alternent entre 3.12.15 et 3.12.16
+      # pendant un deploiement, ce qui ratait le cache un run sur deux.
       - uses: actions/setup-python@v7
         id: py
         with:
-          python-version: ${{ matrix.python-version }}
+          python-version: ${{ matrix.python-version }}.16
 
       # Un venv entier en cache, pas le cache pip : restaurer des roues puis les
       # reinstaller coutait 40 s a chaque run (torch seul en prend 20 a
@@ -168,7 +171,8 @@ jobs:
       - uses: actions/setup-python@v7
         id: py
         with:
-          python-version: "3.10"
+          # Patch epingle pour la meme raison que le venv du job du dessus.
+          python-version: "3.10.22"
       # Meme venv en cache que le job du dessus, meme cle hebdomadaire. Sur un
       # venv restaure, `pip install .` verifie encore que chaque dependance
       # declaree est satisfaite sur 3.10 ; la resolution complete depuis zero
