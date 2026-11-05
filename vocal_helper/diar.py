@@ -2415,14 +2415,14 @@ class _NemoSortformerDiar:
 #: point — and the ranking comes from the 2026-11-01 shootout on a synthetic mix
 #: whose ground truth is exact by construction, anechoic and reverberated:
 #:
-#: =====================  ===========  ==================  ========  ========
-#: backend                  dry error    reverberated err.    labels    ≥300 s
-#: =====================  ===========  ==================  ========  ========
-#: nemotron                     0,090               0,252         4     0,969
-#: nemo sortformer              0,209               0,286       5-7     0,756
-#: pyannote community-1         0,299               0,553         5     0,480
-#: sherpa                       0,644               0,787      14-26     0,071
-#: =====================  ===========  ==================  ========  ========
+#: ====================  =========  ==================  ======  ======
+#: backend               dry error  reverberated error  labels  ≥300 s
+#: ====================  =========  ==================  ======  ======
+#: nemotron              0.090      0.252               4       0.969
+#: nemo sortformer       0.209      0.286               5-7     0.756
+#: pyannote community-1  0.299      0.553               5       0.480
+#: sherpa                0.644      0.787               14-26   0.071
+#: ====================  =========  ==================  ======  ======
 #:
 #: ``nemotron`` therefore leads: three times better than the previous default,
 #: the right speaker count in every condition, and speaker confusion of 0.000 on

@@ -9,14 +9,14 @@ the audio goes; *offline or live* asks when the answer arrives. Confusing the tw
 is the classic mistake, so they are named separately and none of them is reachable
 by accident:
 
-====================  ==================================  ============================
-mode                  class                               engines
-====================  ==================================  ============================
-local, free, offline  :class:`vocal_helper.OfflinePipeline`   Nemotron / whisper.cpp + Nemotron / pyannote / NeMo / sherpa
-local, free, live     :class:`vocal_helper.Pipeline`          Nemotron / whisper.cpp + Nemotron / growing buffer
-paid, offline         :class:`CloudOfflinePipeline`           Gladia ``solaria-3`` + pyannoteAI ``precision-3``
-paid, live            :class:`CloudLivePipeline`              Gladia ``solaria-1`` + pyannoteAI ``live-1``
-====================  ==================================  ============================
+====================  =====================================  ============================================================
+mode                  class                                  engines
+====================  =====================================  ============================================================
+local, free, offline  :class:`vocal_helper.OfflinePipeline`  Nemotron / whisper.cpp + Nemotron / pyannote / NeMo / sherpa
+local, free, live     :class:`vocal_helper.Pipeline`         Nemotron / whisper.cpp + Nemotron / growing buffer
+paid, offline         :class:`CloudOfflinePipeline`          Gladia ``solaria-3`` + pyannoteAI ``precision-3``
+paid, live            :class:`CloudLivePipeline`             Gladia ``solaria-1`` + pyannoteAI ``live-1``
+====================  =====================================  ============================================================
 
 Four names rather than one factory taking a string, deliberately: a billed mode
 must not be reachable through a typo, and the two local names already have live
