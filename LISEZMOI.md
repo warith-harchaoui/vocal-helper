@@ -353,7 +353,7 @@ Quel pipeline utiliser, sachant que le [routeur](#routeur-de-backend--laiguilleu
 | Bibliothèque Python | `import vocal_helper as voh` | (aucun) | Composez les étages dans votre propre application ; API typée complète. |
 | CLI | `vocal-helper` | (aucun, livré avec l'install de base) | Scripts shell, cron, CI headless, redirection vers `jq` ; `--help` riche, `-h` / `-V`, complétion shell. |
 | HTTP FastAPI | `uvicorn vocal_helper.api:app` | `[api]` | Derrière un reverse proxy : upload d'un fichier (ou champ `url`), réponse transcription/événements, `GET /docs` pour l'OpenAPI. |
-| Outils MCP | `vocal-helper-mcp` | `[api,mcp]` | N'importe quel hôte compatible MCP (runtimes d'agent, intégrations IDE) : publie `transcribe` et `pipeline` comme outils natifs. |
+| Outils MCP | `vocal-helper-mcp` | `[api,mcp]` | N'importe quel hôte compatible MCP (runtimes d'agent, intégrations IDE) : publie chaque route HTTP comme outil local : `transcribe` et `pipeline`, plus `health` et `gui`. |
 | Interface web | `GET /gui` (servie par l'API) | `[api]` | Une page navigateur sans build : déposez un fichier ou collez une URL → **transcription colorée par locuteur + résumé glissant**. `/` y redirige. |
 
 ```bash

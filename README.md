@@ -432,7 +432,7 @@ to a remote service.
 | Python library | `import vocal_helper as voh` | (none) | Compose the stages into your own app; full typed Application Programming Interface (API). |
 | CLI | `vocal-helper` | (none, ships with the base install) | Shell scripts, cron, headless CI, pipes to `jq`; rich `--help`, `-h` / `-V`, shell completion. |
 | FastAPI HTTP | `uvicorn vocal_helper.api:app` | `[api]` | A local HTTP surface: upload a file (or pass a `url`), get a transcript / event list; `GET /docs` for the Swagger UI. |
-| MCP tools | `vocal-helper-mcp` | `[api,mcp]` | Any Model Context Protocol (MCP)-aware host (agent runtimes, IDEs): publishes `transcribe` + `pipeline` as local first-class tools. |
+| MCP tools | `vocal-helper-mcp` | `[api,mcp]` | Any Model Context Protocol (MCP)-aware host (agent runtimes, IDEs): publishes every HTTP route as a local tool: `transcribe` and `pipeline`, plus `health` and `gui`. |
 | Transcript-viewer GUI | `GET /gui` (served by the API) | `[api]` | A build-step-free browser page: drop a file or paste a URL → **speaker colour-coded transcript + rolling summary**. `/` redirects to it. |
 
 ```bash

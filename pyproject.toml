@@ -218,6 +218,9 @@ dev = [
     "python-multipart>=0.0.9",
     # tests/test_bench.py asserts real WER figures rather than skipping.
     "jiwer>=3",
+    # tests/test_every_command_answers_help.py imports the MCP entry point; without
+    # this it skips, and CI never proves that vocal-helper-mcp --help returns.
+    "fastapi-mcp>=0.3",
 ]
 
 [project.urls]

@@ -10,6 +10,11 @@ names exported from `vocal_helper.__all__` plus the documented CLI flags.
 
 ### Fixed
 
+- **The help said `file` and `transcribe` wanted a WAV.** Both decode any
+  audio or video file through ffmpeg (`audio_helper.load_audio`); the CLI help,
+  the module docstrings and `from_wav_file` now say so. The README surface table
+  also said the MCP server publishes only `transcribe` and `pipeline`: it
+  publishes every HTTP route, `health` and `gui` included.
 - **`vocal-helper-mcp --help` started a server.** The launcher read its bind
   from `VOCAL_HELPER_HOST` / `VOCAL_HELPER_PORT` and ignored its arguments, so
   asking for help served on port 8000 and never returned. It is now a click

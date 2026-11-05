@@ -9,9 +9,9 @@ toolkit as subcommands under a single entry point, built with
 Subcommands
 -----------
 - ``mic``        — live microphone input (needs the ``[mic]`` extra)
-- ``file``       — replay a mono 16 kHz WAV through the pipeline
+- ``file``       — replay an audio or video file through the pipeline (any format ffmpeg decodes)
 - ``url``        — stream from any URL yt-dlp can reach (``[stream]`` extra)
-- ``transcribe`` — one-shot transcription of a WAV file
+- ``transcribe`` — one-shot transcription of an audio or video file
 
 Every pipeline subcommand accepts a common core of ``--whisper-model`` /
 ``--language`` / ``--diar-backend`` / ``--llm`` / ``--jsonl`` levers ; see
@@ -623,7 +623,7 @@ def file(
     offline: bool,
     online: bool,
 ) -> None:
-    """Replay a 16 kHz mono WAV through the pipeline."""
+    """Replay an audio or video file through the pipeline (any format ffmpeg decodes)."""
     from vocal_helper.sources import from_wav_file, probe_duration_s
 
     cfg = _pipeline_config(
@@ -753,7 +753,7 @@ def transcribe(
     initial_prompt: str,
     jsonl: bool,
 ) -> None:
-    """One-shot transcription of a WAV file (skip VAD / diarization)."""
+    """One-shot transcription of an audio or video file (skip VAD / diarization)."""
     # Lazy imports so ``--help`` never pays the numpy / audio-helper / whisper.cpp
     # import cost for users who only wanted the usage text.
     import numpy as np

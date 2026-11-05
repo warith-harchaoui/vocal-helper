@@ -14,7 +14,7 @@ Four sources ship in v0.1.0 :
   VOD or live, SoundCloud, podcast RSS feeds, direct HLS / m3u8,
   direct audio files) as a paced PCM stream
   (optional dependency ; requires ``vocal-helper[stream]``).
-- :func:`from_wav_file` — replays a 16 kHz mono WAV at
+- :func:`from_wav_file` — replays an audio or video file (ffmpeg-decoded, mono) at
   ``real_time=True`` (default) so the downstream stages see the
   same pacing as a live stream, or as fast as possible when
   ``real_time=False`` (for offline batch tests).
@@ -312,7 +312,7 @@ async def from_wav_file(
     frame_ms: int = DEFAULT_FRAME_MS,
     real_time: bool = True,
 ) -> AsyncIterator[PcmFrame]:
-    """Yield PCM frames from a mono WAV file.
+    """Yield PCM frames from an audio or video file, decoded by ffmpeg to mono.
 
     Pacing :
 
