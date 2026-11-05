@@ -240,31 +240,33 @@ class PipelineConfig:
     # an explicit request, and then asking for ``rediar`` too is refused rather
     # than silently resolved. ``None`` disables it.
     # LE SEUL RÉGLAGE DE LATENCE À CONNAÎTRE pour la diarisation en direct, en
-    # secondes. ``None`` (le défaut) ne demande rien et prend le plus long
-    # contexte viable, 6,4 s : le modèle voit davantage avant de décider et il y
-    # a moins d'appels, donc un facteur temps réel de 0,166 au lieu de 0,258
-    # pour une qualité identique au bruit près — 0,092 contre 0,090 de taux
-    # d'erreur. C'est le bon compromis pour une séance qu'on enregistre et qu'on
-    # lit au fil de l'eau : six secondes avant qu'un tour reçoive son locuteur
-    # ne se voient pas dans un compte rendu.
+    # secondes. Le défaut, 1,04 s, est le calendrier publié à basse latence et
+    # la valeur de :data:`vocal_helper.nemotron.DEFAULT_LATENCY_S` : mesuré en
+    # salle réverbérée à 0,6 s de RT60 (``studies/diar_far_field.py``), il fait
+    # 0,252 de taux d'erreur contre 0,350 au plus long contexte (6,4 s), et un
+    # accord sur les locuteurs au-delà de 300 s de 0,668 contre 0,372. Une salle
+    # de réunion réverbère ; c'est elle qui fixe le défaut.
     #
-    # Un agent conversationnel a la priorité inverse. ``discussion-helper``
-    # répond dans l'instant et ne peut rien démentir, donc il veut
-    # ``diar_latency_s=1.04`` — le calendrier publié à basse latence — ou
-    # ``0.32`` pour le plus court. Le coût est le facteur temps réel, et c'est
-    # lui qu'il faut regarder : la contrainte en direct est le RTF TOTAL du
-    # système, les étages travaillant à des cadences différentes.
+    # ``None`` prend le plus long contexte viable, 6,4 s. Il n'est à égalité
+    # qu'en salle anéchoïque (0,092 contre 0,090) et coûte alors un tiers de
+    # calcul en moins (facteur temps réel 0,166 contre 0,258) : le bon choix pour
+    # un enregistrement propre fait de près. ``0.32`` donne le plus court.
+    #
+    # Ce qui compte en direct est le RTF TOTAL du système, les étages
+    # travaillant à des cadences différentes ; le budget tient aux deux.
     #
     # Sans effet sur les étages qui ne sont pas Nemotron.
-    diar_latency_s: float | None = None
+    diar_latency_s: float | None = 1.04
     growing: dict | str | None = "auto"
     # The EARLIER approach to the same problem, kept because it bounds memory:
     # re-diarize a trailing WINDOW with a synthetic primer carrying one reference
-    # per known speaker, so identity crosses windows. Measured 0.348 against the
-    # offline 0.149 on a synthetic mix — better than the online stage alone and
-    # behind the growing buffer, because a window cannot see what a whole session
-    # shows. Prefer ``growing`` unless the session is long enough that holding its
-    # audio is the binding constraint.
+    # per known speaker, so identity crosses windows. On five minutes of AMI
+    # IS1008a it halved the online error (0.666 → 0.348, offline 0.149,
+    # ``studies/asr_acceleration_rtf.md``). On the WHOLE meetings it did worse
+    # than the online stage alone: 0.679 against 0.597 on IS1008a, 0.817 against
+    # 0.616 on ES2011a (``studies/rediar_live_der.json``). Prefer ``growing``
+    # unless the session is long enough that holding its audio is the binding
+    # constraint, and measure on your own material before relying on it.
     #
     # Splatted into :class:`vocal_helper.rediar.RediarPolicy`, same ``on_revision``
     # convention. Setting both is refused rather than silently resolved.
@@ -312,7 +314,6 @@ class Pipeline:
     ...     pipeline = voh.Pipeline(
     ...         source=lambda: voh.sources.from_microphone(),
     ...         config=voh.PipelineConfig(
-    ...             diar={"backend": "pyannote"},
     ...             asr={"model": "large-v3-turbo-q5_0"},
     ...             llm={"engine": voh.resolve_engine()},
     ...         ),
@@ -387,6 +388,12 @@ class Pipeline:
         self._online_diar = OnlineDiarStage(**self.config.diar)
         self._diar: Any = self._online_diar
         growing = self.config.growing
+        # Un backend nommé dans ``diar`` est un choix, et un choix l'emporte sur
+        # le défaut, comme ``rediar`` : ni Nemotron ne le remplace, ni la passe
+        # différée de la fenêtre croissante ne le contourne par son propre
+        # ``"auto"``. ``"nemotron"`` nommé demande justement Nemotron.
+        diar_backend = str(self.config.diar.get("backend", "auto"))
+        explicit_backend = diar_backend not in ("auto", "nemotron")
         if growing == "auto":
             # Un défaut s'efface devant un choix explicite.
             growing = None if self.config.rediar is not None else {}
@@ -402,7 +409,7 @@ class Pipeline:
             # Le moteur n'est pas toujours là : il vit dans le bundle de poids, et
             # une installation qui ne l'a pas téléchargé doit dégrader vers la
             # fenêtre croissante plutôt que de refuser de démarrer.
-            if growing is not None:
+            if growing is not None and not explicit_backend:
                 try:
                     from vocal_helper.nemotron import NemotronOnnxDiar
 
@@ -426,7 +433,10 @@ class Pipeline:
 
             options = dict(growing)
             on_revision = options.pop("on_revision", None)
-            backend = options.pop("backend", "auto")
+            # Seuls les moteurs différés locaux et gratuits passent : un moteur
+            # payant ne se répète pas à chaque passe sans qu'on le demande ici.
+            local = diar_backend in ("pyannote", "nemo", "sherpa")
+            backend = options.pop("backend", diar_backend if local else "auto")
             self._diar = GrowingBufferDiarStage(
                 backend=backend,
                 policy=GrowingBufferPolicy(**options),

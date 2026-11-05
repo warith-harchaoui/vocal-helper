@@ -68,6 +68,7 @@ __all__ = [
     "streaming_update",
     "probabilities_to_segments",
     "NemotronOnnxDiar",
+    "resolve_graph",
 ]
 
 #: Nom du dossier du moteur dans le bundle de poids.
@@ -75,6 +76,68 @@ BUNDLE_DIR = "nemotron3"
 
 #: Le fichier du graphe, dans ce dossier.
 GRAPH_NAME = "nemotron-3-diarization.onnx"
+
+#: Où le graphe est servi seul, dans un sous-dossier du graphe ASR, quand le bundle ne le porte
+#: pas. Le ZIP publié n'a pas ``nemotron3/`` ; un cache rempli par un ancien ZIP
+#: ne se retélécharge jamais. Un fichier unique répare les deux cas sans
+#: republier le gigaoctet. ``$VH_NEMOTRON_DIAR_URL`` remplace l'adresse de base.
+DEFAULT_BASE_URL = "https://deraison.ai/nemotron-onnx/nemotron-3-diarization"
+
+#: La variable qui remplace l'adresse de base (miroir).
+URL_ENV = "VH_NEMOTRON_DIAR_URL"
+
+#: L'empreinte du graphe servi à :data:`DEFAULT_BASE_URL`, la même que celle du
+#: ``manifest.json`` du bundle. Elle ne vaut que pour l'adresse par défaut : un
+#: miroir sert ce qu'il veut, et lui appliquer cette empreinte ferait lire chaque
+#: écart comme une corruption.
+GRAPH_SHA256 = "9d2d58ca88a1b678f221b8515a681478518de10aedf19a6e6dbea861686dd47d"
+
+
+def resolve_graph() -> Path:
+    """Le graphe de diarisation : le bundle s'il le porte, sinon un fichier unique.
+
+    Ordre : ``nemotron3/`` dans le bundle de poids, puis le cache
+    ``$VH_CACHE_DIR/nemotron-onnx`` (celui du graphe ASR), rempli une fois depuis
+    ``$VH_NEMOTRON_DIAR_URL`` ou :data:`DEFAULT_BASE_URL`. Le téléchargement passe
+    par os-helper : reprise, nouvelles tentatives, écriture atomique, et
+    vérification de :data:`GRAPH_SHA256` sur l'adresse par défaut.
+
+    Raises
+    ------
+    FileNotFoundError
+        Si ni le bundle ni le fichier unique ne fournissent le graphe.
+    """
+    from vocal_helper.diar import resolve_diarization_engines
+
+    try:
+        bundle = resolve_diarization_engines()
+    except Exception:  # noqa: BLE001 - un bundle illisible n'interdit pas le repli
+        bundle = None
+    if bundle is not None and (bundle / BUNDLE_DIR / GRAPH_NAME).exists():
+        return bundle / BUNDLE_DIR / GRAPH_NAME
+    cache = Path(os.environ.get("VH_CACHE_DIR", Path.home() / ".cache" / "vocal-helper"))
+    target = cache / "nemotron-onnx" / GRAPH_NAME
+    if target.exists():
+        return target
+    base = os.environ.get(URL_ENV, "").rstrip("/") or DEFAULT_BASE_URL
+    target.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        _download(
+            f"{base}/{GRAPH_NAME}", target, GRAPH_SHA256 if base == DEFAULT_BASE_URL else None
+        )
+    except Exception as exc:  # noqa: BLE001 - réseau, 404, empreinte : même diagnostic
+        raise FileNotFoundError(
+            f"{GRAPH_NAME} absent du bundle de diarisation et non téléchargeable "
+            f"depuis {base}/{GRAPH_NAME} : {exc}"
+        ) from exc
+    return target
+
+
+def _download(url: str, target: Path, sha256: str | None) -> None:
+    import os_helper as osh
+
+    osh.download_file(url, str(target), sha256=sha256)
+
 
 #: Préfixe des métadonnées que l'export inscrit dans le graphe.
 META_PREFIX = "vernacula.diar."
@@ -927,8 +990,8 @@ class NemotronOnnxDiar:
     Parameters
     ----------
     graph : str or Path, optional
-        Le fichier ``.onnx``. ``None`` le cherche dans le bundle de poids que
-        le projet sert déjà, donc sans jeton ni appel réseau.
+        Le fichier ``.onnx``. ``None`` le cherche dans le bundle de poids, puis
+        le télécharge une fois seul (:func:`resolve_graph`), sans jeton.
     latency_s : float, optional
         Budget de latence, en secondes. C'est le **seul** réglage à connaître :
         le calendrier s'en déduit, en prenant le morceau le plus long que ce
@@ -985,27 +1048,16 @@ class NemotronOnnxDiar:
     # ----- chargement -------------------------------------------------
 
     def locate(self) -> Path:
-        """Le chemin du graphe, dans le bundle si on ne l'a pas précisé.
+        """Le chemin du graphe : celui donné, sinon :func:`resolve_graph`.
 
         Raises
         ------
         FileNotFoundError
-            Si le bundle ne contient pas le moteur.
+            Si ni le bundle ni le fichier unique ne fournissent le moteur.
         """
         if self._graph is not None:
             return self._graph
-        from vocal_helper.diar import resolve_diarization_engines
-
-        bundle = resolve_diarization_engines()
-        candidate = (bundle / BUNDLE_DIR / GRAPH_NAME) if bundle else None
-        if candidate is None or not candidate.exists():
-            raise FileNotFoundError(
-                f"{GRAPH_NAME} absent du bundle de diarisation. Le moteur est "
-                f"distribué dans ``{BUNDLE_DIR}/`` ; vider "
-                f"``~/.cache/vocal-helper/diarization-engines/`` force une "
-                f"reprise du bundle."
-            )
-        return candidate
+        return resolve_graph()
 
     def _prepare(self) -> tuple[NemotronSchedule, NDArray[np.float32]]:
         """Lire le calendrier et l'empreinte de silence, sans ouvrir de session.

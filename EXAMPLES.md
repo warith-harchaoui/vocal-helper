@@ -265,7 +265,7 @@ distance below which a segment joins an existing speaker:
 
 ```python
 config = voh.PipelineConfig(
-    diar={"backend": "nemo", "join_threshold": 0.60},  # tighter than the 0.50 default
+    diar={"join_threshold": 0.60},  # tighter than the 0.50 default; "auto" already picks nemo
     asr={"language": "auto"},
 )
 ```
@@ -273,7 +273,8 @@ config = voh.PipelineConfig(
 `backend="auto"` already picks `nemo` when the `[nemo]` extra is installed, so
 what this changes is only the threshold, and only where the per-segment
 clusterer runs: under the growing buffer when the Nemotron graph is absent, or
-alone with `growing=None`. Raising it merges more readily, which is what you want when one
+alone with `growing=None`. Naming the backend here would also switch Nemotron
+off, since a named backend is a choice the pipeline keeps. Raising it merges more readily, which is what you want when one
 person keeps being split into several; lowering it splits more readily, for when
 two people are being fused into one. The shipped **0.50** is itself the result of
 raising it from 0.30: on 8 AMI meetings with 4 speakers each, 0.30 invented 87

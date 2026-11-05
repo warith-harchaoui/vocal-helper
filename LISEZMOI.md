@@ -234,15 +234,18 @@ Le code y lit ces dossiers :
 | `speechbrain-voxlingua107/` | instantané ECAPA VoxLingua107 | vérification croisée de la langue |
 | `manifest.json` | sha256 + tailles | contrôle d'intégrité au téléchargement |
 
-**Le ZIP publié est en retard sur le code.** Au 2026-11-04,
-`diarization-engines-slim.zip` ne porte ni `nemotron3/` ni `pyannote-community-1/`.
-Avec lui, le chemin en direct retombe sur la re-diarisation à buffer croissant,
-`auto` hors ligne route selon la durée au lieu de choisir `nemotron` et pyannote
-charge 3.1 avec un avertissement. Un dossier de bundle local qui contient les
-deux, désigné par `$VH_DIARIZATION_ENGINES`, rétablit les défauts décrits plus haut.
+**Le ZIP publié ne porte ni `nemotron3/` ni `pyannote-community-1/`.** Le graphe
+Nemotron est donc servi seul, à côté du graphe ASR : quand le bundle n'a pas
+`nemotron3/`, la première utilisation télécharge
+`https://deraison.ai/nemotron-onnx/nemotron-3-diarization/nemotron-3-diarization.onnx`
+une fois (400 Mo, sha256 épinglé dans `vocal_helper.nemotron.GRAPH_SHA256`) dans
+`~/.cache/vocal-helper/nemotron-onnx/` : un cache rempli par un ancien ZIP atteint
+donc le défaut lui aussi. `$VH_NEMOTRON_DIAR_URL` le dirige vers un miroir. Sans
+`pyannote-community-1/`, pyannote charge 3.1 avec un avertissement.
 
-Il est téléchargé une fois, vérifié contre `manifest.json` puis mis en cache sous
-`~/.cache/vocal-helper` ; les runs suivants lisent le cache. Pointez
+Le ZIP est téléchargé une fois, vérifié contre le sha256 épinglé dans
+`vocal_helper.diar.DEFAULT_DIARIZATION_ENGINES_SHA256` (URL par défaut seulement)
+puis mis en cache sous `~/.cache/vocal-helper` ; les runs suivants lisent le cache. Pointez
 `$VH_DIARIZATION_ENGINES` vers un dossier local (ou vers votre propre miroir)
 pour un déploiement auto-hébergé ou coupé du réseau. TitaNet (l'embedder online
 par défaut) se charge depuis NVIDIA NGC, sans HuggingFace non plus.
@@ -284,7 +287,7 @@ async def main():
     pipeline = voh.Pipeline(
         source=lambda: voh.sources.from_microphone(),
         config=voh.PipelineConfig(
-            diar={"backend": "pyannote"},
+            # Sans backend de diarisation : Nemotron 3. En nommer un ({"backend": "pyannote"}) est respecté.
             asr={"model": "large-v3-turbo-q5_0", "language": "auto"},  # découverte depuis l'audio
             llm={"engine": voh.resolve_engine()},  # retirer pour désactiver
         ),
@@ -434,7 +437,7 @@ Deux remplaçants sont livrés ; le pipeline choisit entre eux :
 |---|---:|---:|---|---|
 | clusterer online *(l'ancien défaut)* | 0,369 | 65 | ~0,5 s | rien |
 | re-diarisation à buffer croissant | **0,176** | 4 | des minutes, puis exact | rien |
-| Nemotron 3 ONNX | **0,090 – 0,252** | 4 | 1,04 s (6,4 s par défaut dans `Pipeline`, voir plus bas) | le graphe du bundle |
+| Nemotron 3 ONNX | **0,090 – 0,252** | 4 | 1,04 s par défaut (voir plus bas) | son graphe, du bundle ou téléchargé une fois seul |
 
 **Le buffer croissant** (`voh.GrowingBufferDiarStage`) garde l'étiquette provisoire rapide et re-diarise périodiquement *tout ce qui a été entendu*. Comme la dernière passe voit la séance entière, sa réponse finale **est** celle du fichier entier : 0,176 de médiane sur ces mêmes huit réunions, à la troisième décimale près. Les passes s'espacent géométriquement, si bien que le coût reste proportionnel à la séance et non à son carré : 2,6 à 3,3 fois l'audio, RTF 0,10 à 0,16. Ce qu'il coûte n'est pas la qualité mais la **fraîcheur**, que `on_revision` annonce au lieu de réécrire l'historique en silence.
 
@@ -442,17 +445,15 @@ Deux remplaçants sont livrés ; le pipeline choisit entre eux :
 
 Deux réserves honnêtes. Sur AMI il paraît bien pire (0,363–0,487) parce qu'il n'émet que 616 s des 815 s annotées ; or la référence d'AMI est transcrite sur les **micros-casques** alors que le modèle reçoit le micro de salle : la référence marque des mots que le signal ne porte pas, sans compter que pyannote a AMI dans ses données d'entraînement. Trois explications de cette parole manquée ont été testées puis écartées : le seuil d'extraction (0,05 ne récupère presque rien), le niveau du signal (un gain de 2,8× aggrave légèrement les choses) et la réverbération (le manqué de Nemotron reste plat à 0,090 / 0,093 / 0,101 d'une salle à l'autre). Il ne reste que l'annotation. Seconde réserve : toute la preuve en faveur de Nemotron est synthétique, le seul corpus réel disponible étant celui dont l'annotation pose problème.
 
-**La latence est un seul réglage, pas un choix de moteur.** `PipelineConfig(diar_latency_s=…)` prend des secondes ; le calendrier en découle. Laissé à `None`, le pipeline ne demande rien et prend le plus long contexte viable, 6,4 s. En salle anéchoïque, c'est aussi bon et *moins cher* : RTF 0,166 contre 0,258, pour 0,092 de taux d'erreur contre 0,090. Moins d'appels au graphe, chacun plus long.
+**La latence est un seul réglage, pas un choix de moteur.** `PipelineConfig(diar_latency_s=…)` prend des secondes ; le calendrier en découle. Le défaut est **1,04 s**, le calendrier publié à basse latence, le même que celui de `NemotronOnnxDiar` construit seul. Une salle de réunion réverbère, c'est ce qui tranche : à 0,6 s de RT60, 1,04 s donne 0,252 d'erreur contre 0,350 au plus long contexte viable (6,4 s), avec un accord sur les locuteurs au-delà de 300 s de 0,668 contre 0,372. Le contexte long voit plus de signal, mais un signal que la salle a brouillé.
 
-Une salle de réunion n'est pas anéchoïque : là, les deux calendriers se séparent. Réverbéré à 0,6 s de RT60, un contexte de 6,4 s donne 0,350 d'erreur contre 0,252 à 1,04 s ; l'accord sur les locuteurs au-delà de 300 s tombe de 0,668 à 0,372 : le contexte long voit plus de signal, mais un signal que la salle a brouillé. C'est pourquoi `NemotronOnnxDiar` construit seul prend par défaut 1,04 s, le calendrier publié à basse latence. `Pipeline` passe encore `None` : un enregistrement fait dans une vraie salle gagne donc à poser `diar_latency_s=1.04` explicitement.
-
-Un agent conversationnel veut le calendrier court pour une autre raison : `discussion-helper` répond dans l'instant et ne peut jamais démentir une étiquette, donc il pose `diar_latency_s=1.04`, voire `0.32` pour le plus court. Il peut se le permettre : ce qui compte en direct est le facteur temps réel **total** des étages, pas la latence d'un seul ; le budget tient dans tous les cas :
+`diar_latency_s=None` prend ce contexte long, 6,4 s. En salle anéchoïque il est aussi bon et *moins cher* (RTF 0,166 contre 0,258, pour 0,092 de taux d'erreur contre 0,090) : c'est le choix d'un enregistrement propre fait de près. `0.32` donne le calendrier le plus court, pour un agent conversationnel comme `discussion-helper` qui répond dans l'instant sans jamais pouvoir démentir une étiquette. Tous ces réglages tiennent : ce qui compte en direct est le facteur temps réel **total** des étages, pas la latence d'un seul ; le budget tient dans tous les cas :
 
 | diarisation | ASR | RTF total | marge |
 |---|---|---:|---:|
-| contexte de 6,4 s *(défaut)* | Metal | 0,176 | 5,7× |
+| contexte de 6,4 s | Metal | 0,176 | 5,7× |
 | contexte de 6,4 s | CPU seul | 0,340 | 2,9× |
-| 1,04 s *(conversationnel)* | Metal | 0,268 | 3,7× |
+| 1,04 s *(défaut)* | Metal | 0,268 | 3,7× |
 | 1,04 s | CPU seul | 0,432 | 2,3× |
 
 Le plafond du contexte n'est pas celui qu'on devinerait. Le graphe accepte 625 trames pour `[cache | fifo | chunk]`, ce qui permettrait 25,7 s ; mais la mise à jour du cache ajoute `chunk_len` trames à la file et n'en retire que `fifo_len`, si bien qu'un morceau plus long que la file la fait grandir sans borne : avec 281 trames de morceau, la file monte à 241 au lieu de 40 et la séquence atteint 826. C'est un portage fidèle de la référence, dont la règle ne tient que si le morceau ne dépasse pas la file : ses trois calendriers de flux publiés la respectent (9, 6, 3 trames), son calendrier *hors ligne*, à 340, la viole. Voilà pourquoi ce calendrier hors ligne ne fonctionne pas dans cet export.
@@ -471,7 +472,7 @@ Les chiffres ci-dessous ont été **re-validés sur machine** contre la vérité
 
 | Mode | Scénario | Backend | DER (qualité) | RTF (vitesse) | Pourquoi |
 |---|---|---|---|---|---|
-| offline | le graphe Nemotron est dans le bundle (toute durée, tout nombre de locuteurs) | **`nemotron`** | **0.090** / 0.252 réverbéré | 0.166 | Bout-en-bout, sans torch, bon nombre de locuteurs ; mixage synthétique à vérité exacte (`studies/diar_far_field.py`), voir les réserves plus haut. Vérifié en premier quand la CLI ou `POST /pipeline` le sondent (`nemotron_available=True`). |
+| offline | le graphe Nemotron est dans le bundle (toute durée, tout nombre de locuteurs) | **`nemotron`** | **0.090** / 0.252 réverbéré | 0.258 | Bout-en-bout, sans torch, bon nombre de locuteurs ; mixage synthétique à vérité exacte (`studies/diar_far_field.py`), voir les réserves plus haut. Vérifié en premier quand la CLI ou `POST /pipeline` le sondent (`nemotron_available=True`). |
 | offline | court ≤ 300 s, ≤ 4 locuteurs | **`nemo`** | **0.142** | 0.051 | Attribution de slot bout-en-bout, confusion ~0 ; ~2,3× mieux que pyannote sur tours courts et denses (0.330). |
 | offline | long / inconnu / > 4 locuteurs | **`pyannote`** | **0.122** | 0.067 | Défaut robuste, médiane AMI dans la bande Bredin 2023 ; NeMo bloque au-delà de ~25 min, plafonne à 4 locuteurs. |
 | offline | sans torch (pas de PyTorch) | **`sherpa`** | 0.174 / 0.148 | 0.58 | ONNX TitaNet-large, bat NeMo Sortformer 0.267, FR+EN validé (ADR 0002). |

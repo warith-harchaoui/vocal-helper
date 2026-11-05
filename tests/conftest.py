@@ -102,6 +102,9 @@ def _no_asr_graph_download(request: pytest.FixtureRequest, monkeypatch: pytest.M
         raise FileNotFoundError(f"download refused in unit tests: {url}")
 
     monkeypatch.setattr(nemotron_asr, "_download", refuse)
+    import vocal_helper.nemotron as nemotron
+
+    monkeypatch.setattr(nemotron, "_download", refuse)
 
 
 @pytest.fixture(scope="session")

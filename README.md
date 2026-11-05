@@ -130,7 +130,7 @@ Two replacements now ship, and the pipeline picks between them:
 |---|---:|---:|---|---|
 | online clusterer *(the old default)* | 0.369 | 65 | ~0.5 s | nothing |
 | growing-buffer re-diarization | **0.176** | 4 | minutes, then exact | nothing |
-| Nemotron 3 ONNX | **0.090 – 0.252** | 4 | 1.04 s (6.4 s by default in `Pipeline`, see below) | the bundle's graph |
+| Nemotron 3 ONNX | **0.090 – 0.252** | 4 | 1.04 s by default (see below) | its graph, from the bundle or fetched once on its own |
 
 **Growing buffer** (`voh.GrowingBufferDiarStage`) keeps the fast provisional label and periodically re-diarizes *everything heard so far*. Because the last pass sees the whole session, its final answer **is** the full-file answer — 0.176 median on those same eight meetings, to the third decimal. Passes are spaced geometrically, so the cost stays proportional to the session rather than to its square: 2.6–3.3× the audio, RTF 0.10–0.16. What it costs is not quality but **freshness**, and `on_revision` says so out loud rather than rewriting history in silence.
 
@@ -138,17 +138,15 @@ Two replacements now ship, and the pipeline picks between them:
 
 Two honest caveats. On AMI it looks far worse (0.363–0.487) because it emits only 616 s of the 815 s annotated — but AMI's reference is transcribed from the **headset** microphones while the model is given the room mix, so the reference marks words the signal does not carry, and pyannote has AMI in its training data. Three candidate explanations for that missed speech were tested and rejected: the extraction threshold (0.05 recovers almost nothing), the signal level (a 2.8× gain makes it slightly *worse*), and reverberation (Nemotron's missed detection stays flat at 0.090/0.093/0.101 across rooms). Only the annotation is left. And the evidence favouring Nemotron is all synthetic: the one real corpus available is the one whose annotation is the problem.
 
-**Latency is one knob, not a choice of engine.** `PipelineConfig(diar_latency_s=…)` takes seconds; the schedule follows. Left at `None`, the pipeline asks for nothing and takes the longest viable context, 6.4 s. In an anechoic room that is as good and *cheaper*: a real-time factor of 0.166 against 0.258, for 0.092 error against 0.090. Fewer, longer steps mean fewer graph calls.
+**Latency is one knob, not a choice of engine.** `PipelineConfig(diar_latency_s=…)` takes seconds; the schedule follows. The default is **1.04 s**, the published low-latency schedule, the same as `NemotronOnnxDiar` built on its own. A meeting room reverberates, and that decides it: at 0.6 s RT60, 1.04 s gives 0.252 error against 0.350 for the longest viable context (6.4 s), and speaker agreement beyond 300 s of 0.668 against 0.372. A long context sees more signal, but signal the room has smeared.
 
-A meeting room is not anechoic, and there the two schedules part ways. Reverberated at 0.6 s RT60, 6.4 s of context gives 0.350 error against 0.252 at 1.04 s, and speaker agreement beyond 300 s drops from 0.668 to 0.372: a long context sees more signal, but signal the room has smeared. This is why `NemotronOnnxDiar` built on its own defaults to 1.04 s, the published low-latency schedule. `Pipeline` still passes `None`, so a recording made in a real room is better served by setting `diar_latency_s=1.04` explicitly.
-
-A conversational agent wants the short schedule for another reason: `discussion-helper` answers in the moment and can never un-say a label, so it sets `diar_latency_s=1.04` or `0.32` for the shortest. It can afford to — what matters live is the **total** real-time factor across stages, not one stage's latency, and the budget holds either way:
+`diar_latency_s=None` takes that longest context, 6.4 s. In an anechoic room it is as good and *cheaper* (a real-time factor of 0.166 against 0.258, for 0.092 error against 0.090): the choice for a clean close-mic recording. `0.32` is the shortest schedule, for a conversational agent such as `discussion-helper`, which answers in the moment and can never un-say a label. Every setting can afford it — what matters live is the **total** real-time factor across stages, not one stage's latency, and the budget holds either way:
 
 | diarization | ASR | total RTF | headroom |
 |---|---|---:|---:|
-| 6.4 s context *(default)* | Metal | 0.176 | 5.7× |
+| 6.4 s context | Metal | 0.176 | 5.7× |
 | 6.4 s context | CPU only | 0.340 | 2.9× |
-| 1.04 s *(conversational)* | Metal | 0.268 | 3.7× |
+| 1.04 s *(default)* | Metal | 0.268 | 3.7× |
 | 1.04 s | CPU only | 0.432 | 2.3× |
 
 The ceiling on context is not the one you would guess. The graph accepts 625 frames for `[cache | fifo | chunk]`, which would allow 25.7 s — but the cache update adds `chunk_len` frames to the fifo and removes only `fifo_len`, so a chunk longer than the fifo makes it grow without bound: at 281 frames of chunk the fifo reaches 241 instead of 40 and the sequence hits 826. That is a faithful port of the reference, whose rule only holds when the chunk does not exceed the fifo — its three published streaming schedules respect that (9, 6, 3 frames) and its *offline* schedule, at 340, violates it. Which is exactly why that offline schedule does not work in this export.
@@ -167,7 +165,7 @@ The numbers below were **re-validated on-machine** against ground truth — `stu
 
 | Mode | Scenario | Backend | DER (quality) | RTF (speed) | Why |
 |---|---|---|---|---|---|
-| offline | the Nemotron graph is in the bundle (any length, any speaker count) | **`nemotron`** | **0.090** / 0.252 reverberated | 0.166 | End-to-end, torch-free, right speaker count; exact-truth synthetic mix (`studies/diar_far_field.py`), see the caveats above. Checked first, when the CLI or `POST /pipeline` probes it (`nemotron_available=True`). |
+| offline | the Nemotron graph is in the bundle (any length, any speaker count) | **`nemotron`** | **0.090** / 0.252 reverberated | 0.258 | End-to-end, torch-free, right speaker count; exact-truth synthetic mix (`studies/diar_far_field.py`), see the caveats above. Checked first, when the CLI or `POST /pipeline` probes it (`nemotron_available=True`). |
 | offline | short ≤ 300 s, ≤ 4 speakers | **`nemo`** | **0.142** | 0.051 | End-to-end slot attribution, confusion ~0; ~2.3× better than pyannote on short dense turns (0.330). |
 | offline | long / unknown / > 4 speakers | **`pyannote`** | **0.122** | 0.067 | Robust default, AMI median inside Bredin 2023's band; NeMo hangs past ~25 min, caps at 4 speakers. |
 | offline | torch-free (no PyTorch) | **`sherpa`** | 0.174 / 0.148 | 0.58 | ONNX TitaNet-large, beats NeMo Sortformer 0.267, FR+EN validated (ADR 0002). |
@@ -314,14 +312,17 @@ folders from it:
 | `speechbrain-voxlingua107/` | ECAPA VoxLingua107 snapshot | language-ID cross-check |
 | `manifest.json` | sha256 + sizes | integrity check on download |
 
-**The published ZIP lags the code.** As of 2026-11-04 `diarization-engines-slim.zip`
-carries neither `nemotron3/` nor `pyannote-community-1/`. With it, the live path
-falls back to the growing-buffer re-diarization, offline `auto` routes by length
-instead of picking `nemotron`, and pyannote loads 3.1 with a warning. A local
-bundle directory holding both folders, named by `$VH_DIARIZATION_ENGINES`,
-restores the defaults described above.
+**The published ZIP carries neither `nemotron3/` nor `pyannote-community-1/`.**
+The Nemotron graph is therefore served on its own, next to the ASR graph:
+when the bundle lacks `nemotron3/`, the first use downloads
+`https://deraison.ai/nemotron-onnx/nemotron-3-diarization/nemotron-3-diarization.onnx`
+once (400 MB, sha256 pinned in `vocal_helper.nemotron.GRAPH_SHA256`) into
+`~/.cache/vocal-helper/nemotron-onnx/`, so a cache filled by an older ZIP reaches
+the default too. `$VH_NEMOTRON_DIAR_URL` points it at a mirror. pyannote, without
+`pyannote-community-1/`, loads 3.1 with a warning.
 
-On first use it is downloaded once, verified against `manifest.json`, and
+On first use the ZIP is downloaded once, checked against the sha256 pinned in
+`vocal_helper.diar.DEFAULT_DIARIZATION_ENGINES_SHA256` (default URL only), and
 cached under `~/.cache/vocal-helper`; later runs load straight from the
 cache. Set `$VH_DIARIZATION_ENGINES` to a local directory (or your own
 mirror URL) for air-gapped / self-hosted deploys. TitaNet (the default
@@ -362,7 +363,7 @@ async def main():
     pipeline = voh.Pipeline(
         source=lambda: voh.sources.from_microphone(),
         config=voh.PipelineConfig(
-            diar={"backend": "pyannote"},
+            # No diar backend: Nemotron 3. Naming one ({"backend": "pyannote"}) is honoured.
             asr={"model": "large-v3-turbo-q5_0", "language": "auto"},  # discovered from the audio
             llm={"engine": voh.resolve_engine()},  # remove to disable
         ),

@@ -221,7 +221,7 @@ DER + RTF) against bagarre (30 short mixes) + AMI dev-slice; `sherpa` from ADR
 
 | Mode | Scenario | Backend | DER | RTF | Why |
 |---|---|---|---|---|---|
-| offline | the Nemotron graph is in the bundle | **`nemotron`** | **0.090** | 0.166 | End-to-end, torch-free, right speaker count; exact-truth synthetic mix. |
+| offline | the Nemotron graph is in the bundle | **`nemotron`** | **0.090** | 0.258 | End-to-end, torch-free, right speaker count; exact-truth synthetic mix. |
 | offline | short ≤ 300 s, ≤ 4 speakers | **`nemo`** | **0.142** | 0.051 | End-to-end slot attribution, ~2.3× better than pyannote on short dense turns (0.330). |
 | offline | long / unknown / > 4 speakers | **`pyannote`** | **0.122** | 0.067 | Robust default; NeMo hangs past ~25 min, caps at 4 speakers. |
 | offline | torch-free | **`sherpa`** | 0.174 | 0.58 | ONNX TitaNet-large, beats NeMo Sortformer 0.267, FR+EN (ADR 0002). |

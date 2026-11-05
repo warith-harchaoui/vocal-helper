@@ -1421,9 +1421,12 @@ class OfflineDiarStage:
             (:data:`vocal_helper.diar_cloud.BATCH_MODEL`) rather than the client
             library's default, which is the previous generation: on a paid call,
             accepting a default is not a neutral act.
-        backend : "pyannote" | "nemo" | "sherpa" | "pyannoteai"
-            Offline backend. Default ``"pyannote"``. ``"sherpa"`` = portable ONNX
-            (community-1 seg + TitaNet-large), whole-buffer, no torch.
+        backend : "auto" | "nemotron" | "pyannote" | "nemo" | "sherpa" | "pyannoteai"
+            Offline backend. Default ``"auto"``: the first of
+            :data:`OFFLINE_PREFERENCE` (nemotron, pyannote, nemo, sherpa) this
+            installation can run, resolved here by :func:`resolve_backend`.
+            ``"sherpa"`` = portable ONNX (community-1 seg + TitaNet-large),
+            whole-buffer, no torch. ``"pyannoteai"`` is paid and only by name.
         ideal_duration_s : float, optional
             Whole-buffer ceiling : inputs longer than this are chunked +
             stitched, shorter ones run as a single call. ``None`` (default)
@@ -1796,8 +1799,17 @@ DEFAULT_DIARIZATION_ENGINES_URL: str | None = "https://deraison.ai/diarization-e
 #: THAT url and to no other: a digest applied to a different, configured source
 #: would fail every time and read as a corrupt download, so it is only ever
 #: passed when the resolved source is the default one.
+#:
+#: It must be the digest of the file actually served. Until 2026-11-05 it pinned
+#: a 991 MB build that was never the one online (the server has held a 794 MB
+#: build since 2026-11-01), so every fresh install failed on ``sha256 mismatch``
+#: and reached no bundle at all. The served build carries ``sherpa/`` but neither
+#: ``nemotron3/`` nor ``pyannote-community-1/``: the Nemotron graph is fetched on
+#: its own (:func:`vocal_helper.nemotron.resolve_graph`) and pyannote falls back
+#: to 3.1 with a warning. ``tests/test_bundle_online.py`` checks both against the
+#: server, outside CI.
 DEFAULT_DIARIZATION_ENGINES_SHA256: str | None = (
-    "91573874f77f27351e810ae8d542ab57a04faf39412f826dceb61766312e6ad6"
+    "0e5ef7c41820c05f8207a92eb8814ff6484f095304a122c43c739f48c47cfe40"
 )
 
 

@@ -8,6 +8,49 @@ names exported from `vocal_helper.__all__` plus the documented CLI flags.
 
 ## [Unreleased]
 
+A default changes here (the live diarization latency), so by the policy above
+this is a MAJOR release: 5.0.0.
+
+### Changed
+
+- **`PipelineConfig.diar_latency_s` defaults to 1.04 s instead of `None`
+  (6.4 s of context).** `NemotronOnnxDiar` already defaulted to 1.04 s on the
+  reverberated measurement (0.6 s RT60: DER 0.252 against 0.350, speaker
+  agreement beyond 300 s 0.668 against 0.372), and the pipeline undid it by
+  passing `None`. `diar_latency_s=None` keeps the long context, cheaper and
+  equal only in an anechoic room.
+
+### Fixed
+
+- **A diarization backend named in `PipelineConfig(diar={"backend": ...})` is
+  honoured.** With `growing="auto"` the pipeline swapped Nemotron in regardless,
+  although 4.0.0 announced the explicit backend as the way back; the growing
+  buffer's offline pass now follows the named local backend too (`pyannote`,
+  `nemo`, `sherpa`; never the paid `pyannoteai`). The CLI's live and real-time
+  paths keep `auto` unless `--diar-backend` is given, so the Nemotron default
+  still applies there.
+- **The Nemotron graph no longer depends on the ZIP.** When the bundle lacks
+  `nemotron3/`, `vocal_helper.nemotron.resolve_graph` fetches
+  `nemotron-3-diarization.onnx` once from
+  `https://deraison.ai/nemotron-onnx/nemotron-3-diarization/` (sha256 pinned,
+  `$VH_NEMOTRON_DIAR_URL` for a mirror) into the ASR graph's cache.
+- **The pinned digest of the default bundle is the one served.** It pinned a
+  991 MB build that was never online, so a fresh install failed on
+  `sha256 mismatch`; it now pins the 794 MB ZIP at
+  `https://deraison.ai/diarization-engines-slim.zip`.
+- The offline Nemotron router profile carries the RTF of the schedule it runs
+  (0.258 at 1.04 s, not 0.166 at 6.4 s).
+- Docstrings: the router and `PipelineConfig.rediar` give both measurements of
+  the windowed re-diarization (halved on five minutes, worse than online on whole
+  meetings: 0.679 against 0.597, 0.817 against 0.616); `OfflineDiarStage` states
+  its real default, `"auto"`.
+
+### Added
+
+- `tests/test_bundle_online.py` (marked `integration`, outside CI and the
+  pre-push gate): the single graph is served whole, the ZIP carries what the
+  offline backends read, and its digest matches the pin.
+
 ## [4.0.0] - 2026-11-04
 
 A major version because two defaults change, as the policy above requires: the

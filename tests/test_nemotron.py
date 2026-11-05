@@ -359,7 +359,7 @@ def test_asking_for_no_budget_takes_the_longest_context_the_fifo_allows():
     flux publiés le respectent et son calendrier hors ligne, à 340 trames, le
     viole — ce qui est exactement pourquoi ce dernier ne fonctionne pas.
 
-    Le défaut est donc un morceau de ``fifo_len`` trames, soit 6,4 s de latence :
+    Sans budget (``latency_s=None``), c'est donc un morceau de ``fifo_len`` trames, soit 6,4 s :
     six fois le calendrier à basse latence, et non les vingt-cinq que la seule
     capacité de séquence laissait espérer.
     """
@@ -511,12 +511,12 @@ def test_a_conversational_agent_can_afford_the_low_latency_schedule():
         )
 
 
-def test_the_long_context_default_is_cheaper_than_low_latency():
-    """Le contexte long n'est pas un luxe : il coûte moins.
+def test_the_long_context_is_cheaper_than_low_latency():
+    """Le contexte long coûte moins : 0,166 de facteur temps réel contre 0,258.
 
-    0,166 de facteur temps réel contre 0,258, pour 0,092 de taux d'erreur contre
-    0,090 — identique au bruit près. C'est pourquoi c'est le défaut, et pourquoi
-    la basse latence est un choix à faire et non un défaut à subir.
+    À égalité en salle anéchoïque (0,092 contre 0,090), il perd en salle
+    réverbérée (0,350 contre 0,252) : ce n'est donc plus le défaut, mais il
+    reste le choix ``diar_latency_s=None`` pour un enregistrement propre.
     """
     from vocal_helper.accel import StageLoad, live_budget
 
@@ -540,10 +540,10 @@ def test_the_pipeline_exposes_one_latency_knob_and_it_reaches_the_engine():
         yield {"t0": 0.0, "sample_rate": 16000, "pcm": np.zeros(320, dtype=np.float32)}
 
     default = voh.Pipeline(source=source, config=voh.PipelineConfig(llm=None))
-    quick = voh.Pipeline(source=source, config=voh.PipelineConfig(llm=None, diar_latency_s=1.04))
+    longest = voh.Pipeline(source=source, config=voh.PipelineConfig(llm=None, diar_latency_s=None))
     if isinstance(default._diar, NemotronOnnxDiar):
-        assert default._diar.schedule.latency_s > quick._diar.schedule.latency_s
-        assert quick._diar.schedule.latency_s == pytest.approx(1.04)
+        assert longest._diar.schedule.latency_s > default._diar.schedule.latency_s
+        assert default._diar.schedule.latency_s == pytest.approx(1.04)
 
 
 def test_a_named_provider_is_read_tolerantly() -> None:

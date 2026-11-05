@@ -281,9 +281,8 @@ def _choose_file_diar(
     # Batch but no offline backend installed → online streaming with the global
     # refine pass (the runnable fallback); still route the online backend.
     if batch:
-        backend, _ = _route_backend(
-            requested_backend=requested_backend, live=True, duration_s=duration_s
-        )
+        # "auto" stays "auto", as on every streaming path: see below.
+        backend = requested_backend
         note = (
             None
             if force_online
@@ -295,21 +294,23 @@ def _choose_file_diar(
             )
         )
         return False, {**base_diar, "backend": backend, "refine_on_close": True}, note
-    # Non-batch file replay (real-time pacing) → online, backend routed.
-    backend, note = _route_backend(
-        requested_backend=requested_backend, live=True, duration_s=duration_s
-    )
-    return False, {**base_diar, "backend": backend}, note
+    # Non-batch file replay (real-time pacing) → the streaming Pipeline. "auto"
+    # stays "auto" so the Pipeline can still swap Nemotron in; a named backend
+    # is the operator's choice and the Pipeline keeps it.
+    if not explicit:
+        return False, {**base_diar, "backend": "auto"}, None
+    return False, {**base_diar, "backend": requested_backend}, None
 
 
 def _resolve_online_backend(cfg: PipelineConfig, requested_backend: str) -> None:
-    """Resolve a live command's ``"auto"`` diar backend through the router, in place.
+    """Set a live command's diar backend in place: an explicit one, or ``"auto"``.
 
     The ``mic`` / ``url`` commands build a streaming :class:`Pipeline` directly,
-    so — unlike ``file`` — they never pass through :func:`_choose_file_diar`. This
-    routes their backend the same way (live stream, no duration → ``nemo`` per the
-    study, or an explicit override) and mutates ``cfg.diar['backend']`` so the
-    sentinel ``"auto"`` never reaches :class:`~vocal_helper.OnlineDiarStage`.
+    so — unlike ``file`` — they never pass through :func:`_choose_file_diar`. An
+    explicit ``--diar-backend`` is written into ``cfg.diar['backend']`` and the
+    Pipeline honours it (no Nemotron swap). ``"auto"`` is kept as ``"auto"`` so
+    the Pipeline can pick Nemotron, and :class:`~vocal_helper.OnlineDiarStage`
+    resolves it to the best installed embedder otherwise.
 
     Parameters
     ----------
@@ -324,10 +325,20 @@ def _resolve_online_backend(cfg: PipelineConfig, requested_backend: str) -> None
         ``cfg.diar['backend']`` is updated as a side effect; any router note is
         written to stderr.
     """
-    backend, note = _route_backend(requested_backend=requested_backend, live=True, duration_s=None)
-    if note:
-        sys.stderr.write(note + "\n")
-    cfg.diar["backend"] = backend
+    if requested_backend != "auto":
+        cfg.diar["backend"] = requested_backend
+        return
+    # "auto" stays "auto": the streaming Pipeline swaps Nemotron in when its graph
+    # is reachable, and a backend NAMED here would read as the operator's choice
+    # and switch that off. Without the graph, ``OnlineDiarStage`` resolves "auto"
+    # by ``ONLINE_PREFERENCE`` (nemo first), the router's own live answer, and
+    # unlike the router it never names an embedder that is not installed.
+    cfg.diar["backend"] = "auto"
+    sys.stderr.write(
+        "vocal-helper: live → Nemotron 3 when its graph is reachable, else the "
+        "growing-buffer re-diarization over the best installed embedder. "
+        "Pass --diar-backend to override.\n"
+    )
 
 
 def _print_event(ev: Mapping[str, Any], jsonl: bool) -> None:
@@ -554,8 +565,7 @@ def mic(
         # so the source hands the pipeline frames it can consume without resampling.
         return from_microphone(device_name=device, sample_rate=16_000, frame_ms=20)
 
-    # A live stream carries no duration — route the online backend (auto → nemo
-    # per the study) so ``"auto"`` never reaches the stage.
+    # A live stream: Nemotron by default, or the backend the operator named.
     _resolve_online_backend(cfg, diar_backend)
     pipeline = Pipeline(source=factory, config=cfg)
     asyncio.run(_drain(pipeline, jsonl))
@@ -708,7 +718,7 @@ def url(
         """Open a streaming source for the given URL (yt-dlp resolves the media)."""
         return _from_url(url)
 
-    # URL playback is a live stream — route the online backend (auto → nemo).
+    # URL playback is a live stream: Nemotron by default, or the named backend.
     _resolve_online_backend(cfg, diar_backend)
     pipeline = Pipeline(source=factory, config=cfg)
     asyncio.run(_drain(pipeline, jsonl))

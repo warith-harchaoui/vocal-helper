@@ -72,11 +72,16 @@ Two independent findings, both measured on this machine:
    online clusterer, it is :mod:`vocal_helper.rediar` — run the **offline**
    diarizer periodically on a bounded window and correct the labels already shown.
 
-   **Measured, it halves the error, and it does not reach the offline number.** On
-   five minutes of AMI IS1008a: online alone 0.666, windowed re-diarization 0.348,
-   offline whole-file 0.149. An earlier version of this docstring claimed the full
-   0.122, which was an assumption dressed as a measurement; the campaign is
-   ``studies/rediar_live_der.py``.
+   **Measured, it depends on the length, and on whole meetings it loses.** On
+   five minutes of AMI IS1008a it halved the error: online alone 0.666, windowed
+   re-diarization 0.348, offline whole-file 0.149
+   (``studies/asr_acceleration_rtf.md``). On the whole meetings it did *worse*
+   than the online stage it was meant to correct: 0.679 against 0.597 on IS1008a
+   (944 s), 0.817 against 0.616 on ES2011a (1114 s), offline 0.124 and 0.188
+   (``studies/rediar_live_der.json``, from ``studies/rediar_live_der.py``). An
+   earlier version of this docstring claimed the full 0.122, then a plain halving;
+   both were one measurement read as a rule. The growing buffer
+   (:mod:`vocal_helper.growing`) replaced it as the live default for that reason.
 
    Why it stops halfway is structural and worth knowing: the published rows are the
    **voice-activity detector's** segments, and relabelling cannot repair a segment
@@ -145,8 +150,10 @@ SORTFORMER_MAX_SPEAKERS: int = 4
 # length: 0.590/0.844 vs 0.586/0.497).
 _PROFILE: dict[tuple[str, str], tuple[float, float]] = {
     # Synthetic mix with exact ground truth (studies/diar_far_field.py), anechoic;
-    # 0.252 at 0.6 s RT60. RTF at the default 6.4 s context, CPU.
-    ("offline", "nemotron"): (0.090, 0.166),
+    # 0.252 at 0.6 s RT60. Both measured at the 1.04 s schedule that
+    # ``NemotronOnnxDiar`` defaults to, whose CPU RTF is 0.258 (0.166 is the
+    # 6.4 s context, which is not the default).
+    ("offline", "nemotron"): (0.090, 0.258),
     ("offline", "nemo"): (0.142, 0.051),  # bagarre n=30, offline Sortformer
     ("offline", "pyannote"): (0.122, 0.067),  # AMI dev-slice n=2 median
     ("offline", "sherpa"): (0.174, 0.58),  # ADR 0002, ES2011a, TitaNet-large ONNX

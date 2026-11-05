@@ -269,7 +269,7 @@ cosinus en dessous de laquelle un segment rejoint un locuteur existant :
 
 ```python
 config = voh.PipelineConfig(
-    diar={"backend": "nemo", "join_threshold": 0.60},  # plus serré que le défaut 0.50
+    diar={"join_threshold": 0.60},  # plus serré que le défaut 0.50 ; "auto" prend déjà nemo
     asr={"language": "auto"},
 )
 ```
@@ -277,7 +277,8 @@ config = voh.PipelineConfig(
 `backend="auto"` choisit déjà `nemo` quand l'extra `[nemo]` est installé : ce
 que l'extrait change, c'est uniquement le seuil, là seulement où le clusterer
 par segment tourne — sous le buffer croissant quand le graphe Nemotron manque,
-seul avec `growing=None`. Le monter fusionne plus volontiers, ce qu'il faut quand une
+seul avec `growing=None`. Nommer le backend ici couperait aussi Nemotron : un
+backend nommé est un choix que le pipeline garde. Le monter fusionne plus volontiers, ce qu'il faut quand une
 même personne se fait découper en plusieurs ; le baisser sépare plus volontiers,
 pour le cas inverse. Le 0,50 livré est lui-même le résultat d'une montée depuis
 0,30 : sur 8 réunions AMI à 4 locuteurs, 0,30 inventait 87 locuteurs là où 0,50

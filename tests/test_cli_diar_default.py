@@ -117,14 +117,15 @@ def test_auto_batch_routes_offline_by_duration(
 
 def test_no_offline_backend_falls_back_to_online_refine(probes) -> None:
     """No offline backend installed → online diarizer with the batch refine pass."""
-    # Neither pyannote nor nemo available ⇒ the runnable online fallback; the
-    # online backend is still routed (auto → nemo), plus the refine knob.
+    # Neither pyannote nor nemo available ⇒ the runnable online fallback, plus the
+    # refine knob. "auto" stays "auto": the streaming Pipeline swaps Nemotron in
+    # when it can, and a named backend would switch that off.
     probes(False, False)
     use_offline, diar, note = cli._choose_file_diar(
         BASE, explicit_offline=False, batch=True, force_online=False, duration_s=SHORT_S
     )
     assert use_offline is False
-    assert diar == {"backend": "nemo", "refine_on_close": True}
+    assert diar == {"backend": "auto", "refine_on_close": True}
     assert note and "refine" in note
 
 
@@ -149,7 +150,7 @@ def test_no_offline_backend_falls_back_to_online_refine(probes) -> None:
             "auto",
             SHORT_S,
             False,
-            {"backend": "nemo", "refine_on_close": True},
+            {"backend": "auto", "refine_on_close": True},
             True,
         ),
         # ``--offline --diar-backend nemo`` honours the operator's backend verbatim
@@ -159,9 +160,11 @@ def test_no_offline_backend_falls_back_to_online_refine(probes) -> None:
         # ``--offline`` with no explicit backend still routes by duration (short →
         # nemo); this fires the router, so it *does* carry its rationale note.
         (True, False, True, "auto", SHORT_S, True, {"backend": "nemo"}, False),
-        # Non-batch (real-time replay) stays online with a routed backend and no
-        # batch-only refine knob; auto routing still surfaces the router note.
-        (False, False, False, "auto", SHORT_S, False, {"backend": "nemo"}, False),
+        # Non-batch (real-time replay) stays online, no batch-only refine knob, and
+        # "auto" stays "auto" so the streaming Pipeline can pick Nemotron.
+        (False, False, False, "auto", SHORT_S, False, {"backend": "auto"}, True),
+        # ... while a named backend is passed through for the Pipeline to honour.
+        (False, False, False, "pyannote", SHORT_S, False, {"backend": "pyannote"}, True),
     ],
 )
 def test_explicit_flags_and_realtime_override_router(
@@ -247,3 +250,14 @@ def test_nemotron_in_the_bundle_wins_the_auto_batch_route(probes, monkeypatch) -
         assert use_offline is True
         assert diar == {"backend": "nemotron"}
         assert note is not None and "nemotron" in note
+
+
+def test_a_live_command_keeps_auto_so_the_pipeline_can_pick_nemotron() -> None:
+    """``mic`` / ``url``: a routed "nemo" used to read as the operator's choice."""
+    from vocal_helper.pipeline import PipelineConfig
+
+    cfg = PipelineConfig(diar={"backend": "auto"})
+    cli._resolve_online_backend(cfg, "auto")
+    assert cfg.diar["backend"] == "auto"
+    cli._resolve_online_backend(cfg, "pyannote")
+    assert cfg.diar["backend"] == "pyannote"
