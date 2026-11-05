@@ -43,7 +43,7 @@ Two paths ship:
   - **Diarization** runs over the whole meeting in one call: Nemotron 3 ONNX when its graph is in the bundle, otherwise pyannote community-1 / NeMo Sortformer / sherpa in that order of measured quality (`backend="auto"`). The 2026-07-14 offline map-reduce study found whole-buffer strictly best for Diarization Error Rate (DER); chunk-and-stitch survives only as a memory backstop past ~1 h.
   - **Transcription** goes to the engine `asr={"engine": "auto"}` picks (see the STT row below). On the whisper path it concatenates consecutive segments into ≤ 24 s calls: ~6.5× lower Real-Time Factor (RTF) at a better Word Error Rate (WER), per the 2026-07-09 sweep. Opt back into per-segment Automatic Speech Recognition (ASR) with `OfflinePipelineConfig(asr={"batch": False})`.
 
-Vocal Helper ships on [PyPI](https://pypi.org/project/vocal-helper/) under semantic-versioned tags (currently `v4.0.0`); continuous integration (CI, an automated pipeline that runs the test suite and the linter on every push) stays green on `main` before any tag goes out.
+Vocal Helper ships on [PyPI](https://pypi.org/project/vocal-helper/) under semantic-versioned tags (currently `v5.0.0`); continuous integration (CI, an automated pipeline that runs the test suite and the linter on every push) stays green on `main` before any tag goes out.
 
 It sits at the top of the AI Helpers dependency graph — the suite's most feature-complete and heaviest package — and builds on five siblings:
 
@@ -652,10 +652,11 @@ still open:
 - **Breaking behaviour and default changes land only in MAJOR releases**
   (`1.x` → `2.0.0`). A **MINOR** release adds features compatibly; a **PATCH**
   is bug-fixes and docs only, it will never change a default under you.
-- Three MAJORs have shipped since `1.0.0`, all for a changed default rather than a removed name.
+- Four MAJORs have shipped since `1.0.0`, all for a changed default rather than a removed name.
   - `2.0.0` replaced the hard-coded LLM model tag with a per-machine engine resolved from a committed brief, which changed the analyst's CLI/API surface.
   - `3.0.0` made a run that lost a stage raise `StageCrashed` instead of returning an empty transcript, and moved the offline pyannote checkpoint to community-1. `strict=False` restores the lenient behaviour; the checkpoint has no public knob — a bundle that predates community-1 falls back to 3.1 with a warning.
   - `4.0.0` made the measured best engines the defaults: Nemotron 3.5 for transcription when the language is to be discovered, Nemotron 3 for diarization whenever its graph is in the bundle (the growing-buffer re-diarization live when it is not), and `backend="auto"` on both diarization stages. `asr={"engine": "whisper"}`, an explicit offline `diar` backend and `growing=None` restore the 3.x paths.
+  - `5.0.0` set the live diarization latency to 1.04 s instead of 6.4 s (`diar_latency_s=None` keeps the long context), and repaired the fresh install that 4.0.0 broke by pinning a bundle digest never served. Upgrade from 4.0.0.
 - Deprecations get a release with a warning before removal.
 
 ## Author

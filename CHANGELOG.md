@@ -8,8 +8,14 @@ names exported from `vocal_helper.__all__` plus the documented CLI flags.
 
 ## [Unreleased]
 
-A default changes here (the live diarization latency), so by the policy above
-this is a MAJOR release: 5.0.0.
+## [5.0.0] - 2026-11-05
+
+A major version because a default changes, as the policy above requires: the
+live diarization latency a bare `PipelineConfig()` reaches is 1.04 s, no longer
+6.4 s. **4.0.0 is broken on a fresh install**: it pins the sha256 of a 991 MB
+bundle that was never online, so no bundle installs and no backend that reads
+it can start. Upgrade to 5.0.0, which pins the ZIP actually served and fetches
+the Nemotron 3 graph on its own.
 
 ### Changed
 

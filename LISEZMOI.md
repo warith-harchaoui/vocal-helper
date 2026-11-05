@@ -41,7 +41,7 @@ Deux chemins sont livrés :
   - **La diarisation** traite la réunion entière en un seul appel : Nemotron 3 ONNX quand son graphe est dans le bundle, sinon pyannote community-1 / NeMo Sortformer / sherpa dans l'ordre de qualité mesurée (`backend="auto"`). L'étude map-reduce offline du 2026-07-14 a trouvé le buffer entier strictement meilleur en DER (taux d'erreur de diarisation) ; le découpage-recollage ne survit que comme garde-fou mémoire au-delà de ~1 h.
   - **La transcription** passe par le moteur que choisit `asr={"engine": "auto"}` (voir la ligne STT plus bas). Côté whisper, elle concatène les segments consécutifs en appels de ≤ 24 s : RTF ~6,5× plus bas pour un WER meilleur, selon le balayage du 2026-07-09. `OfflinePipelineConfig(asr={"batch": False})` redonne l'ASR segment par segment.
 
-Vocal Helper est éprouvé en production. Le paquet est publié sur [PyPI](https://pypi.org/project/vocal-helper/) sous des tags versionnés selon le [versionnage sémantique](https://semver.org/lang/fr/) (actuellement `v4.0.0`) ; l'intégration continue (CI, une chaîne automatisée qui fait tourner les tests puis le linter à chaque envoi) reste au vert sur `main` avant toute publication d'un tag.
+Vocal Helper est éprouvé en production. Le paquet est publié sur [PyPI](https://pypi.org/project/vocal-helper/) sous des tags versionnés selon le [versionnage sémantique](https://semver.org/lang/fr/) (actuellement `v5.0.0`) ; l'intégration continue (CI, une chaîne automatisée qui fait tourner les tests puis le linter à chaque envoi) reste au vert sur `main` avant toute publication d'un tag.
 
 Il occupe le sommet du graphe de dépendances de la suite AI Helpers — le paquet le plus complet et le plus lourd — en s'appuyant sur cinq sœurs :
 
@@ -656,10 +656,11 @@ aujourd'hui en `4.x`, suivant le [versionnage sémantique](https://semver.org) :
   MAJEURE** (`1.x` → `2.0.0`). Une version **MINEURE** ajoute des
   fonctionnalités de façon compatible ; un **correctif** ne touche qu'aux bugs
   et à la documentation, jamais à un défaut.
-- Trois versions majeures sont parties depuis `1.0.0`, toutes pour un changement de défaut plutôt que pour une suppression de nom.
+- Quatre versions majeures sont parties depuis `1.0.0`, toutes pour un changement de défaut plutôt que pour une suppression de nom.
   - `2.0.0` a remplacé le tag de modèle LLM codé en dur par un engine résolu par machine depuis un brief versionné, ce qui a changé la surface CLI et API de l'analyste.
   - `3.0.0` fait lever `StageCrashed` à un run qui a perdu un étage au lieu de rendre une transcription vide ; il fait aussi passer le checkpoint pyannote offline à community-1. `strict=False` rend l'indulgence d'avant ; le checkpoint n'a aucun levier public — un bundle antérieur à community-1 retombe sur 3.1 avec un avertissement.
   - `4.0.0` fait des moteurs les mieux mesurés les défauts : Nemotron 3.5 pour la transcription quand la langue est à découvrir, Nemotron 3 pour la diarisation dès que son graphe est dans le bundle (la re-diarisation à buffer croissant en direct sinon) et `backend="auto"` sur les deux étages de diarisation. `asr={"engine": "whisper"}`, un `diar` offline explicite et `growing=None` rendent les chemins de la 3.x.
+  - `5.0.0` fait passer la latence de diarisation en direct à 1,04 s au lieu de 6,4 s (`diar_latency_s=None` garde le long contexte) ; elle répare aussi l'installation neuve que la 4.0.0 cassait en épinglant l'empreinte d'un bundle jamais servi. Mettez à jour depuis la 4.0.0.
 - Les dépréciations reçoivent une version avec avertissement avant suppression.
 
 ## Auteur
