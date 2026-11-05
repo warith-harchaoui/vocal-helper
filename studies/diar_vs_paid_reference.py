@@ -36,7 +36,7 @@ appariées à leur audio par durée.
 
 Usage
 -----
-    python studies/diar_vs_paid_reference.py --output-root /Volumes/orange-dev/francetv-corpus/output
+    python studies/diar_vs_paid_reference.py --output-root "$VH_TV_CORPUS" --wallet "$VH_PAID_WALLET"
 """
 
 from __future__ import annotations
@@ -112,8 +112,9 @@ def mono_16k(path: pathlib.Path) -> tuple[np.ndarray, int]:
 @click.option("--output-root", required=True, help="Le dossier des épisodes construits.")
 @click.option(
     "--wallet",
-    default=str(pathlib.Path.home() / ".parole-publique" / "wallet.sqlite"),
-    help="Le registre où les diarisations payées sont en cache.",
+    envvar="VH_PAID_WALLET",
+    required=True,
+    help="Le registre où les diarisations payées sont en cache ($VH_PAID_WALLET).",
 )
 @click.option("--out", "out_path", default="studies/diar_vs_paid_reference.json")
 @click.option(

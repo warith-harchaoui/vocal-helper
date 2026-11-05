@@ -35,7 +35,7 @@ def test_sherpa_accepts_an_explicit_model_path_without_resolving_anything(monkey
         raise AssertionError("resolution must not run when a path is given")
 
     monkeypatch.setattr(diar, "_resolve_sherpa_models", explode)
-    emb = vh.make_embedder("sherpa", model_path="/tmp/titanet.onnx")
+    emb = vh.make_embedder("sherpa", model_path="/path/to/titanet.onnx")
     assert emb.__class__ is diar._SherpaEmbedder
 
 
@@ -57,7 +57,7 @@ def test_the_two_backends_are_the_whole_choice() -> None:
     """
     assert set(diar.EMBEDDER_BACKENDS) == {"nemo", "sherpa"}
     for name in diar.EMBEDDER_BACKENDS:
-        assert vh.make_embedder(name, model_path="/tmp/x.onnx") is not None
+        assert vh.make_embedder(name, model_path="/path/to/x.onnx") is not None
 
 
 def test_resolve_sherpa_models_is_the_private_one(monkeypatch) -> None:

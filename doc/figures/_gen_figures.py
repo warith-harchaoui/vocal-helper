@@ -1,6 +1,6 @@
 """Generate vocal-helper tech-report figures from study JSON outputs.
 
-All figures land as SVG under ``~/vocal-helper/doc/figures/`` and use
+All figures land as SVG next to this script (``doc/figures/``) and use
 the canonical pdbms / vocal-helper figure palette
 (``deraison.ai/colors/`` "Base Palette with Contrasts").
 
@@ -10,6 +10,7 @@ Re-run after each new study to refresh.
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import matplotlib as mpl
@@ -38,7 +39,8 @@ mpl.rcParams.update(
     }
 )
 
-RUN_LOGS = Path("/Volumes/orange-dev/extra/pdbms-scratch/run-logs")
+#: The studies' run logs and JSON dumps: ``$VH_RUN_LOGS``, else ``run-logs/``.
+RUN_LOGS = Path(os.environ.get("VH_RUN_LOGS") or Path(__file__).resolve().parents[2] / "run-logs")
 OUT = Path(__file__).resolve().parent
 
 # Human-readable descriptors of the AMI dev-slice meetings we use.

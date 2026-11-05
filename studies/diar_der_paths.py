@@ -39,9 +39,9 @@ Usage
 -----
 ::
 
-    python studies/diar_der_paths.py --bench ~/pasdebonneoudemauvaisesituation \\
+    python studies/diar_der_paths.py --bench "$VH_BENCH_ROOT" \\
         --corpus bagarre --n 40
-    python studies/diar_der_paths.py --bench ~/... --corpus ami --n 2
+    python studies/diar_der_paths.py --bench "$VH_BENCH_ROOT" --corpus ami --n 2
 
 Needs the ``[pyannote]`` + ``[nemo]`` extras plus ``pyannote.metrics`` and
 ``soundfile`` (ground-truth tooling, not a runtime dependency).

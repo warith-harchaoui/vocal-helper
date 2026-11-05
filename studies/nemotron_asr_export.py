@@ -29,8 +29,8 @@ du blanc. Le graphe se suffit ainsi à lui-même, comme celui du diariseur.
 Usage
 -----
     <venv d'étude>/bin/python studies/nemotron_asr_export.py \\
-        --lite /Volumes/orange-dev/nemotron-study/lite \\
-        --out /Volumes/orange-dev/nemotron-study/onnx
+        --lite "$VH_NEMOTRON_STUDY/lite" \\
+        --out "$VH_NEMOTRON_STUDY/onnx"
 """
 
 from __future__ import annotations
@@ -138,7 +138,10 @@ def clips() -> list[tuple[str, np.ndarray]]:
     """Trois extraits réels de longueurs différentes, FR et EN, pour la parité."""
     import soundfile as sf
 
-    data = pathlib.Path.home() / "pasdebonneoudemauvaisesituation/data"
+    sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+    from _paths import data_root
+
+    data = data_root()  # $VH_STUDY_DATA_ROOT
     out = []
     cv = sorted((data / "common-voice-subset/fr").rglob("*.mp3"))[0]
     audio, sr = sf.read(cv, dtype="float32")

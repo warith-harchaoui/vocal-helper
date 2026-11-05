@@ -49,7 +49,7 @@ coupées à 600 s, 20 mixages bagarre et 20 bagarre-rich ; médianes par fichier
 Usage
 -----
     .venv/bin/python studies/vad_nemotron_vs_silero.py \\
-        --asr-graph /Volumes/orange-dev/nemotron-study/onnx/nemotron-asr-ctc.int8.onnx
+        --asr-graph "$VH_NEMOTRON_STUDY/onnx/nemotron-asr-ctc.int8.onnx"
 """
 
 from __future__ import annotations

@@ -60,14 +60,10 @@ def load(token: str | None):
 
 
 def hf_token() -> str | None:
-    """Le jeton du fichier privé, s'il existe. Jamais affiché."""
-    import yaml
+    """Le jeton Hugging Face de ``$HF_TOKEN``, s'il existe. Jamais affiché."""
+    import os
 
-    path = pathlib.Path.home() / "notes-helper" / ".private" / "hf.yaml"
-    if not path.exists():
-        return None
-    data = yaml.safe_load(path.read_text())
-    return str(data["hf"]).strip() if isinstance(data, dict) and data.get("hf") else None
+    return os.environ.get("HF_TOKEN") or None
 
 
 def chunks_of(processor, audio: np.ndarray, sampling_rate: int):

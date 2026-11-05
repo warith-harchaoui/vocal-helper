@@ -24,15 +24,14 @@ Paths (mirroring ``_PROFILE`` keys):
 router's own finding is that Sortformer hangs past ~25 min, so running it there
 would hang this job rather than produce a number. ``sherpa`` is not re-run here
 (its ONNX models are not in the local diarization-engines bundle); ADR 0002 in
-``~/pasdebonneoudemauvaisesituation`` is its authoritative source.
+the bench checkout (``$VH_BENCH_ROOT``) is its authoritative source.
 
 Usage
 -----
 ::
 
-    PYTHONPATH=/Users/warithharchaoui/vocal-helper HF_HUB_OFFLINE=1 \\
-      ~/miniconda3/bin/python studies/router_profile_validation.py \\
-        --bench ~/pasdebonneoudemauvaisesituation --corpus bagarre --n 30
+    HF_HUB_OFFLINE=1 python studies/router_profile_validation.py \\
+        --bench "$VH_BENCH_ROOT" --corpus bagarre --n 30
     ... --corpus ami --n 2
 
 Needs the ``[pyannote]`` + ``[nemo]`` extras plus ``pyannote.metrics`` and

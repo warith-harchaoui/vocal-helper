@@ -13,9 +13,13 @@ import statistics
 import sys
 import time
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _paths import models_dir  # noqa: E402  (après sys.path, à dessein)
+
 AUDIO = sys.argv[1]
 DURATION = 60.0
-MODELS = "/Users/warithharchaoui/notes-helper/apps/Models"
+#: Les poids whisper locaux (ggml + MLX) : ``$VH_MODELS_DIR``, sinon ``models/``.
+MODELS = str(models_dir())
 N = 2
 
 

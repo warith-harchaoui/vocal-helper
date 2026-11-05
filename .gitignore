@@ -29,6 +29,10 @@ htmlcov/
 # generated logs / metrics dumps are not.
 studies/*.log
 studies/*.json
+# The studies' default data, weights and logs (see studies/_paths.py).
+/data/
+/models/
+/run-logs/
 
 settings.yaml
 

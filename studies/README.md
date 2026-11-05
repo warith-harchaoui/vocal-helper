@@ -53,14 +53,35 @@ pip install -e '.[pyannote,llm,dev]'
 Corpus-specific extras :
 
 - **AMI meeting corpus** — download from
-  <https://groups.inf.ed.ac.uk/ami/download/> ; point studies at the
-  root via `AMI_ROOT=/path/to/ami-corpus`.
+  <https://groups.inf.ed.ac.uk/ami/download/> ; point the studies at
+  the dev-slice with `VH_AMI_ROOT` (see below).
 - **Model weights** — the diarization-engines bundle named in
   `settings.yaml`, as documented in the README. Two older sweeps
   (`diar_embedding_backend.py`, `diar_falcon_vs_pyannote.py`) still read
   `HF_TOKEN` to pull from the hub.
 - **Ollama** — the LLM cadence sweeps require Gemma pulled locally :
   `ollama pull gemma4:e4b`.
+
+### Where the data lives
+
+No study names a machine: every location is an environment variable,
+read by [`_paths.py`](_paths.py). When a variable is unset, the default
+is a folder of this checkout (`data/`, `models/`, `run-logs/`, all
+git-ignored), so a fresh clone runs the same command once the data is
+dropped in place.
+
+| Variable | Points at | Default |
+|---|---|---|
+| `VH_STUDY_DATA_ROOT` | The bench data root: `ami/dev-slice/`, `bagarre-rich/`, `common-voice-subset/`, `speech.wav` | `data/` |
+| `VH_AMI_ROOT` | The AMI dev-slice, one folder per meeting with `mix.wav` + `words.rttm` | `$VH_STUDY_DATA_ROOT/ami/dev-slice` |
+| `VH_TV_CORPUS` | The French TV episodes built by the paid transcription path | `$VH_STUDY_DATA_ROOT/francetv-corpus/output` |
+| `VH_RUN_LOGS` | Where a long sweep tees its log (and `doc/figures/_gen_figures.py` reads it back) | `run-logs/` |
+| `VH_MODELS_DIR` | Local whisper weights, ggml and MLX (`asr_acceleration_rtf.py`) | `models/` |
+| `VH_BENCH_SRC` | The diarization bench's `src/`, imported by `diar_embedding_backend.py` | none: the script stops and names it |
+| `VH_BENCH_ROOT` | The bench checkout passed as `--bench` in the usage lines | none (an argument) |
+| `VH_NEMOTRON_STUDY` | The Nemotron export folder holding `lite/` and `onnx/` | none (an argument) |
+| `VH_PAID_WALLET` | The ledger caching the paid diarizations (`diar_vs_paid_reference.py --wallet`) | none: required |
+| `HF_TOKEN` | The Hugging Face token for the gated pulls | none |
 
 Each script writes its raw numbers next to itself (`<study>.json`,
 sometimes a `<study>.log`). Those outputs are git-ignored; four of

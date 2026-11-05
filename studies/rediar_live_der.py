@@ -30,13 +30,17 @@ from __future__ import annotations
 
 import asyncio
 import json
+import sys
 import time
 from pathlib import Path
 
 import click
 import numpy as np
 
-AMI_ROOT = Path("/Users/warithharchaoui/pasdebonneoudemauvaisesituation/data/ami/dev-slice")
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _paths import ami_root  # noqa: E402  (après sys.path, à dessein)
+
+AMI_ROOT = ami_root()  # $VH_AMI_ROOT
 SR = 16000
 
 

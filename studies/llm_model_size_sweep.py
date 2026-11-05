@@ -51,6 +51,7 @@ import click
 # Re-use single-meeting helpers.
 _STUDY_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(_STUDY_DIR))
+from _paths import ami_root, run_log  # noqa: E402  (après sys.path, à dessein)
 from llm_cadence_sweep import (  # type: ignore  # noqa: E402  (après sys.path, à dessein)
     candidate_summary,
     cosine_sim,
@@ -58,12 +59,8 @@ from llm_cadence_sweep import (  # type: ignore  # noqa: E402  (après sys.path,
     reference_summary,
 )
 
-DEFAULT_RTTM = Path(
-    "/Users/warithharchaoui/pasdebonneoudemauvaisesituation/data/ami/dev-slice/IS1008a/words.rttm"
-)
-DEFAULT_LOG = Path(
-    "/Volumes/orange-dev/extra/pdbms-scratch/run-logs/vocal_helper_llm_model_size_2026-06-30.log"
-)
+DEFAULT_RTTM = ami_root() / "IS1008a" / "words.rttm"  # $VH_AMI_ROOT
+DEFAULT_LOG = run_log("vocal_helper_llm_model_size_2026-06-30.log")
 
 MODELS = [
     "gemma4:e2b-mlx",  # MLX, Apple-Silicon native

@@ -39,18 +39,20 @@ from __future__ import annotations
 import json
 import os
 import statistics
+import sys
 import time
 from pathlib import Path
 
 import click
 import numpy as np
 
-AMI_ROOT = Path("/Users/warithharchaoui/pasdebonneoudemauvaisesituation/data/ami/dev-slice")
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _paths import ami_root, run_log  # noqa: E402  (après sys.path, à dessein)
+
+AMI_ROOT = ami_root()  # $VH_AMI_ROOT
 MEETINGS = ["IS1008a", "ES2011a"]
 SR = 16_000
-DEFAULT_LOG = Path(
-    "/Volumes/orange-dev/extra/pdbms-scratch/run-logs/vocal_helper_diar_falcon_2026-06-30.log"
-)
+DEFAULT_LOG = run_log("vocal_helper_diar_falcon_2026-06-30.log")
 
 
 def log(msg: str) -> None:

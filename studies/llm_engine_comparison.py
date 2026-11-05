@@ -45,6 +45,7 @@ from __future__ import annotations
 
 import json
 import statistics
+import sys
 import time
 from pathlib import Path
 
@@ -52,9 +53,10 @@ import click
 
 # Where the human-readable run log (and, via ``.with_suffix``, the JSON dump)
 # lands on the scratch volume.
-DEFAULT_LOG = Path(
-    "/Volumes/orange-dev/extra/pdbms-scratch/run-logs/vocal_helper_llm_engine_2026-06-30.log"
-)
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _paths import run_log  # noqa: E402  (après sys.path, à dessein)
+
+DEFAULT_LOG = run_log("vocal_helper_llm_engine_2026-06-30.log")
 
 # Same Qwen 2.5 3B model expressed in each engine's own naming scheme, so the
 # three benchmarks compare like-for-like weights.

@@ -225,9 +225,10 @@ def test_real_graph_transcribes_speech() -> None:
         pytest.skip(f"${GRAPH_ENV} non défini")
     import soundfile as sf
 
-    speech = Path.home() / "pasdebonneoudemauvaisesituation/data/speech.wav"
-    if not speech.exists():
-        pytest.skip("extrait de parole absent")
+    data = os.environ.get("VH_STUDY_DATA_ROOT")
+    speech = Path(data) / "speech.wav" if data else None
+    if speech is None or not speech.exists():
+        pytest.skip("extrait de parole absent ($VH_STUDY_DATA_ROOT/speech.wav)")
     audio, sr = sf.read(speech, dtype="float32")
     out = NemotronOnnxAsr(graph).transcribe(audio if audio.ndim == 1 else audio.mean(1), sr)
     assert len(out.words) > 3

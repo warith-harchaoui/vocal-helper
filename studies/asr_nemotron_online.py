@@ -40,7 +40,7 @@ français et la télévision, 5 réunions AMI (étude arrêtée là, les tendanc
 Usage
 -----
     .venv/bin/python studies/asr_nemotron_online.py \\
-        --graph /Volumes/orange-dev/nemotron-study/onnx/nemotron-asr-ctc.int8.onnx
+        --graph "$VH_NEMOTRON_STUDY/onnx/nemotron-asr-ctc.int8.onnx"
 """
 
 from __future__ import annotations

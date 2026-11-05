@@ -142,8 +142,8 @@ def test_a_disabled_ledger_calls_straight_through(tmp_path, monkeypatch):
 def test_the_ledger_file_is_configurable_so_a_migration_keeps_what_it_paid(monkeypatch):
     """Pointing at an existing ledger is the whole migration story: a fresh default
     path is a silently empty ledger and the next run re-bills everything."""
-    monkeypatch.setenv("VOH_WALLET_DB", "/tmp/elsewhere.sqlite")
-    assert wallet.wallet_path().as_posix() == "/tmp/elsewhere.sqlite"
+    monkeypatch.setenv("VOH_WALLET_DB", "/path/to/elsewhere.sqlite")
+    assert wallet.wallet_path().as_posix() == "/path/to/elsewhere.sqlite"
     monkeypatch.delenv("VOH_WALLET_DB")
     assert wallet.wallet_path().name == "wallet.sqlite"
 

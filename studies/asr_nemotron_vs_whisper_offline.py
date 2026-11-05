@@ -56,14 +56,14 @@ tv-fr (5)       0,592        0,688          **0,477**    0,535
 Usage
 -----
     .venv/bin/python studies/asr_nemotron_vs_whisper_offline.py \\
-        --onnx-dir /Volumes/orange-dev/nemotron-study/onnx
+        --onnx-dir "$VH_NEMOTRON_STUDY/onnx"
 """
 
 from __future__ import annotations
 
 import json
-import os
 import pathlib
+import sys
 import time
 
 import click
@@ -72,8 +72,11 @@ import soundfile as sf
 
 from vocal_helper.bench import wer_report
 
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+from _paths import data_root, tv_corpus  # noqa: E402  (après sys.path, à dessein)
+
 HERE = pathlib.Path(__file__).resolve().parent
-DATA = pathlib.Path.home() / "pasdebonneoudemauvaisesituation/data"
+DATA = data_root()  # $VH_STUDY_DATA_ROOT
 OUT = HERE / "asr_nemotron_vs_whisper_offline.json"
 #: La langue de chaque corpus, connue d'avance seulement pour ``whisper-oracle``.
 LANGUAGE = {"ami": "en", "cv-fr": "fr", "cv-en": "en", "tv-fr": "fr"}
@@ -91,7 +94,7 @@ def _rttm_text(path: pathlib.Path) -> str:
 
 
 #: Les émissions transcrites par le chemin payant de parole-publique.
-TV_ROOT = pathlib.Path(os.environ.get("VH_TV_CORPUS", "/Volumes/orange-dev/francetv-corpus/output"))
+TV_ROOT = tv_corpus()  # $VH_TV_CORPUS
 
 
 def _load(path: pathlib.Path) -> np.ndarray:

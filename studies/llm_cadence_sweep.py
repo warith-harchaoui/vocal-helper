@@ -54,6 +54,7 @@ from __future__ import annotations
 import asyncio
 import json
 import re
+import sys
 import time
 from collections import Counter
 from pathlib import Path
@@ -62,13 +63,12 @@ import click
 
 from vocal_helper.types import Utterance
 
-DEFAULT_RTTM = Path(
-    "/Users/warithharchaoui/pasdebonneoudemauvaisesituation/data/ami/dev-slice/IS1008a/words.rttm"
-)
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _paths import ami_root, run_log  # noqa: E402  (après sys.path, à dessein)
+
+DEFAULT_RTTM = ami_root() / "IS1008a" / "words.rttm"  # $VH_AMI_ROOT
 DEFAULT_MODEL = "gemma4:e4b-mlx"  # MLX variant — Apple-Silicon-friendly
-DEFAULT_LOG = Path(
-    "/Volumes/orange-dev/extra/pdbms-scratch/run-logs/vocal_helper_llm_cadence_2026-06-30.log"
-)
+DEFAULT_LOG = run_log("vocal_helper_llm_cadence_2026-06-30.log")
 DEFAULT_BRIDGE_S = 0.3  # join adjacent same-speaker words within this gap
 
 

@@ -411,8 +411,8 @@ output :
 | Falcon vs pyannote | `vocal-helper/studies/diar_falcon_vs_pyannote.py` | (pending PV key) |
 | EOT semantic vs Silero | `vocal-helper/studies/eot_semantic_vs_silero.py` | (running) |
 
-All JSON results live on the user's research drive at
-`/Volumes/orange-dev/extra/pdbms-scratch/run-logs/`. Each script
+All JSON results land in the folder named by `VH_RUN_LOGS`
+(`run-logs/` in the checkout when it is unset). Each script
 is self-contained — re-running it from a clean machine reproduces
 the same numbers up to model-loading noise (~ ±5 % wall time).
 

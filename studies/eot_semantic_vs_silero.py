@@ -44,6 +44,7 @@ from __future__ import annotations
 import asyncio
 import json
 import statistics
+import sys
 import time
 from pathlib import Path
 
@@ -54,14 +55,15 @@ from vocal_helper.eot import SemanticEOTStage
 from vocal_helper.types import PcmFrame, VoicedSegment
 from vocal_helper.vad import SileroVADStage
 
-AMI_ROOT = Path("/Users/warithharchaoui/pasdebonneoudemauvaisesituation/data/ami/dev-slice")
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _paths import ami_root, run_log  # noqa: E402  (après sys.path, à dessein)
+
+AMI_ROOT = ami_root()  # $VH_AMI_ROOT
 DEFAULT_MEETING = "IS1008a"
 SR = 16_000
 FRAME_MS = 20
 FRAME_SAMPLES = SR * FRAME_MS // 1000
-DEFAULT_LOG = Path(
-    "/Volumes/orange-dev/extra/pdbms-scratch/run-logs/vocal_helper_eot_2026-06-30.log"
-)
+DEFAULT_LOG = run_log("vocal_helper_eot_2026-06-30.log")
 PUNCT_TERMINAL = (".", "?", "!")
 
 

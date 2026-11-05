@@ -44,6 +44,7 @@ _STUDY_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(_STUDY_DIR))
 # E402: this import must follow the ``sys.path`` tweak above, so it can't sit
 # with the other top-level imports — reuse rather than duplicate the helpers.
+from _paths import ami_root, run_log  # noqa: E402  (après sys.path, à dessein)
 from llm_cadence_sweep import (  # type: ignore  # noqa: E402
     candidate_summary,
     cosine_sim,
@@ -53,13 +54,11 @@ from llm_cadence_sweep import (  # type: ignore  # noqa: E402
 
 # Corpus root and the four dev-slice meetings spanning short/medium/long and
 # both recording styles; the median over these is what we quote.
-DEFAULT_AMI = Path("/Users/warithharchaoui/pasdebonneoudemauvaisesituation/data/ami/dev-slice")
+DEFAULT_AMI = ami_root()  # $VH_AMI_ROOT
 MEETINGS = ["IS1008a", "ES2011a", "ES2011d", "TS3004a"]
 DEFAULT_MODEL = "gemma4:e4b-mlx"
 # Run log; the JSON dump is derived from it via ``.with_suffix(".json")``.
-DEFAULT_LOG = Path(
-    "/Volumes/orange-dev/extra/pdbms-scratch/run-logs/vocal_helper_llm_cadence_multi_2026-06-30.log"
-)
+DEFAULT_LOG = run_log("vocal_helper_llm_cadence_multi_2026-06-30.log")
 
 # Multi-meeting variant — focused on the three configs that emerged
 # from the single-meeting sweep as the Pareto front (t=60s = max

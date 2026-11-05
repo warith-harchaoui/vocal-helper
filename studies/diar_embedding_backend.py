@@ -56,22 +56,22 @@ from pathlib import Path
 import click
 import numpy as np
 
-# pdbms's VAD utilities live in an off-repo source tree, so its parent
-# directory has to be on ``sys.path`` before the helper can be imported.
-# The import itself happens inside :func:`main` (see there).
-PDBMS_SRC = "/Users/warithharchaoui/pasdebonneoudemauvaisesituation/src"
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _paths import ami_root, required, run_log  # noqa: E402  (après sys.path, à dessein)
+
+# pdbms's VAD utilities live in an off-repo source tree named by
+# ``$VH_BENCH_SRC``; its directory has to be on ``sys.path`` before the
+# helper can be imported. Both happen inside :func:`main` (see there).
 
 # Off-repo corpus + fixed run constants. AMI dev-slice supplies the mix
 # clips; the two named meetings are the same pair used by the pdbms study.
-AMI_ROOT = Path("/Users/warithharchaoui/pasdebonneoudemauvaisesituation/data/ami/dev-slice")
+AMI_ROOT = ami_root()  # $VH_AMI_ROOT
 MEETINGS = ["IS1008a", "ES2011a"]
 SR = 16_000  # everything downstream assumes 16 kHz mono
 
-# Transcript sink on external scratch storage so a long sweep survives
+# Transcript sink under ``$VH_RUN_LOGS`` so a long sweep survives
 # terminal loss; JSON results land alongside it (see main()).
-DEFAULT_LOG = Path(
-    "/Volumes/orange-dev/extra/pdbms-scratch/run-logs/vocal_helper_diar_embedding_2026-06-30.log"
-)
+DEFAULT_LOG = run_log("vocal_helper_diar_embedding_2026-06-30.log")
 
 
 def log(msg: str) -> None:
@@ -407,7 +407,7 @@ def main(hf_token: str | None) -> None:
     from vocal_helper._settings import resolve_hf_token
     from vocal_helper.diar import _PyannoteEmbedder, _TitaNetEmbedder
 
-    sys.path.insert(0, PDBMS_SRC)
+    sys.path.insert(0, str(required("VH_BENCH_SRC", "the bench's src/ directory")))
     from pdbms.utils.snr import silero_vad_mask  # type: ignore
 
     # Ensure the log directory exists, then truncate any prior transcript

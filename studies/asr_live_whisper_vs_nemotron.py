@@ -49,7 +49,7 @@ tv-fr           0,831 · 56 s        **0,481** · 60 s    0,482 · 2,6 s
 Usage
 -----
     .venv/bin/python studies/asr_live_whisper_vs_nemotron.py \\
-        --graph /Volumes/orange-dev/nemotron-study/onnx/nemotron-asr-ctc.int8.onnx
+        --graph "$VH_NEMOTRON_STUDY/onnx/nemotron-asr-ctc.int8.onnx"
 """
 
 from __future__ import annotations
