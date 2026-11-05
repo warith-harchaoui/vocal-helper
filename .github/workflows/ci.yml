@@ -58,7 +58,12 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
-          cache-dependency-path: pyproject.toml
+          # Le workflow entre dans la cle : le cache d'avant pesait 3 Go (torch
+          # CUDA), et sans changement de cle il serait restaure tel quel a
+          # chaque run, 45 s de telechargement pour des roues jamais relues.
+          cache-dependency-path: |
+            pyproject.toml
+            .github/workflows/ci.yml
 
       - name: ffmpeg + ffprobe (pinned static build, not apt)
         run: |
@@ -95,6 +100,14 @@ jobs:
         # des blocs de code Markdown et casser le format-check en silence.
         run: pip install "ruff==0.15.21"
 
+      # torch arrive par silero-vad. Depuis PyPI, sur Linux, c'est la roue
+      # CUDA plus une quinzaine de paquets nvidia-* : 3 Go a telecharger puis
+      # a mettre en cache, pour un coureur qui n'a pas de GPU. La roue CPU de
+      # l'index PyTorch pese 200 Mo et satisfait la meme contrainte, donc
+      # l'installation qui suit la trouve deja la et n'y touche plus.
+      - name: torch CPU (pas la roue CUDA de PyPI)
+        run: python -m pip install --index-url https://download.pytorch.org/whl/cpu torch
+
       - name: Install package + dev extras
         run: |
           python -m pip install --upgrade pip
@@ -121,7 +134,7 @@ jobs:
       # pytest-cov vient de l'extra [dev], comme en local : le plugin qui porte
       # le plancher appartient a l'environnement que les deux portes installent.
       - name: pytest (avec couverture)
-        run: pytest -q --color=yes --cov --cov-report=term-missing:skip-covered
+        run: pytest -q --color=yes --durations=10 --cov --cov-report=term-missing:skip-covered
 
   floor:
     name: Floor (py3.10 installs and imports)
@@ -145,5 +158,10 @@ jobs:
         with:
           python-version: "3.10"
           cache: pip
+          cache-dependency-path: |
+            pyproject.toml
+            .github/workflows/ci.yml
+      # Meme raison que dans le job du dessus : la roue CPU, pas les 3 Go CUDA.
+      - run: python -m pip install --index-url https://download.pytorch.org/whl/cpu torch
       - run: pip install .
       - run: python -c "import vocal_helper"
