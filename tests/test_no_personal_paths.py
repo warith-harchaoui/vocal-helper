@@ -43,7 +43,8 @@ PLACEHOLDER_USERS = {
     "alice",
     "bob",
     "bobby",
-    "runner",  # the GitHub Actions account, on a throwaway VM
+    "runner",
+    "runneradmin",  # GitHub Actions accounts, on a throwaway VM
     "app",
     "dev",  # accounts inside a container image
 }
@@ -84,13 +85,14 @@ SYSTEM_PATHS = re.compile(
     r"|/(?:System/)?Library/Fonts\S*|/usr(?:/local)?/share/fonts"  # font dirs
     r"|/opt/homebrew|/usr/local|/usr"  # package-manager prefixes
     r"|/Applications/[\w ]+\.app\S*"  # where macOS installs an application
+    r"|/etc/passwd|[A-Za-z]:\\Windows\\\S*"  # canonical path-traversal targets
     r")$"
 )
 
 # Literals the scan flags but that are right where they stand. Each entry:
 # (file glob, literal regex, reason). Keep it short; justify every line.
 EXCEPTIONS: list[tuple[str, str, str]] = [
-    # __REPO_EXCEPTIONS__
+    # none in this repository
 ]
 
 TEXT_SUFFIXES = {
@@ -177,6 +179,14 @@ def _python_literals(text: str) -> list[tuple[int, str]]:
         and isinstance(node.body[0], ast.Expr)
         and isinstance(node.body[0].value, ast.Constant)
     }
+    # Inside an f-string only the leading piece can start a path; the pieces
+    # after a placeholder (``f"{root}/run"``) are relative to it.
+    f_string_tails = {
+        id(value)
+        for node in ast.walk(tree)
+        if isinstance(node, ast.JoinedStr)
+        for value in node.values[1:]
+    }
     out = []
     for node in ast.walk(tree):
         if isinstance(node, ast.JoinedStr) and node.values:
@@ -187,6 +197,7 @@ def _python_literals(text: str) -> list[tuple[int, str]]:
             isinstance(node, ast.Constant)
             and isinstance(node.value, str)
             and id(node) not in docstrings
+            and id(node) not in f_string_tails
         ):
             out.append((node.lineno, node.value))
     return out
@@ -280,3 +291,4 @@ def test_the_scan_catches_what_it_hunts():
     assert hardcoded_paths("x.py", 'LOG = "/' + 'tmp/run.log"\n')
     assert hardcoded_paths("x.rs", 'let p = "/' + 'var/lib/x";\n')
     assert not hardcoded_paths("x.py", 'NULL = "/dev/null"\nR = "/health"\n')
+    assert not hardcoded_paths("x.py", 'LOG = f"{root}/' + 'var/run.log"\n')
