@@ -8,6 +8,8 @@ names exported from `vocal_helper.__all__` plus the documented CLI flags.
 
 ## [Unreleased]
 
+## [5.0.1] - 2026-11-05
+
 ### Fixed
 
 - **The help said `file` and `transcribe` wanted a WAV.** Both decode any

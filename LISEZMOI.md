@@ -41,7 +41,7 @@ Deux chemins sont livrés :
   - **La diarisation** traite la réunion entière en un seul appel : Nemotron 3 ONNX quand son graphe est dans le bundle, sinon pyannote community-1 / NeMo Sortformer / sherpa dans l'ordre de qualité mesurée (`backend="auto"`). L'étude map-reduce offline du 2026-07-14 a trouvé le buffer entier strictement meilleur en DER (taux d'erreur de diarisation) ; le découpage-recollage ne survit que comme garde-fou mémoire au-delà de ~1 h.
   - **La transcription** passe par le moteur que choisit `asr={"engine": "auto"}` (voir la ligne STT plus bas). Côté whisper, elle concatène les segments consécutifs en appels de ≤ 24 s : RTF ~6,5× plus bas pour un WER meilleur, selon le balayage du 2026-07-09. `OfflinePipelineConfig(asr={"batch": False})` redonne l'ASR segment par segment.
 
-Vocal Helper est éprouvé en production. Le paquet est publié sur [PyPI](https://pypi.org/project/vocal-helper/) sous des tags versionnés selon le [versionnage sémantique](https://semver.org/lang/fr/) (actuellement `v5.0.0`) ; l'intégration continue (CI, une chaîne automatisée qui fait tourner les tests puis le linter à chaque envoi) reste au vert sur `main` avant toute publication d'un tag.
+Vocal Helper est éprouvé en production. Le paquet est publié sur [PyPI](https://pypi.org/project/vocal-helper/) sous des tags versionnés selon le [versionnage sémantique](https://semver.org/lang/fr/) (actuellement `v5.0.1`) ; l'intégration continue (CI, une chaîne automatisée qui fait tourner les tests puis le linter à chaque envoi) reste au vert sur `main` avant toute publication d'un tag.
 
 Il occupe le sommet du graphe de dépendances de la suite AI Helpers — le paquet le plus complet et le plus lourd — en s'appuyant sur cinq sœurs :
 

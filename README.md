@@ -43,7 +43,7 @@ Two paths ship:
   - **Diarization** runs over the whole meeting in one call: Nemotron 3 ONNX when its graph is in the bundle, otherwise pyannote community-1 / NeMo Sortformer / sherpa in that order of measured quality (`backend="auto"`). The 2026-07-14 offline map-reduce study found whole-buffer strictly best for Diarization Error Rate (DER); chunk-and-stitch survives only as a memory backstop past ~1 h.
   - **Transcription** goes to the engine `asr={"engine": "auto"}` picks (see the STT row below). On the whisper path it concatenates consecutive segments into ≤ 24 s calls: ~6.5× lower Real-Time Factor (RTF) at a better Word Error Rate (WER), per the 2026-07-09 sweep. Opt back into per-segment Automatic Speech Recognition (ASR) with `OfflinePipelineConfig(asr={"batch": False})`.
 
-Vocal Helper ships on [PyPI](https://pypi.org/project/vocal-helper/) under semantic-versioned tags (currently `v5.0.0`); continuous integration (CI, an automated pipeline that runs the test suite and the linter on every push) stays green on `main` before any tag goes out.
+Vocal Helper ships on [PyPI](https://pypi.org/project/vocal-helper/) under semantic-versioned tags (currently `v5.0.1`); continuous integration (CI, an automated pipeline that runs the test suite and the linter on every push) stays green on `main` before any tag goes out.
 
 It sits at the top of the AI Helpers dependency graph — the suite's most feature-complete and heaviest package — and builds on five siblings:
 
