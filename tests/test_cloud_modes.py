@@ -483,8 +483,17 @@ def test_the_hosted_diarizer_refuses_before_touching_any_audio(monkeypatch):
     """Checked at load, so a missing key costs nothing and fails while a human can
     still fix it — and never degrades to the local backend, which would answer the
     same command differently."""
+    import vocal_helper.diar as diar
     from vocal_helper.diar import OfflineDiarStage
 
+    # The stage builds its torch-free embedder before the key check, and on a
+    # machine with no sherpa models cached that means a download: 26 s of CI
+    # spent on a test about a missing environment variable. Absence of the
+    # models is the case the stub exists for, so this test takes that path.
+    def _no_models():
+        raise FileNotFoundError("no sherpa models in this test")
+
+    monkeypatch.setattr(diar, "_resolve_sherpa_models", _no_models)
     monkeypatch.delenv("PYANNOTEAI_API_KEY", raising=False)
     with pytest.raises(RuntimeError, match="PYANNOTEAI_API_KEY"):
         OfflineDiarStage(backend="pyannoteai")._ensure_backend()
