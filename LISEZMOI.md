@@ -4,7 +4,7 @@
 
 [![CI](https://github.com/warith-harchaoui/vocal-helper/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/warith-harchaoui/vocal-helper/actions/workflows/ci.yml)
 [![License: BSD-3-Clause](https://img.shields.io/badge/License-BSD%203--Clause-blue.svg)](https://github.com/warith-harchaoui/vocal-helper/blob/main/LICENSE)
-[![Python](https://img.shields.io/badge/python-3.10%E2%80%933.13-blue.svg)](#)
+[![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](#)
 [![Code style: ruff](https://img.shields.io/badge/code%20style-ruff-000000.svg)](https://github.com/astral-sh/ruff)
 [![PRs bienvenues](https://img.shields.io/badge/PRs-bienvenues-brightgreen.svg)](https://github.com/warith-harchaoui/vocal-helper/blob/main/.github/PULL_REQUEST_TEMPLATE.md)
 [![Local-first](https://img.shields.io/badge/privacy-local--first-2f6f5e.svg)](#la-promesse)
@@ -41,7 +41,7 @@ Deux chemins sont livrés :
   - **La diarisation** traite la réunion entière en un seul appel : Nemotron 3 ONNX quand son graphe est dans le bundle, sinon pyannote community-1 / NeMo Sortformer / sherpa dans l'ordre de qualité mesurée (`backend="auto"`). L'étude map-reduce offline du 2026-07-14 a trouvé le buffer entier strictement meilleur en DER (taux d'erreur de diarisation) ; le découpage-recollage ne survit que comme garde-fou mémoire au-delà de ~1 h.
   - **La transcription** passe par le moteur que choisit `asr={"engine": "auto"}` (voir la ligne STT plus bas). Côté whisper, elle concatène les segments consécutifs en appels de ≤ 24 s : RTF ~6,5× plus bas pour un WER meilleur, selon le balayage du 2026-07-09. `OfflinePipelineConfig(asr={"batch": False})` redonne l'ASR segment par segment.
 
-Vocal Helper est éprouvé en production. Le paquet est publié sur [PyPI](https://pypi.org/project/vocal-helper/) sous des tags versionnés selon le [versionnage sémantique](https://semver.org/lang/fr/) (actuellement `v5.0.1`) ; l'intégration continue (CI, une chaîne automatisée qui fait tourner les tests puis le linter à chaque envoi) reste au vert sur `main` avant toute publication d'un tag.
+Vocal Helper est éprouvé en production. Le paquet est publié sur [PyPI](https://pypi.org/project/vocal-helper/) sous des tags versionnés selon le [versionnage sémantique](https://semver.org/lang/fr/) (actuellement `v5.0.2`) ; l'intégration continue (CI, une chaîne automatisée qui fait tourner les tests puis le linter à chaque envoi) reste au vert sur `main` avant toute publication d'un tag.
 
 Il occupe le sommet du graphe de dépendances de la suite AI Helpers — le paquet le plus complet et le plus lourd — en s'appuyant sur cinq sœurs :
 
@@ -133,7 +133,7 @@ complet et fait sa propre segmentation.
 > AI Helpers (os-helper, audio-helper, podcast-helper, youtube-helper,
 > vocal-helper).
 
-**Prérequis** : **Python 3.10–3.13** et **git**, **ffmpeg**, **PortAudio**, multiplateforme :
+**Prérequis** : **Python 3.10 ou plus récent** et **git**, **ffmpeg**, **PortAudio**, multiplateforme :
 
 - 🍎 **macOS** ([Homebrew](https://brew.sh)) : `brew install python git ffmpeg portaudio`
 - 🐧 **Ubuntu/Debian** : `sudo apt update && sudo apt install -y python3 python3-pip git ffmpeg portaudio19-dev`

@@ -4,7 +4,7 @@
 
 [![CI](https://github.com/warith-harchaoui/vocal-helper/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/warith-harchaoui/vocal-helper/actions/workflows/ci.yml)
 [![License: BSD-3-Clause](https://img.shields.io/badge/License-BSD%203--Clause-blue.svg)](https://github.com/warith-harchaoui/vocal-helper/blob/main/LICENSE)
-[![Python](https://img.shields.io/badge/python-3.10%E2%80%933.13-blue.svg)](#)
+[![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](#)
 [![Code style: ruff](https://img.shields.io/badge/code%20style-ruff-000000.svg)](https://github.com/astral-sh/ruff)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/warith-harchaoui/vocal-helper/blob/main/.github/PULL_REQUEST_TEMPLATE.md)
 [![Local-first](https://img.shields.io/badge/privacy-local--first-2f6f5e.svg)](#the-promise)
@@ -43,7 +43,7 @@ Two paths ship:
   - **Diarization** runs over the whole meeting in one call: Nemotron 3 ONNX when its graph is in the bundle, otherwise pyannote community-1 / NeMo Sortformer / sherpa in that order of measured quality (`backend="auto"`). The 2026-07-14 offline map-reduce study found whole-buffer strictly best for Diarization Error Rate (DER); chunk-and-stitch survives only as a memory backstop past ~1 h.
   - **Transcription** goes to the engine `asr={"engine": "auto"}` picks (see the STT row below). On the whisper path it concatenates consecutive segments into ≤ 24 s calls: ~6.5× lower Real-Time Factor (RTF) at a better Word Error Rate (WER), per the 2026-07-09 sweep. Opt back into per-segment Automatic Speech Recognition (ASR) with `OfflinePipelineConfig(asr={"batch": False})`.
 
-Vocal Helper ships on [PyPI](https://pypi.org/project/vocal-helper/) under semantic-versioned tags (currently `v5.0.1`); continuous integration (CI, an automated pipeline that runs the test suite and the linter on every push) stays green on `main` before any tag goes out.
+Vocal Helper ships on [PyPI](https://pypi.org/project/vocal-helper/) under semantic-versioned tags (currently `v5.0.2`); continuous integration (CI, an automated pipeline that runs the test suite and the linter on every push) stays green on `main` before any tag goes out.
 
 It sits at the top of the AI Helpers dependency graph — the suite's most feature-complete and heaviest package — and builds on five siblings:
 
@@ -213,7 +213,7 @@ without you choosing. Pass an explicit `nemotron` / `pyannote` / `nemo` / `sherp
 > reproducible install manifest covering the AI Helpers suite (os-helper,
 > audio-helper, podcast-helper, youtube-helper, vocal-helper).
 
-**Prerequisites**: **Python 3.10–3.13** and **git**, **ffmpeg**, **PortAudio**, cross-platform:
+**Prerequisites**: **Python 3.10 or later** and **git**, **ffmpeg**, **PortAudio**, cross-platform:
 
 - 🍎 **macOS** ([Homebrew](https://brew.sh)): `brew install python git ffmpeg portaudio`
 - 🐧 **Ubuntu/Debian**: `sudo apt update && sudo apt install -y python3 python3-pip git ffmpeg portaudio19-dev`

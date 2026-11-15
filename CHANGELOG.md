@@ -8,6 +8,14 @@ names exported from `vocal_helper.__all__` plus the documented CLI flags.
 
 ## [Unreleased]
 
+## [5.0.2] - 2026-11-15
+
+### Changed
+
+- **No upper bound on Python any more.** `requires-python` was capped at
+  `>=3.10,<3.14` with no recorded reason, which refused every newer Python at install
+  time; it is now `>=3.10`. Badges and prerequisites say "Python 3.10 or later".
+
 ## [5.0.1] - 2026-11-05
 
 ### Fixed
@@ -1148,7 +1156,6 @@ line; 1.0.0 commits to them on the 2.x suite foundation.
   separation) instead of specific tool names, for consistency across the
   suite's descriptions and the documentation site.
 
-
 ## [0.4.1] - 2026-07-14
 
 ### Maintenance
@@ -1162,7 +1169,6 @@ line; 1.0.0 commits to them on the 2.x suite foundation.
   (`osh.info/warning/error`) and adopt os-helper path/file utilities
   more widely; pin `os-helper>=1.5.0`.
 - Refresh the project logo asset.
-
 
 ## [0.4.0] - 2026-07-14
 
