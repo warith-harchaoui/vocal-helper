@@ -1800,12 +1800,10 @@ DEFAULT_DIARIZATION_ENGINES_URL: str | None = "https://deraison.ai/diarization-e
 #: would fail every time and read as a corrupt download, so it is only ever
 #: passed when the resolved source is the default one.
 #:
-#: It must be the digest of the file actually served. Until 2026-11-05 it pinned
-#: a 991 MB build that was never the one online (the server has held a 794 MB
-#: build since 2026-11-01), so every fresh install failed on ``sha256 mismatch``
-#: and reached no bundle at all. The served build carries ``sherpa/`` but neither
-#: ``nemotron3/`` nor ``pyannote-community-1/``: the Nemotron graph is fetched on
-#: its own (:func:`vocal_helper.nemotron.resolve_graph`) and pyannote falls back
+#: It must be the digest of the file actually served (794 MB), or every fresh
+#: install fails on ``sha256 mismatch``. The served build carries ``sherpa/``
+#: but neither ``nemotron3/`` nor ``pyannote-community-1/``: the Nemotron graph
+#: is fetched on its own (:func:`vocal_helper.nemotron.resolve_graph`) and pyannote falls back
 #: to 3.1 with a warning. ``tests/test_bundle_online.py`` checks both against the
 #: server, outside CI.
 DEFAULT_DIARIZATION_ENGINES_SHA256: str | None = (
