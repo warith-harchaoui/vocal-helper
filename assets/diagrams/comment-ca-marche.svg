@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1551 432" width="1551" height="432" role="img" aria-labelledby="voh-title voh-desc" font-family="Roboto, 'Helvetica Neue', Arial, sans-serif">
   <title id="voh-title">Comment vocal-helper fonctionne : un flux audio en direct en entrée, des tours de parole attribués et transcrits en sortie</title>
-  <desc id="voh-desc">Une plaque de gauche à droite. Entrée : un flux PCM en direct, ou un fichier enregistré joué par le même chemin. Le travail, en quatre étapes numérotées : la détection d'activité vocale trouve où quelqu'un parle vraiment ; la diarisation en ligne regroupe les empreintes de locuteurs par une affectation cosinus de type hongrois, pour qu'un locuteur garde la même étiquette au fil de la conversation ; la reconnaissance transcrit chaque tour avec pywhispercpp turbo ; un résumé glissant optionnel demande à un modèle de langue local ce qui a été dit jusque-là. Sortie : des tours de parole portant qui a parlé, quand, et les mots.</desc>
+  <desc id="voh-desc">Une plaque de gauche à droite. Entrée : un flux PCM en direct, ou un fichier enregistré joué par le même chemin. Le travail, en quatre étapes numérotées : la détection d'activité vocale trouve où quelqu'un parle vraiment ; la diarisation en ligne passe par le graphe ONNX de Nemotron 3 par défaut, sans torch, pour qu'un locuteur garde la même étiquette au fil de la conversation ; la reconnaissance transcrit chaque tour avec Nemotron 3.5 quand la langue reste à découvrir, avec whisper.cpp turbo dès qu'une langue est nommée ; un résumé glissant optionnel demande à un modèle de langue local ce qui a été dit jusque-là. Sortie : des tours de parole portant qui a parlé, quand, et les mots.</desc>
   <style>
     .panel      { fill: #ffffff; stroke: #d6d6d6; stroke-width: 1.5; }
     .panel-label{ fill: #6b6b6b; font-size: 13px; font-weight: 600; letter-spacing: .08em; }
@@ -49,12 +49,12 @@
   <path class="flow" d="M521 133 H537" marker-end="url(#ah-arrow)"/>
   <rect class="stage" x="543" y="94" width="263" height="78" rx="10"/>
   <text class="n-title" x="674" y="127" text-anchor="middle">diariser, en ligne</text>
-  <text class="n-sub" x="674" y="146" text-anchor="middle">regroupement cosinus sur empreintes</text>
+  <text class="n-sub" x="674" y="146" text-anchor="middle">Nemotron 3 en ONNX par défaut</text>
   <text class="step" x="554" y="110">2</text>
   <path class="flow" d="M810 133 H826" marker-end="url(#ah-arrow)"/>
   <rect class="stage" x="832" y="94" width="170" height="78" rx="10"/>
   <text class="n-title" x="917" y="127" text-anchor="middle">transcrire</text>
-  <text class="n-sub" x="917" y="146" text-anchor="middle">pywhispercpp turbo</text>
+  <text class="n-sub" x="917" y="146" text-anchor="middle">Nemotron 3.5 ou whisper</text>
   <text class="step" x="843" y="110">3</text>
   <path class="flow" d="M1006 133 H1022" marker-end="url(#ah-arrow)"/>
   <rect class="stage" x="1028" y="94" width="200" height="78" rx="10"/>
